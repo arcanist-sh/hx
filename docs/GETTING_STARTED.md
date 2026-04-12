@@ -201,7 +201,7 @@ See [`.claude/rules/errors.md`](../.claude/rules/errors.md) for the full error U
 
 ### Prerequisites
 
-- Rust 1.92.0+ (edition 2024)
+- Rust 1.94.1+ (edition 2024)
 - Git
 
 ### Quick Start
