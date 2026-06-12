@@ -122,7 +122,7 @@ fn search_packages(index: &PackageIndex, query: &str, limit: usize) -> Vec<Searc
     }
 
     // Sort by score (descending)
-    results.sort_by(|a, b| b.0.cmp(&a.0));
+    results.sort_by_key(|r| std::cmp::Reverse(r.0));
 
     // Take top results
     results

@@ -7,6 +7,7 @@ use crate::ghc::{
     InstallSource, InstalledGhc, Platform, ToolchainManifest, ghc_archive_filename,
     ghc_download_url, is_valid_version,
 };
+use crate::verify;
 use futures_util::StreamExt;
 use hx_core::{CommandRunner, Error, Result};
 use hx_ui::{Progress, Spinner};
@@ -156,19 +157,55 @@ pub async fn download_and_install_ghc(options: &DownloadOptions) -> Result<Insta
 }
 
 /// Download a GHC archive with progress display.
+///
+/// The archive's SHA-256 is verified against the `SHA256SUMS` manifest
+/// published alongside it; previously downloaded archives are re-verified
+/// before being reused.
 async fn download_ghc_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
-    // Check if already downloaded
-    if dest.exists() {
-        debug!("Archive already downloaded: {}", dest.display());
-        return Ok(());
-    }
-
-    let spinner = Spinner::new(format!("Downloading GHC {}...", version));
-
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|e| Error::config(format!("Failed to create HTTP client: {}", e)))?;
+
+    let label = format!("GHC {}", version);
+    let archive_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let expected = verify::fetch_expected_sha256(&client, url, archive_name).await?;
+    if expected.is_none() {
+        verify::require_checksum_or_opt_out(&label, url)?;
+    }
+
+    // Reuse a previously downloaded archive only if it passes verification
+    if dest.exists() {
+        match &expected {
+            Some(hash) => {
+                if verify::verify_file_sha256(dest, hash, &label).is_ok() {
+                    debug!("Reusing verified archive: {}", dest.display());
+                    return Ok(());
+                }
+                warn!(
+                    "Cached archive failed checksum verification, re-downloading: {}",
+                    dest.display()
+                );
+                fs::remove_file(dest).map_err(|e| Error::Io {
+                    message: "Failed to remove corrupted cached archive".into(),
+                    path: Some(dest.to_path_buf()),
+                    source: e,
+                })?;
+            }
+            None => {
+                debug!(
+                    "Archive already downloaded (unverified): {}",
+                    dest.display()
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    let spinner = Spinner::new(format!("Downloading GHC {}...", version));
 
     debug!("Downloading from {}", url);
     let response = client
@@ -229,6 +266,14 @@ async fn download_ghc_archive(url: &str, dest: &Path, version: &str, timeout: u6
             version,
             downloaded as f64 / 1_000_000.0
         ));
+    }
+
+    // Verify before moving into place
+    if let Some(hash) = &expected
+        && let Err(e) = verify::verify_file_sha256(&temp_path, hash, &label)
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
     }
 
     // Rename temp file to final location

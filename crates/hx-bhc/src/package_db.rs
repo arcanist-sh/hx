@@ -232,12 +232,8 @@ fn extract_package_id(content: &str) -> Option<String> {
 pub fn default_cache_dir() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.cache_dir().to_path_buf())
-        .unwrap_or_else(|| {
-            directories::BaseDirs::new()
-                .expect("could not determine home directory")
-                .home_dir()
-                .join(".cache")
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .unwrap_or_else(|| PathBuf::from(".cache"))
         .join("hx")
 }
 

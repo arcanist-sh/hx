@@ -14,8 +14,12 @@ use thiserror::Error;
 /// Error type for lock operations.
 #[derive(Debug, Error)]
 pub enum LockError {
-    #[error("failed to read lockfile: {0}")]
-    ReadError(#[from] std::io::Error),
+    #[error("failed to read lockfile at {path}: {source}")]
+    ReadError {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error("failed to parse lockfile: {0}")]
     ParseError(#[from] toml::de::Error),
@@ -158,7 +162,11 @@ impl Lockfile {
 
     /// Parse a lockfile from a file.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, LockError> {
-        let content = std::fs::read_to_string(path)?;
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).map_err(|e| LockError::ReadError {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
         Self::parse(&content)
     }
 
@@ -167,10 +175,14 @@ impl Lockfile {
         Ok(toml::to_string_pretty(self)?)
     }
 
-    /// Write the lockfile to a file.
+    /// Write the lockfile to a file (atomically, to survive interruption).
     pub fn to_file(&self, path: impl AsRef<Path>) -> Result<(), LockError> {
+        let path = path.as_ref();
         let content = self.to_string()?;
-        std::fs::write(path, content)?;
+        hx_core::atomic_write(path, content).map_err(|e| LockError::ReadError {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
         Ok(())
     }
 

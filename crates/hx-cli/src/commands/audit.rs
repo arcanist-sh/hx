@@ -29,14 +29,16 @@ pub async fn run(
         }
     };
 
-    let mut issues = Vec::new();
     let mut warnings = Vec::new();
 
-    // Check for known vulnerabilities
-    let vulnerabilities = check_vulnerabilities(&lockfile, &ignore);
-    for vuln in vulnerabilities {
-        issues.push(vuln);
-    }
+    // Honest disclosure: there is no advisory database integration yet, so
+    // this command must not claim packages are free of vulnerabilities.
+    output.warn("Vulnerability scanning is not yet available");
+    output.info(
+        "hx does not yet query the Haskell Security Advisory database (HSEC); \
+         this audit checks deprecated packages only",
+    );
+    output.info("See https://github.com/haskell/security-advisories for advisories");
 
     // Check for outdated dependencies (basic check without index)
     if outdated {
@@ -44,16 +46,15 @@ pub async fn run(
         output.info("(Note: Run `hx index update` for full outdated check)");
     }
 
-    // Check license compatibility
+    // License compatibility checking needs package metadata we don't fetch yet
     if licenses {
-        let license_issues = check_licenses(&lockfile);
-        for issue in license_issues {
-            warnings.push(issue);
-        }
+        output.warn(
+            "License checking is not yet available (package license metadata is not fetched)",
+        );
     }
 
     // Check for deprecated packages
-    let deprecated = check_deprecated(&lockfile);
+    let deprecated = check_deprecated(&lockfile, &ignore);
     for dep in deprecated {
         warnings.push(dep);
     }
@@ -64,46 +65,21 @@ pub async fn run(
     let total_deps = lockfile.packages.len();
     output.list_item("Packages scanned", &total_deps.to_string());
 
-    if issues.is_empty() && warnings.is_empty() {
-        output.status("✓", "No issues found");
+    if warnings.is_empty() {
+        output.status("✓", "No deprecated packages found");
         return Ok(0);
     }
 
-    // Display issues (high severity)
-    if !issues.is_empty() {
-        output.error(&format!("{} security issue(s) found:", issues.len()));
-        for issue in &issues {
-            display_issue(issue, output);
-        }
+    output.warn(&format!("{} warning(s):", warnings.len()));
+    for warning in &warnings {
+        display_warning(warning, output);
     }
 
-    // Display warnings (low severity)
-    if !warnings.is_empty() {
-        output.warn(&format!("{} warning(s):", warnings.len()));
-        for warning in &warnings {
-            display_warning(warning, output);
-        }
+    if fix {
+        output.info("No automatic fixes available; run the suggested commands above");
     }
 
-    // Apply fixes if requested
-    if fix && !issues.is_empty() {
-        output.status("Fixing", "attempting automatic fixes...");
-
-        for issue in &issues {
-            if let Some(cmd) = &issue.fix_command {
-                output.info(&format!("  Would run: {}", cmd));
-            }
-        }
-
-        output.info("Run the suggested commands to fix issues");
-    }
-
-    // Exit code based on severity
-    if !issues.is_empty() {
-        Ok(1) // Security issues found
-    } else {
-        Ok(0) // Only warnings
-    }
+    Ok(0)
 }
 
 /// Audit issue severity.
@@ -116,19 +92,6 @@ enum Severity {
     Low,
 }
 
-/// An audit issue.
-#[derive(Debug)]
-struct AuditIssue {
-    package: String,
-    version: String,
-    severity: Severity,
-    advisory_id: String,
-    title: String,
-    #[allow(dead_code)]
-    description: String,
-    fix_command: Option<String>,
-}
-
 /// An audit warning.
 #[derive(Debug)]
 struct AuditWarning {
@@ -139,120 +102,8 @@ struct AuditWarning {
     fix_command: Option<String>,
 }
 
-/// Check for known vulnerabilities.
-fn check_vulnerabilities(lockfile: &Lockfile, ignore: &[String]) -> Vec<AuditIssue> {
-    let mut issues = Vec::new();
-
-    // Simulated vulnerability database
-    // In a real implementation, this would query a security advisory database
-    let known_vulnerabilities: HashMap<&str, Vec<(&str, &str, &str, Severity)>> = [
-        (
-            "aeson",
-            vec![(
-                "<2.0.0.0",
-                "HSEC-2022-0001",
-                "Denial of service via large numbers",
-                Severity::Medium,
-            )],
-        ),
-        (
-            "tar",
-            vec![(
-                "<0.5.1.1",
-                "HSEC-2023-0001",
-                "Path traversal vulnerability",
-                Severity::High,
-            )],
-        ),
-        (
-            "cryptonite",
-            vec![(
-                "<0.30",
-                "HSEC-2023-0002",
-                "Timing side-channel in ECDSA",
-                Severity::Medium,
-            )],
-        ),
-    ]
-    .into_iter()
-    .collect();
-
-    for pkg in &lockfile.packages {
-        if ignore.contains(&pkg.name) {
-            continue;
-        }
-
-        if let Some(vulns) = known_vulnerabilities.get(pkg.name.as_str()) {
-            for (version_range, advisory_id, title, severity) in vulns {
-                if version_in_range(&pkg.version, version_range) {
-                    issues.push(AuditIssue {
-                        package: pkg.name.clone(),
-                        version: pkg.version.clone(),
-                        severity: severity.clone(),
-                        advisory_id: advisory_id.to_string(),
-                        title: title.to_string(),
-                        description: format!(
-                            "Package {} {} is affected by {}",
-                            pkg.name, pkg.version, advisory_id
-                        ),
-                        fix_command: Some(format!("hx add {}@latest", pkg.name)),
-                    });
-                }
-            }
-        }
-    }
-
-    issues
-}
-
-/// Check if a version is in a vulnerable range.
-fn version_in_range(version: &str, range: &str) -> bool {
-    // Simple range check for "<X.Y.Z" format
-    if let Some(max_version) = range.strip_prefix('<') {
-        return !is_newer(version, max_version) && version != max_version;
-    }
-    false
-}
-
-/// Simple version comparison (newer = higher).
-fn is_newer(a: &str, b: &str) -> bool {
-    let parse_version =
-        |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
-
-    let va = parse_version(a);
-    let vb = parse_version(b);
-
-    va > vb
-}
-
-/// Check for license compatibility issues.
-fn check_licenses(lockfile: &Lockfile) -> Vec<AuditWarning> {
-    let mut warnings = Vec::new();
-
-    // Licenses that might be problematic for commercial use
-    let problematic_packages: HashMap<&str, &str> = [
-        // This would ideally come from package metadata
-        // For now, we just check known GPL packages
-    ]
-    .into_iter()
-    .collect();
-
-    for pkg in &lockfile.packages {
-        if let Some(license) = problematic_packages.get(pkg.name.as_str()) {
-            warnings.push(AuditWarning {
-                package: pkg.name.clone(),
-                severity: Severity::Medium,
-                message: format!("Uses {} license (copyleft)", license),
-                fix_command: None,
-            });
-        }
-    }
-
-    warnings
-}
-
 /// Check for deprecated packages.
-fn check_deprecated(lockfile: &Lockfile) -> Vec<AuditWarning> {
+fn check_deprecated(lockfile: &Lockfile, ignore: &[String]) -> Vec<AuditWarning> {
     let mut warnings = Vec::new();
 
     // Known deprecated packages and their replacements
@@ -268,6 +119,10 @@ fn check_deprecated(lockfile: &Lockfile) -> Vec<AuditWarning> {
     .collect();
 
     for pkg in &lockfile.packages {
+        if ignore.contains(&pkg.name) {
+            continue;
+        }
+
         if let Some(replacement) = deprecated_packages.get(pkg.name.as_str()) {
             warnings.push(AuditWarning {
                 package: pkg.name.clone(),
@@ -279,26 +134,6 @@ fn check_deprecated(lockfile: &Lockfile) -> Vec<AuditWarning> {
     }
 
     warnings
-}
-
-/// Display an audit issue.
-fn display_issue(issue: &AuditIssue, output: &Output) {
-    let severity_str = match issue.severity {
-        Severity::Critical => "CRITICAL",
-        Severity::High => "HIGH",
-        Severity::Medium => "MEDIUM",
-        Severity::Low => "LOW",
-    };
-
-    output.error(&format!(
-        "  [{}] {} {} - {}",
-        severity_str, issue.package, issue.version, issue.advisory_id
-    ));
-    output.info(&format!("    {}", issue.title));
-
-    if let Some(cmd) = &issue.fix_command {
-        output.info(&format!("    Fix: {}", cmd));
-    }
 }
 
 /// Display an audit warning.

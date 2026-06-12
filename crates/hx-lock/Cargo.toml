@@ -12,7 +12,6 @@ categories.workspace = true
 [dependencies]
 hx-core.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
 serde.workspace = true
 toml.workspace = true
 serde_json.workspace = true

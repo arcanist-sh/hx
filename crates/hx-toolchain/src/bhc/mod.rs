@@ -15,7 +15,7 @@ use std::process::Command;
 use std::time::Duration;
 use tar::Archive;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Error type for BHC operations.
 #[derive(Debug, Error)]
@@ -432,19 +432,54 @@ pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult
 }
 
 /// Download a BHC archive with progress display.
+///
+/// The archive's SHA-256 is verified against the checksum manifest published
+/// alongside the release; previously downloaded archives are re-verified
+/// before being reused.
 async fn download_bhc_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
-    // Check if already downloaded
-    if dest.exists() {
-        debug!("Archive already downloaded: {}", dest.display());
-        return Ok(());
-    }
-
-    let spinner = Spinner::new(format!("Downloading BHC {}...", version));
-
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|e| BhcError::Network(format!("Failed to create HTTP client: {}", e)))?;
+
+    let label = format!("BHC {}", version);
+    let archive_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let expected = crate::verify::fetch_expected_sha256(&client, url, archive_name)
+        .await
+        .map_err(|e| BhcError::Network(e.to_string()))?;
+    if expected.is_none() {
+        crate::verify::require_checksum_or_opt_out(&label, url)
+            .map_err(|e| BhcError::Download(e.to_string()))?;
+    }
+
+    // Reuse a previously downloaded archive only if it passes verification
+    if dest.exists() {
+        match &expected {
+            Some(hash) => {
+                if crate::verify::verify_file_sha256(dest, hash, &label).is_ok() {
+                    debug!("Reusing verified archive: {}", dest.display());
+                    return Ok(());
+                }
+                warn!(
+                    "Cached archive failed checksum verification, re-downloading: {}",
+                    dest.display()
+                );
+                fs::remove_file(dest).map_err(BhcError::Io)?;
+            }
+            None => {
+                debug!(
+                    "Archive already downloaded (unverified): {}",
+                    dest.display()
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    let spinner = Spinner::new(format!("Downloading BHC {}...", version));
 
     debug!("Downloading from {}", url);
     let response =
@@ -499,6 +534,14 @@ async fn download_bhc_archive(url: &str, dest: &Path, version: &str, timeout: u6
         ));
     }
 
+    // Verify before moving into place
+    if let Some(hash) = &expected
+        && let Err(e) = crate::verify::verify_file_sha256(&temp_path, hash, &label)
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(BhcError::Download(e.to_string()));
+    }
+
     // Rename temp file to final location
     fs::rename(&temp_path, dest).map_err(BhcError::Io)?;
 
@@ -534,6 +577,18 @@ fn extract_bhc_archive(archive_path: &Path, dest_dir: &Path, version: &str) -> R
         let stripped: PathBuf = path.components().skip(1).collect();
         if stripped.as_os_str().is_empty() {
             continue;
+        }
+
+        // Per-entry unpack does not validate paths like Archive::unpack does;
+        // reject anything that could escape the destination directory.
+        if !stripped
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+        {
+            return Err(BhcError::Install(format!(
+                "Refusing to extract archive entry with unsafe path: {}",
+                path.display()
+            )));
         }
 
         let dest_path = dest_dir.join(&stripped);

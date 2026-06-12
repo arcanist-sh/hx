@@ -1235,7 +1235,6 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 name = "hx-bhc"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "directories",
  "hex",
@@ -1259,7 +1258,6 @@ dependencies = [
 name = "hx-cabal"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "dirs",
  "hx-cache",
@@ -1283,7 +1281,6 @@ dependencies = [
 name = "hx-cache"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "directories",
  "hx-core",
  "serde",
@@ -1349,7 +1346,6 @@ dependencies = [
 name = "hx-compiler"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "hx-ui",
  "serde",
@@ -1362,7 +1358,6 @@ dependencies = [
 name = "hx-config"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "hx-cache",
  "hx-core",
  "serde",
@@ -1379,6 +1374,7 @@ dependencies = [
  "anyhow",
  "regex-lite",
  "serde",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -1388,7 +1384,6 @@ dependencies = [
 name = "hx-doctor"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "hx-config",
  "hx-core",
  "hx-solver",
@@ -1403,7 +1398,6 @@ dependencies = [
 name = "hx-lock"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "chrono",
  "hx-core",
  "serde",
@@ -1441,7 +1435,6 @@ dependencies = [
 name = "hx-plugins"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "chrono",
  "directories",
  "glob",
@@ -1499,19 +1492,20 @@ dependencies = [
 name = "hx-toolchain"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "atty",
  "chrono",
  "directories",
  "dirs",
  "flate2",
  "futures-util",
+ "hex",
  "hx-cache",
  "hx-core",
  "hx-ui",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tar",
  "tempfile",
  "thiserror 2.0.17",

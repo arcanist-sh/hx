@@ -42,15 +42,15 @@ pub fn discover_plugins(
 ) -> Result<Vec<DiscoveredPlugin>> {
     let mut plugins = Vec::new();
     let paths = config.all_paths(project_root);
+    let local_dir = PluginConfig::local_plugins_dir(project_root);
 
-    for (idx, base_path) in paths.iter().enumerate() {
+    for base_path in paths.iter() {
         if !base_path.exists() {
             debug!("Plugin path does not exist: {}", base_path.display());
             continue;
         }
 
-        // Is this a local (project) plugin path?
-        let is_local = idx == 0; // First path is always project-local
+        let is_local = *base_path == local_dir;
 
         // Find all .scm files in this directory
         let pattern = base_path.join("*.scm");
@@ -78,6 +78,7 @@ pub fn find_plugin(
     project_root: &Path,
 ) -> Result<DiscoveredPlugin> {
     let paths = config.all_paths(project_root);
+    let local_dir = PluginConfig::local_plugins_dir(project_root);
 
     // Add .scm extension if not present
     let filename = if name.ends_with(".scm") {
@@ -86,10 +87,10 @@ pub fn find_plugin(
         format!("{}.scm", name)
     };
 
-    for (idx, base_path) in paths.iter().enumerate() {
+    for base_path in paths.iter() {
         let plugin_path = base_path.join(&filename);
         if plugin_path.exists() {
-            let is_local = idx == 0;
+            let is_local = *base_path == local_dir;
             return Ok(DiscoveredPlugin::new(plugin_path, is_local));
         }
     }

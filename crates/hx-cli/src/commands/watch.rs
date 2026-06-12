@@ -237,6 +237,18 @@ fn collect_watch_paths(project_root: &std::path::Path, project: &Project) -> Vec
 
 /// Check if a file is relevant for triggering rebuilds.
 fn is_relevant_file(path: &std::path::Path) -> bool {
+    // Never react to build outputs or metadata: when the project root is
+    // watched recursively, generated files would otherwise trigger an
+    // endless rebuild loop
+    if path.components().any(|c| {
+        matches!(
+            c.as_os_str().to_str(),
+            Some("dist-newstyle" | "dist" | ".hx" | ".git" | ".stack-work")
+        )
+    }) {
+        return false;
+    }
+
     let Some(extension) = path.extension() else {
         // Check for files without extensions that matter
         return path

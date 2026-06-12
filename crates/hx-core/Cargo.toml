@@ -15,4 +15,5 @@ anyhow.workspace = true
 serde.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+tempfile.workspace = true
 regex-lite = "0.1"

@@ -6,6 +6,7 @@
 
 use crate::cabal::{cabal_archive_filename, cabal_download_url, is_valid_version};
 use crate::ghc::{InstallSource, InstalledCabal, Platform, ToolchainManifest};
+use crate::verify;
 use futures_util::StreamExt;
 use hx_core::{CommandRunner, Error, Result};
 use hx_ui::{Progress, Spinner};
@@ -14,7 +15,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Options for downloading and installing Cabal.
 #[derive(Debug, Clone)]
@@ -134,19 +135,55 @@ pub async fn download_and_install_cabal(
 }
 
 /// Download a Cabal archive with progress display.
+///
+/// The archive's SHA-256 is verified against the `SHA256SUMS` manifest
+/// published alongside it; previously downloaded archives are re-verified
+/// before being reused.
 async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
-    // Check if already downloaded
-    if dest.exists() {
-        debug!("Archive already downloaded: {}", dest.display());
-        return Ok(());
-    }
-
-    let spinner = Spinner::new(format!("Downloading Cabal {}...", version));
-
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|e| Error::config(format!("Failed to create HTTP client: {}", e)))?;
+
+    let label = format!("Cabal {}", version);
+    let archive_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let expected = verify::fetch_expected_sha256(&client, url, archive_name).await?;
+    if expected.is_none() {
+        verify::require_checksum_or_opt_out(&label, url)?;
+    }
+
+    // Reuse a previously downloaded archive only if it passes verification
+    if dest.exists() {
+        match &expected {
+            Some(hash) => {
+                if verify::verify_file_sha256(dest, hash, &label).is_ok() {
+                    debug!("Reusing verified archive: {}", dest.display());
+                    return Ok(());
+                }
+                warn!(
+                    "Cached archive failed checksum verification, re-downloading: {}",
+                    dest.display()
+                );
+                fs::remove_file(dest).map_err(|e| Error::Io {
+                    message: "Failed to remove corrupted cached archive".into(),
+                    path: Some(dest.to_path_buf()),
+                    source: e,
+                })?;
+            }
+            None => {
+                debug!(
+                    "Archive already downloaded (unverified): {}",
+                    dest.display()
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    let spinner = Spinner::new(format!("Downloading Cabal {}...", version));
 
     debug!("Downloading from {}", url);
     let response = client
@@ -207,6 +244,14 @@ async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: 
             version,
             downloaded as f64 / 1_000_000.0
         ));
+    }
+
+    // Verify before moving into place
+    if let Some(hash) = &expected
+        && let Err(e) = verify::verify_file_sha256(&temp_path, hash, &label)
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
     }
 
     // Rename temp file to final location
@@ -311,7 +356,15 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<()> {
             .by_index(i)
             .map_err(|e| Error::config(format!("Failed to read zip entry: {}", e)))?;
 
-        let outpath = dest_dir.join(file.name());
+        // enclosed_name() rejects entries that would escape the destination
+        // (absolute paths or ".." components)
+        let Some(safe_name) = file.enclosed_name() else {
+            return Err(Error::config(format!(
+                "Refusing to extract zip entry with unsafe path: {}",
+                file.name()
+            )));
+        };
+        let outpath = dest_dir.join(safe_name);
 
         if file.is_dir() {
             fs::create_dir_all(&outpath).map_err(|e| Error::Io {

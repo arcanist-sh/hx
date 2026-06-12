@@ -49,6 +49,14 @@ pub enum GlobalConfigError {
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GlobalConfig {
+    /// Projects allowed to run their local `.hx/plugins` scripts.
+    ///
+    /// Local plugins execute arbitrary code, so trust must be granted by the
+    /// user (via `hx plugins trust`), never by the project itself.
+    /// Note: must stay the first field so TOML serializes it before tables.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_projects: Vec<std::path::PathBuf>,
+
     /// Toolchain configuration (GHC, Cabal, HLS versions)
     #[serde(default)]
     pub toolchain: ToolchainConfig,
@@ -97,7 +105,7 @@ impl GlobalConfig {
         }
 
         let content = self.to_string()?;
-        std::fs::write(path, content)?;
+        hx_core::atomic_write(path, content)?;
         Ok(())
     }
 }
@@ -133,6 +141,64 @@ pub fn load_global_config() -> Result<Option<GlobalConfig>, GlobalConfigError> {
 /// Returns `None` if the home directory cannot be determined.
 pub fn global_config_path() -> Option<std::path::PathBuf> {
     hx_cache::global_config_file().ok()
+}
+
+/// Save the global configuration.
+pub fn save_global_config(config: &GlobalConfig) -> Result<(), GlobalConfigError> {
+    let config_file = hx_cache::global_config_file().map_err(|e| {
+        GlobalConfigError::ReadError(std::io::Error::other(format!(
+            "could not determine global config path: {e}"
+        )))
+    })?;
+    config.to_file(config_file)
+}
+
+/// Canonical form of a project root used for trust comparisons.
+fn canonical_project_root(root: &Path) -> std::path::PathBuf {
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+}
+
+/// Check whether a project is trusted to run its local plugins.
+pub fn is_project_trusted(project_root: &Path) -> bool {
+    let root = canonical_project_root(project_root);
+    match load_global_config() {
+        Ok(Some(config)) => config
+            .trusted_projects
+            .iter()
+            .any(|p| canonical_project_root(p) == root),
+        _ => false,
+    }
+}
+
+/// Add a project to the trusted list. Returns false if it was already trusted.
+pub fn trust_project(project_root: &Path) -> Result<bool, GlobalConfigError> {
+    let root = canonical_project_root(project_root);
+    let mut config = load_global_config()?.unwrap_or_default();
+    if config
+        .trusted_projects
+        .iter()
+        .any(|p| canonical_project_root(p) == root)
+    {
+        return Ok(false);
+    }
+    config.trusted_projects.push(root);
+    save_global_config(&config)?;
+    Ok(true)
+}
+
+/// Remove a project from the trusted list. Returns false if it wasn't trusted.
+pub fn untrust_project(project_root: &Path) -> Result<bool, GlobalConfigError> {
+    let root = canonical_project_root(project_root);
+    let mut config = load_global_config()?.unwrap_or_default();
+    let before = config.trusted_projects.len();
+    config
+        .trusted_projects
+        .retain(|p| canonical_project_root(p) != root);
+    if config.trusted_projects.len() == before {
+        return Ok(false);
+    }
+    save_global_config(&config)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -190,6 +256,7 @@ hlint = false
     #[test]
     fn test_roundtrip() {
         let original = GlobalConfig {
+            trusted_projects: vec![],
             toolchain: ToolchainConfig {
                 ghc: Some("9.8.2".to_string()),
                 cabal: Some("3.12.1.0".to_string()),

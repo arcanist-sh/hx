@@ -68,8 +68,11 @@ pub fn add_dependency(
         {
             // Simple check - might have false positives but good enough for common cases
             let dep_part = trimmed.trim_start_matches(',').trim();
-            if dep_part.to_lowercase().starts_with(&package_lower) {
-                let after_name = &dep_part[package_lower.len()..];
+            let dep_part_lower = dep_part.to_lowercase();
+            if dep_part_lower.starts_with(&package_lower) {
+                // Index the lowercased string: byte offsets of the original may
+                // not align (or even be char boundaries) for non-ASCII names
+                let after_name = &dep_part_lower[package_lower.len()..];
                 // Make sure it's actually this package and not a prefix (e.g., "text" vs "text-show")
                 if after_name.is_empty()
                     || after_name.starts_with(' ')

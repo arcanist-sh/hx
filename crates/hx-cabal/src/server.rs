@@ -378,7 +378,7 @@ impl CompilationServer {
     fn extract_module_name(line: &str) -> Option<String> {
         // Format: "[1 of 5] Compiling Module.Name"
         if let Some(idx) = line.find("Compiling") {
-            let rest = &line[idx + 10..].trim();
+            let rest = line[idx + "Compiling".len()..].trim_start();
             let module_name = rest.split_whitespace().next()?;
             return Some(module_name.to_string());
         }

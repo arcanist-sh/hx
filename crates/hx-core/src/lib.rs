@@ -7,6 +7,7 @@ pub mod command;
 pub mod diagnostic;
 pub mod env;
 pub mod error;
+pub mod fsutil;
 pub mod version;
 
 pub use command::{CommandOutput, CommandRunner};
@@ -15,6 +16,7 @@ pub use diagnostic::{
 };
 pub use env::EnvVars;
 pub use error::{Error, ErrorCode, Fix, Result};
+pub use fsutil::atomic_write;
 pub use version::Version;
 
 /// Exit codes for hx CLI.

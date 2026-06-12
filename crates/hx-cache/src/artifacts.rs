@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -92,18 +92,17 @@ impl ArtifactIndex {
         })?;
 
         let index_path = artifacts_dir.join(INDEX_FILE);
-        let file = File::create(&index_path).map_err(|e| Error::Io {
-            message: "failed to create artifact index".to_string(),
+        let content = serde_json::to_vec_pretty(self).map_err(|e| Error::Config {
+            message: format!("failed to serialize artifact index: {}", e),
             path: Some(index_path.clone()),
-            source: e,
-        })?;
-
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, self).map_err(|e| Error::Config {
-            message: format!("failed to write artifact index: {}", e),
-            path: Some(index_path),
             source: None,
             fixes: vec![],
+        })?;
+
+        hx_core::atomic_write(&index_path, content).map_err(|e| Error::Io {
+            message: "failed to write artifact index".to_string(),
+            path: Some(index_path),
+            source: e,
         })
     }
 

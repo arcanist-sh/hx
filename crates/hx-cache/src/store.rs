@@ -86,7 +86,7 @@ impl StoreIndex {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| Error::config(format!("failed to serialize store index: {}", e)))?;
 
-        std::fs::write(&path, content).map_err(|e| Error::Io {
+        hx_core::atomic_write(&path, content).map_err(|e| Error::Io {
             message: "failed to write store index".to_string(),
             path: Some(path),
             source: e,
@@ -279,7 +279,7 @@ impl PackageCacheIndex {
             Error::config(format!("failed to serialize package cache index: {}", e))
         })?;
 
-        std::fs::write(&path, content).map_err(|e| Error::Io {
+        hx_core::atomic_write(&path, content).map_err(|e| Error::Io {
             message: "failed to write package cache index".to_string(),
             path: Some(path),
             source: e,

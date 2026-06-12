@@ -55,9 +55,9 @@ flate2.workspace = true
 zip.workspace = true
 hex.workspace = true
 regex = "1.10"
+tempfile.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 assert_cmd.workspace = true
 predicates.workspace = true
 insta.workspace = true

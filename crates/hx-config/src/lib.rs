@@ -15,7 +15,10 @@ pub mod manifest;
 pub mod project;
 
 pub use combine::Combine;
-pub use global::{GlobalConfig, GlobalConfigError, global_config_path, load_global_config};
+pub use global::{
+    GlobalConfig, GlobalConfigError, global_config_path, is_project_trusted, load_global_config,
+    save_global_config, trust_project, untrust_project,
+};
 pub use ide::{
     HieYamlStatus, check_hie_yaml, generate_hie_yaml, is_hls_compatible, recommended_hls_for_ghc,
     write_hie_yaml,

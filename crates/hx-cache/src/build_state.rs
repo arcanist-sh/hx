@@ -113,7 +113,7 @@ impl BuildState {
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| Error::config(format!("failed to serialize build state: {}", e)))?;
 
-        std::fs::write(&path, content).map_err(|e| Error::Io {
+        hx_core::atomic_write(&path, content).map_err(|e| Error::Io {
             message: "failed to write build state".to_string(),
             path: Some(path),
             source: e,

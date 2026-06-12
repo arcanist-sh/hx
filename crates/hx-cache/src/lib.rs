@@ -106,6 +106,9 @@ pub fn toolchain_bin_dir() -> Result<PathBuf> {
 }
 
 /// Ensure a directory exists.
+///
+/// On Unix, newly created cache directories are restricted to the owner
+/// (0o700) so other local users cannot tamper with cached artifacts.
 pub fn ensure_dir(path: &PathBuf) -> Result<()> {
     if !path.exists() {
         debug!("Creating directory: {}", path.display());
@@ -114,6 +117,18 @@ pub fn ensure_dir(path: &PathBuf) -> Result<()> {
             path: Some(path.clone()),
             source: e,
         })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(
+                |e| Error::Io {
+                    message: format!("failed to set permissions on: {}", path.display()),
+                    path: Some(path.clone()),
+                    source: e,
+                },
+            )?;
+        }
     }
     Ok(())
 }

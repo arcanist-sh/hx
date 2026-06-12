@@ -12,7 +12,6 @@ categories.workspace = true
 [dependencies]
 hx-core.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
 directories.workspace = true
 tracing.workspace = true
 serde.workspace = true

@@ -44,6 +44,7 @@ hx is a modern toolchain CLI for Haskell, written in Rust. It wraps existing too
 - **Test coverage** - Integrated hpc support with HTML reports
 - **Plugin system** - Extensible with Steel (Scheme) scripts
 - **Self-contained** - Manages GHC versions directly, no ghcup required
+- **BHC backend** - Optional [Basel Haskell Compiler](docs/BHC_PLATFORM.md) backend with curated BHC Platform snapshots
 
 <div align="center">
   <img src=".github/static/demo.gif" alt="hx demo" width="600" />
@@ -112,7 +113,7 @@ hx init --ci                 # Include GitHub Actions workflow
 hx new webapp myapp          # Create web app (Servant)
 hx new cli myapp             # Create CLI app (optparse-applicative)
 hx new library mylib         # Create library with docs setup
-hx new --template user/repo  # Create from git template
+hx new template <url> <name> # Create from git template
 ```
 
 ### Building
@@ -173,10 +174,10 @@ hx tree --depth 2            # Limit tree depth
 hx list                      # List all dependencies
 hx list --direct             # List direct dependencies only
 
-hx deps graph --format dot   # Generate Graphviz graph
+hx deps graph --format dot   # Generate Graphviz graph (also: tree, list, json)
 
 hx search aeson              # Search Hackage for packages
-hx audit                     # Check for vulnerabilities
+hx audit                     # Check for deprecated dependencies
 hx audit --outdated          # Check for outdated packages
 ```
 
@@ -229,6 +230,11 @@ hx toolchain remove 9.6.4    # Remove a GHC version
 
 hx toolchain use 9.8.2       # Switch GHC version
 hx toolchain use project     # Use project's toolchain
+
+hx stackage list             # List Stackage snapshots
+hx bhc-platform list         # List BHC Platform snapshots
+hx server start              # Start the persistent build server
+hx server status             # Show build server status
 ```
 
 ### IDE Integration
@@ -275,9 +281,11 @@ hx upgrade                   # Upgrade hx to latest version
 
 ```bash
 hx cache status              # Show cache statistics
+hx cache artifacts           # Show artifact cache statistics
 hx cache prune --days 30     # Remove entries older than 30 days
 hx cache clean               # Clear entire cache
 hx index update              # Update Hackage package index
+hx index clear               # Remove the local index
 hx index status              # Show index status
 ```
 
@@ -287,7 +295,13 @@ hx index status              # Show index status
 hx plugins list              # List available plugins
 hx plugins status            # Show plugin system status
 hx plugins run script.scm    # Run a Steel script
+hx plugins trust             # Allow this project's local plugins to run
+hx plugins untrust           # Revoke that permission
 ```
+
+Project-local plugins (`.hx/plugins/*.scm`) only run after you trust the
+project with `hx plugins trust` - cloning a repository never grants its
+scripts execution rights.
 
 ## Configuration
 
@@ -397,6 +411,8 @@ version = "2.1.1"
 | `HX_CACHE_DIR` | Cache directory location |
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
+| `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
+| `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
 
 ## Exit Codes
 
@@ -430,6 +446,8 @@ hx is a Rust workspace with these crates:
 | `hx-ui` | Terminal output utilities |
 | `hx-warnings` | Warning system |
 | `hx-telemetry` | Tracing and metrics |
+| `hx-compiler` | Compiler backend abstraction (GHC, BHC) |
+| `hx-bhc` | BHC (Basel Haskell Compiler) native build pipeline |
 
 ## Development
 

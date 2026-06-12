@@ -9,6 +9,27 @@ use hx_plugins::{
 use hx_ui::Output;
 use std::time::Duration;
 
+/// Warn (once per invocation) when local plugins exist but the project is untrusted.
+pub fn warn_if_untrusted_local_plugins(config: &PluginConfig, project_root: &std::path::Path) {
+    if config.trust_local {
+        return;
+    }
+    let local_dir = PluginConfig::local_plugins_dir(project_root);
+    let has_local_plugins = std::fs::read_dir(&local_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.path().extension().is_some_and(|ext| ext == "scm"))
+        })
+        .unwrap_or(false);
+    if has_local_plugins {
+        Output::new().warn(&format!(
+            "Project-local plugins in {} were NOT loaded because this project is not trusted.\n  Run `hx plugins trust` to allow them after reviewing the scripts.",
+            local_dir.display()
+        ));
+    }
+}
+
 /// A helper for running plugin hooks in command handlers.
 pub struct PluginHooks {
     manager: Option<PluginManager>,
@@ -23,11 +44,14 @@ impl PluginHooks {
     ///
     /// Returns None if plugins are disabled.
     pub fn from_project(project: &Project, ghc_version: Option<String>) -> Option<Self> {
-        let config: PluginConfig = project.manifest.plugins.clone().into();
+        let mut config: PluginConfig = project.manifest.plugins.clone().into();
 
         if !config.enabled {
             return None;
         }
+
+        config.trust_local = hx_config::is_project_trusted(&project.root);
+        warn_if_untrusted_local_plugins(&config, &project.root);
 
         let manager = match PluginManager::new(config.clone()) {
             Ok(m) => m,

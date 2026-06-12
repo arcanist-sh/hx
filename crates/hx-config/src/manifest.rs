@@ -437,10 +437,10 @@ impl Manifest {
         Ok(toml::to_string_pretty(self)?)
     }
 
-    /// Write the manifest to a file.
+    /// Write the manifest to a file (atomically, to survive interruption).
     pub fn to_file(&self, path: impl AsRef<Path>) -> Result<(), ManifestError> {
         let content = self.to_string()?;
-        std::fs::write(path, content)?;
+        hx_core::atomic_write(path.as_ref(), content)?;
         Ok(())
     }
 

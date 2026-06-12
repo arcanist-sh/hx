@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter, Write};
+use std::io::{self, BufReader, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
@@ -158,9 +158,8 @@ fn save_index_state(state: &IndexState) -> Result<(), MirrorError> {
         fs::create_dir_all(parent)?;
     }
 
-    let file = File::create(&state_path)?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, state)?;
+    let content = serde_json::to_vec_pretty(state)?;
+    hx_core::atomic_write(&state_path, content)?;
 
     Ok(())
 }
@@ -230,7 +229,14 @@ pub async fn update_index(options: &MirrorOptions) -> Result<UpdateResult, Mirro
     if response.status() == reqwest::StatusCode::NOT_MODIFIED {
         info!("Index is up to date");
 
-        let state = existing_state.unwrap();
+        // A 304 without local state (e.g. a misbehaving proxy) must not panic
+        let Some(state) = existing_state else {
+            return Err(MirrorError::UpdateFailed(
+                "server returned 304 Not Modified but no local index state exists; \
+                 retry with --force"
+                    .to_string(),
+            ));
+        };
         return Ok(UpdateResult {
             downloaded: false,
             bytes_downloaded: 0,

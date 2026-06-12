@@ -269,10 +269,8 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                         info.executables.push(exe);
                     }
                 }
-                Section::CustomSetup => {
-                    if !current_custom_setup.setup_depends.is_empty() {
-                        info.custom_setup = Some(std::mem::take(&mut current_custom_setup));
-                    }
+                Section::CustomSetup if !current_custom_setup.setup_depends.is_empty() => {
+                    info.custom_setup = Some(std::mem::take(&mut current_custom_setup));
                 }
                 _ => {}
             }
@@ -327,10 +325,8 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                 info.executables.push(exe);
             }
         }
-        Section::CustomSetup => {
-            if !current_custom_setup.setup_depends.is_empty() {
-                info.custom_setup = Some(current_custom_setup);
-            }
+        Section::CustomSetup if !current_custom_setup.setup_depends.is_empty() => {
+            info.custom_setup = Some(current_custom_setup);
         }
         _ => {}
     }
@@ -715,7 +711,18 @@ fn parse_single_dependency(s: &str) -> Option<Dependency> {
     let constraint = if constraint_str.is_empty() {
         VersionConstraint::Any
     } else {
-        parse_constraint(constraint_str).unwrap_or(VersionConstraint::Any)
+        match parse_constraint(constraint_str) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    "Could not parse version constraint '{}' for package '{}' ({}); treating as unconstrained",
+                    constraint_str,
+                    package_name,
+                    e
+                );
+                VersionConstraint::Any
+            }
+        }
     };
 
     Some(Dependency {

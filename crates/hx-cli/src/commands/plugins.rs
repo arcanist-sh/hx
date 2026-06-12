@@ -13,7 +13,8 @@ pub async fn list(output: &Output) -> Result<i32> {
     let project = Project::load(&project_root)?;
 
     // Convert config
-    let config: PluginConfig = project.manifest.plugins.clone().into();
+    let mut config: PluginConfig = project.manifest.plugins.clone().into();
+    config.trust_local = hx_config::is_project_trusted(&project_root);
 
     if !config.enabled {
         output.warn("Plugins are disabled in hx.toml");
@@ -22,6 +23,11 @@ pub async fn list(output: &Output) -> Result<i32> {
     }
 
     output.status("Plugins", project.name());
+
+    if !config.trust_local {
+        output.warn("Project is not trusted: local plugins (.hx/plugins) are excluded");
+        output.info("Run `hx plugins trust` to allow them after reviewing the scripts");
+    }
 
     // Discover available plugins
     let plugins = discover_plugins(&config, &project_root)?;
@@ -58,9 +64,19 @@ pub async fn status(output: &Output) -> Result<i32> {
     let project = Project::load(&project_root)?;
 
     // Convert config
-    let config: PluginConfig = project.manifest.plugins.clone().into();
+    let mut config: PluginConfig = project.manifest.plugins.clone().into();
+    config.trust_local = hx_config::is_project_trusted(&project_root);
 
     output.status("Plugin Status", project.name());
+
+    output.info(&format!(
+        "Local plugins trusted: {}",
+        if config.trust_local {
+            "yes"
+        } else {
+            "no (run `hx plugins trust` to allow)"
+        }
+    ));
 
     // Enabled status
     if config.enabled {
@@ -133,7 +149,8 @@ pub async fn run_script(script: String, args: Vec<String>, output: &Output) -> R
     let project = Project::load(&project_root)?;
 
     // Convert config
-    let config: PluginConfig = project.manifest.plugins.clone().into();
+    let mut config: PluginConfig = project.manifest.plugins.clone().into();
+    config.trust_local = hx_config::is_project_trusted(&project_root);
 
     if !config.enabled {
         output.error("Plugins are disabled in hx.toml");
@@ -184,6 +201,51 @@ pub async fn run_script(script: String, args: Vec<String>, output: &Output) -> R
     }
 
     Ok(0)
+}
+
+/// Trust this project's local plugins.
+pub async fn trust(output: &Output) -> Result<i32> {
+    let project_root = find_project_root(".")?;
+    let local_dir = PluginConfig::local_plugins_dir(&project_root);
+
+    match hx_config::trust_project(&project_root) {
+        Ok(true) => {
+            output.status("Trusted", &project_root.display().to_string());
+            output.info(&format!(
+                "Local plugins in {} will now be loaded",
+                local_dir.display()
+            ));
+            Ok(0)
+        }
+        Ok(false) => {
+            output.info("Project is already trusted");
+            Ok(0)
+        }
+        Err(e) => {
+            output.error(&format!("Failed to update trust list: {}", e));
+            Ok(1)
+        }
+    }
+}
+
+/// Revoke trust for this project's local plugins.
+pub async fn untrust(output: &Output) -> Result<i32> {
+    let project_root = find_project_root(".")?;
+
+    match hx_config::untrust_project(&project_root) {
+        Ok(true) => {
+            output.status("Untrusted", &project_root.display().to_string());
+            Ok(0)
+        }
+        Ok(false) => {
+            output.info("Project was not trusted");
+            Ok(0)
+        }
+        Err(e) => {
+            output.error(&format!("Failed to update trust list: {}", e));
+            Ok(1)
+        }
+    }
 }
 
 /// Count the number of configured hooks.

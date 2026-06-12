@@ -327,15 +327,29 @@ pub async fn fetch_remote_snapshot(
 
     // Verify Ed25519 signature if present
     if let Some(ref signature) = entry.signature {
-        let public_key = entry
-            .public_key
-            .as_ref()
-            .or(registry.public_key.as_ref())
-            .ok_or_else(|| {
-                SnapshotError::InvalidPublicKey(
-                    "snapshot has a signature but no public key is available".to_string(),
-                )
-            })?;
+        // Prefer a user-pinned key: a key delivered by the registry itself
+        // cannot authenticate that same registry
+        let pinned_key = std::env::var("HX_BHC_PLATFORM_PUBKEY").ok();
+        let public_key = match pinned_key.as_deref() {
+            Some(key) => key,
+            None => {
+                let key = entry
+                    .public_key
+                    .as_ref()
+                    .or(registry.public_key.as_ref())
+                    .ok_or_else(|| {
+                        SnapshotError::InvalidPublicKey(
+                            "snapshot has a signature but no public key is available".to_string(),
+                        )
+                    })?;
+                warn!(
+                    "Verifying snapshot '{}' with a public key supplied by the registry itself; \
+                     set HX_BHC_PLATFORM_PUBKEY to pin an independent trust root",
+                    id
+                );
+                key
+            }
+        };
         debug!("Verifying Ed25519 signature for snapshot: {}", id);
         verify_ed25519(content.as_bytes(), signature, public_key)?;
         info!("Signature verified for snapshot: {}", id);

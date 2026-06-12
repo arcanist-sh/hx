@@ -47,6 +47,12 @@ impl EnvVars {
     /// Default GHC version to use.
     pub const HX_GHC_VERSION: &'static str = "HX_GHC_VERSION";
 
+    /// Allow toolchain downloads to proceed without a published checksum.
+    pub const HX_ALLOW_UNVERIFIED_DOWNLOADS: &'static str = "HX_ALLOW_UNVERIFIED_DOWNLOADS";
+
+    /// Pinned Ed25519 public key (hex) for BHC Platform snapshot verification.
+    pub const HX_BHC_PLATFORM_PUBKEY: &'static str = "HX_BHC_PLATFORM_PUBKEY";
+
     // ─── Build Settings ──────────────────────────────────────────────────────
 
     /// Number of parallel jobs for builds.

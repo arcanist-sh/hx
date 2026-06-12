@@ -11,6 +11,12 @@ pub struct Version {
     pub major: u32,
     pub minor: u32,
     pub patch: u32,
+    /// Fourth component of 4-part versions like cabal's `3.12.1.0`.
+    ///
+    /// Kept separate from `patch`: folding it in (e.g. `patch * 100 + fourth`)
+    /// makes distinct versions like 3.12.1.150 and 3.12.2.50 compare equal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fourth: Option<u32>,
     pub pre: Option<String>,
 }
 
@@ -21,6 +27,18 @@ impl Version {
             major,
             minor,
             patch,
+            fourth: None,
+            pre: None,
+        }
+    }
+
+    /// Create a new 4-part version (e.g. cabal's 3.12.1.0).
+    pub fn new4(major: u32, minor: u32, patch: u32, fourth: u32) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+            fourth: Some(fourth),
             pre: None,
         }
     }
@@ -39,11 +57,10 @@ impl Version {
             let major: u32 = captures.get(1)?.as_str().parse().ok()?;
             let minor: u32 = captures.get(2)?.as_str().parse().ok()?;
             let patch: u32 = captures.get(3)?.as_str().parse().ok()?;
-            // If there's a 4th component (like cabal 3.12.1.0), include it in patch
+            // If there's a 4th component (like cabal 3.12.1.0), keep it separate
             if let Some(fourth) = captures.get(4) {
                 let fourth_num: u32 = fourth.as_str().parse().ok()?;
-                // For tools like cabal with 4-part versions, combine last two
-                return Some(Self::new(major, minor, patch * 100 + fourth_num));
+                return Some(Self::new4(major, minor, patch, fourth_num));
             }
             return Some(Self::new(major, minor, patch));
         }
@@ -55,6 +72,9 @@ impl Version {
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
+        if let Some(fourth) = self.fourth {
+            write!(f, ".{}", fourth)?;
+        }
         if let Some(ref pre) = self.pre {
             write!(f, "-{}", pre)?;
         }
@@ -87,28 +107,27 @@ impl FromStr for Version {
             .parse()
             .map_err(|_| VersionParseError::InvalidNumber(parts[1].to_string()))?;
         let patch = if parts.len() > 2 {
-            // Handle 4-part versions like 3.12.1.0
-            if parts.len() == 4 {
-                let p: u32 = parts[2]
-                    .parse()
-                    .map_err(|_| VersionParseError::InvalidNumber(parts[2].to_string()))?;
-                let q: u32 = parts[3]
-                    .parse()
-                    .map_err(|_| VersionParseError::InvalidNumber(parts[3].to_string()))?;
-                p * 100 + q
-            } else {
-                parts[2]
-                    .parse()
-                    .map_err(|_| VersionParseError::InvalidNumber(parts[2].to_string()))?
-            }
+            parts[2]
+                .parse()
+                .map_err(|_| VersionParseError::InvalidNumber(parts[2].to_string()))?
         } else {
             0
+        };
+        let fourth = if parts.len() > 3 {
+            Some(
+                parts[3]
+                    .parse()
+                    .map_err(|_| VersionParseError::InvalidNumber(parts[3].to_string()))?,
+            )
+        } else {
+            None
         };
 
         Ok(Version {
             major,
             minor,
             patch,
+            fourth,
             pre,
         })
     }
@@ -131,6 +150,11 @@ impl Ord for Version {
             ord => return ord,
         }
         match self.patch.cmp(&other.patch) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        // Option ordering (None < Some) keeps Ord consistent with derived Eq
+        match self.fourth.cmp(&other.fourth) {
             Ordering::Equal => {}
             ord => return ord,
         }
@@ -173,8 +197,17 @@ mod tests {
         );
         assert_eq!(
             Version::parse_from_output("cabal-install version 3.12.1.0"),
-            Some(Version::new(3, 12, 100))
+            Some(Version::new4(3, 12, 1, 0))
         );
+    }
+
+    #[test]
+    fn test_four_part_versions_not_lossy() {
+        let a: Version = "3.12.1.150".parse().unwrap();
+        let b: Version = "3.12.2.50".parse().unwrap();
+        assert_ne!(a, b);
+        assert!(b > a);
+        assert_eq!(a.to_string(), "3.12.1.150");
     }
 
     #[test]

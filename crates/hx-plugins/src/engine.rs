@@ -104,29 +104,86 @@ impl SteelEngine {
 
     /// Check if a function is defined in the engine.
     fn has_function(&mut self, name: &str) -> bool {
-        // Try to evaluate (defined? 'name) or check if the symbol exists
-        let check_code = format!("(if (defined? '{}) #t #f)", name);
-        match self.engine.run(check_code) {
-            Ok(results) => {
-                // Check if we got true back
-                if let Some(result) = results.into_iter().next() {
-                    matches!(result, steel::SteelVal::BoolV(true))
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        }
+        engine_has_function(&mut self.engine, name)
     }
 
     /// Call a function with no arguments.
     fn call_function(&mut self, name: &str) -> Result<()> {
-        let call_code = format!("({})", name);
-        self.engine
-            .run(call_code)
-            .map_err(|e| PluginError::runtime(name, e.to_string()))?;
-        Ok(())
+        engine_call_function(&mut self.engine, name)
     }
+}
+
+/// Check if a function is defined in an engine.
+fn engine_has_function(engine: &mut Engine, name: &str) -> bool {
+    let check_code = format!("(if (defined? '{}) #t #f)", name);
+    match engine.run(check_code) {
+        Ok(results) => {
+            if let Some(result) = results.into_iter().next() {
+                matches!(result, steel::SteelVal::BoolV(true))
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
+}
+
+/// Call a function with no arguments in an engine.
+fn engine_call_function(engine: &mut Engine, name: &str) -> Result<()> {
+    let call_code = format!("({})", name);
+    engine
+        .run(call_code)
+        .map_err(|e| PluginError::runtime(name, e.to_string()))?;
+    Ok(())
+}
+
+/// Create a fresh engine with the hx API and prelude loaded.
+fn new_initialized_engine() -> Result<Engine> {
+    let mut engine = Engine::new();
+    crate::api::register_all(&mut engine)?;
+    engine
+        .run(include_str!("prelude.scm").to_string())
+        .map_err(|e| PluginError::runtime("prelude", e.to_string()))?;
+    Ok(engine)
+}
+
+/// Run hook scripts in a fresh engine on the current thread.
+///
+/// Used by the timeout-enforcing path: the worker thread cannot share the
+/// main engine (it is not thread-safe), so the scripts are loaded into an
+/// isolated engine with the same API and prelude.
+fn run_hook_isolated(
+    scripts: &[PathBuf],
+    hook_fn: &str,
+    ctx: &PluginContext,
+    continue_on_error: bool,
+) -> Result<HookResult> {
+    let _guard = ContextGuard::new(ctx.clone());
+    let start = Instant::now();
+    let mut engine = new_initialized_engine()?;
+
+    for path in scripts {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            PluginError::io(format!("failed to read plugin file: {}", path.display()), e)
+        })?;
+        engine.run(content).map_err(|e| {
+            PluginError::load(path.clone(), format!("Steel evaluation error: {}", e))
+        })?;
+
+        if engine_has_function(&mut engine, hook_fn) {
+            match engine_call_function(&mut engine, hook_fn) {
+                Ok(()) => debug!("Hook {} completed successfully", hook_fn),
+                Err(e) => {
+                    warn!("Hook {} failed: {}", hook_fn, e);
+                    if !continue_on_error {
+                        return Ok(HookResult::failure(start.elapsed(), e.to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(HookResult::success(start.elapsed()))
 }
 
 impl PluginSystem for SteelEngine {
@@ -171,42 +228,84 @@ impl PluginSystem for SteelEngine {
 
         debug!("Running {} hook with {} scripts", event, scripts.len());
 
-        // Set up the context for this execution
-        let _guard = ContextGuard::new(ctx.clone());
-        let start = Instant::now();
-
         let project_root = ctx.project_root.clone();
 
+        // Resolve all script paths up front
+        let mut resolved = Vec::with_capacity(scripts.len());
         for script in &scripts {
-            // Find the script in plugin paths
-            let script_path = self.find_script(script, &project_root)?;
+            resolved.push(self.find_script(script, &project_root)?);
+        }
 
-            // Load the script if not already loaded
-            if !self.is_loaded(&script_path) {
-                self.load_plugin(&script_path)?;
-            }
+        let timeout = self.config.hook_timeout();
+        let hook_fn = event.scheme_function();
 
-            // Check if the hook function is defined
-            let hook_fn = event.scheme_function();
-            if self.has_function(hook_fn) {
-                match self.call_function(hook_fn) {
-                    Ok(()) => {
-                        debug!("Hook {} completed successfully", hook_fn);
-                    }
-                    Err(e) => {
-                        let duration = start.elapsed();
-                        warn!("Hook {} failed: {}", hook_fn, e);
+        // hook_timeout_ms = 0 disables the timeout: run in the shared engine
+        if timeout.is_zero() {
+            let _guard = ContextGuard::new(ctx.clone());
+            let start = Instant::now();
 
-                        if !self.config.continue_on_error {
-                            return Ok(HookResult::failure(duration, e.to_string()));
+            for script_path in &resolved {
+                if !self.is_loaded(script_path) {
+                    self.load_plugin(script_path)?;
+                }
+
+                if self.has_function(hook_fn) {
+                    match self.call_function(hook_fn) {
+                        Ok(()) => {
+                            debug!("Hook {} completed successfully", hook_fn);
+                        }
+                        Err(e) => {
+                            let duration = start.elapsed();
+                            warn!("Hook {} failed: {}", hook_fn, e);
+
+                            if !self.config.continue_on_error {
+                                return Ok(HookResult::failure(duration, e.to_string()));
+                            }
                         }
                     }
                 }
             }
+
+            return Ok(HookResult::success(start.elapsed()));
         }
 
-        let duration = start.elapsed();
-        Ok(HookResult::success(duration))
+        // Enforce the timeout by running the hook on a worker thread with its
+        // own engine; a hung script cannot stall the command indefinitely.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx_clone = ctx.clone();
+        let hook_fn = hook_fn.to_string();
+        let continue_on_error = self.config.continue_on_error;
+        let start = Instant::now();
+
+        std::thread::Builder::new()
+            .name("hx-plugin-hook".into())
+            .spawn(move || {
+                let result = run_hook_isolated(&resolved, &hook_fn, &ctx_clone, continue_on_error);
+                let _ = tx.send(result);
+            })
+            .map_err(|e| PluginError::io("failed to spawn hook thread".to_string(), e))?;
+
+        match rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                warn!(
+                    "{} hook timed out after {}ms; abandoning hook thread",
+                    event,
+                    timeout.as_millis()
+                );
+                Ok(HookResult::failure(
+                    start.elapsed(),
+                    format!(
+                        "hook timed out after {}ms (configure [plugins].hook_timeout_ms to adjust)",
+                        timeout.as_millis()
+                    ),
+                ))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(PluginError::runtime(
+                event.scheme_function(),
+                "hook thread terminated unexpectedly".to_string(),
+            )),
+        }
     }
 
     fn run_command(&mut self, name: &str, args: &[String]) -> Result<i32> {

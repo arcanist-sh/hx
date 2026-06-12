@@ -24,6 +24,14 @@ pub struct PluginConfig {
     /// Hook configuration.
     #[serde(default)]
     pub hooks: HookConfig,
+
+    /// Whether project-local plugins (`.hx/plugins`) may be loaded.
+    ///
+    /// Never read from the manifest: local plugins run arbitrary code, so the
+    /// project that ships them cannot be the one to authorize them. The CLI
+    /// sets this after checking the user's trust list in the global config.
+    #[serde(skip)]
+    pub trust_local: bool,
 }
 
 impl PluginConfig {
@@ -35,7 +43,13 @@ impl PluginConfig {
             paths: vec![],
             continue_on_error: false,
             hooks: HookConfig::default(),
+            trust_local: false,
         }
+    }
+
+    /// Path to a project's local plugins directory.
+    pub fn local_plugins_dir(project_root: &std::path::Path) -> PathBuf {
+        project_root.join(".hx").join("plugins")
     }
 
     /// Get the timeout as a Duration.
@@ -44,11 +58,16 @@ impl PluginConfig {
     }
 
     /// Get all plugin search paths, including defaults.
+    ///
+    /// The project-local directory is only included when the project has been
+    /// trusted (see [`PluginConfig::trust_local`]).
     pub fn all_paths(&self, project_root: &std::path::Path) -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
-        // Project-local plugins first
-        paths.push(project_root.join(".hx").join("plugins"));
+        // Project-local plugins first, but only for trusted projects
+        if self.trust_local {
+            paths.push(Self::local_plugins_dir(project_root));
+        }
 
         // User-specified paths
         for path in &self.paths {
@@ -187,6 +206,7 @@ impl From<hx_config::PluginConfig> for PluginConfig {
             paths: config.paths,
             continue_on_error: config.continue_on_error,
             hooks: HookConfig::from(config.hooks),
+            trust_local: false,
         }
     }
 }

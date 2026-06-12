@@ -68,34 +68,121 @@ async fn upgrade(target_version: Option<String>, output: &Output) -> Result<i32>
         &format!("hx {} -> {}", CURRENT_VERSION, target),
     );
 
-    // Use self_update to download and install
-    let status = self_update::backends::github::Update::configure()
-        .repo_owner(REPO_OWNER)
-        .repo_name(REPO_NAME)
-        .bin_name("hx")
-        .target(&get_target())
-        .current_version(CURRENT_VERSION)
-        .target_version_tag(&format!("v{}", target))
-        .show_download_progress(true)
-        .no_confirm(true)
-        .build()
-        .context("Failed to configure updater")?
-        .update()
-        .context("Failed to update")?;
+    // Download and verify the release archive against its published .sha256
+    // before replacing the running binary (TLS alone is not integrity proof
+    // of the release artifact).
+    let triple = get_target();
+    let ext = if triple.contains("windows") {
+        "zip"
+    } else {
+        "tar.gz"
+    };
+    let archive_name = format!("hx-v{}-{}.{}", target, triple, ext);
+    let url = format!(
+        "https://github.com/{}/{}/releases/download/v{}/{}",
+        REPO_OWNER, REPO_NAME, target, archive_name
+    );
 
-    match status {
-        self_update::Status::UpToDate(_) => {
-            output.status(
-                "Up to date",
-                &format!("hx {} is already installed", CURRENT_VERSION),
-            );
-        }
-        self_update::Status::Updated(v) => {
-            output.status("Upgraded", &format!("Successfully upgraded to hx {}", v));
-        }
+    let client = reqwest::Client::builder()
+        .user_agent(format!("hx/{}", CURRENT_VERSION))
+        .build()?;
+
+    output.status("Downloading", &archive_name);
+    let archive_bytes = client
+        .get(&url)
+        .send()
+        .await
+        .context("Failed to download release archive")?
+        .error_for_status()
+        .context("Release archive not found for this version/platform")?
+        .bytes()
+        .await
+        .context("Failed to read release archive")?;
+
+    output.status("Verifying", "SHA-256 checksum...");
+    let checksum_body = client
+        .get(format!("{}.sha256", url))
+        .send()
+        .await
+        .context("Failed to download release checksum")?
+        .error_for_status()
+        .context("No .sha256 checksum published for this release; refusing unverified upgrade")?
+        .text()
+        .await
+        .context("Failed to read release checksum")?;
+
+    let expected = checksum_body
+        .split_whitespace()
+        .next()
+        .context("Malformed .sha256 file")?
+        .to_ascii_lowercase();
+
+    let actual = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&archive_bytes))
+    };
+
+    if actual != expected {
+        anyhow::bail!(
+            "Checksum mismatch for {}\n  expected: {}\n  actual:   {}\n\nThe download may be corrupted or tampered with; aborting upgrade.",
+            archive_name,
+            expected,
+            actual
+        );
     }
 
+    // Extract and replace the current executable
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("hx-upgrade-")
+        .tempdir()
+        .context("Failed to create temp directory")?;
+    let archive_path = tmp_dir.path().join(&archive_name);
+    std::fs::write(&archive_path, &archive_bytes).context("Failed to write archive")?;
+
+    self_update::Extract::from_source(&archive_path)
+        .extract_into(tmp_dir.path())
+        .context("Failed to extract release archive")?;
+
+    let bin_name = if cfg!(windows) { "hx.exe" } else { "hx" };
+    let new_exe =
+        find_file(tmp_dir.path(), bin_name).context("hx binary not found in release archive")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&new_exe, std::fs::Permissions::from_mode(0o755))
+            .context("Failed to set executable permissions")?;
+    }
+
+    let current_exe = std::env::current_exe().context("Failed to locate current executable")?;
+    // The swap temp must live next to the destination so the rename is atomic
+    let replace_tmp = current_exe.with_extension("replace.tmp");
+    self_update::Move::from_source(&new_exe)
+        .replace_using_temp(&replace_tmp)
+        .to_dest(&current_exe)
+        .context("Failed to replace current executable")?;
+
+    output.status(
+        "Upgraded",
+        &format!("Successfully upgraded to hx {}", target),
+    );
+
     Ok(0)
+}
+
+/// Recursively find a file by name.
+fn find_file(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_file(&path, name) {
+                return Some(found);
+            }
+        } else if path.file_name().is_some_and(|n| n == name) {
+            return Some(path);
+        }
+    }
+    None
 }
 
 async fn get_latest_version() -> Result<String> {

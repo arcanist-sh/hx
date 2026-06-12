@@ -16,6 +16,5 @@ hx-toolchain.workspace = true
 hx-solver.workspace = true
 hx-ui.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
 tokio.workspace = true

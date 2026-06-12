@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-12
+
+### Added
+- **BHC-native build pipeline** - `hx build` drives BHC directly through its real CLI flags, with a native builder, package database handling, and per-package builds
+- **BHC REPL backend** - `hx repl` works against BHC projects
+- **Content-addressed artifact cache** - compiled artifacts keyed by SHA-256 of source, compiler version, flags, and dependency versions (`hx cache artifacts`)
+- **Zero-config BHC experience** - backend auto-detection, bundled toolchain install, platform matching, and doctor checks
+- **`hx plugins trust` / `hx plugins untrust`** - explicit per-project trust for local plugins (see Security)
+- `Version` now models 4-part versions (e.g. cabal `3.12.1.0`) without lossy patch-component folding
+
+### Security
+- **Toolchain download verification** - GHC, Cabal, and BHC archives are now verified against their published SHA-256 checksums before installation; previously downloaded archives are re-verified before reuse. Installs refuse to proceed without a published checksum unless `HX_ALLOW_UNVERIFIED_DOWNLOADS=1` is set
+- **Project-local plugins require trust** - `.hx/plugins/*.scm` scripts no longer run automatically when building a freshly cloned project; grant trust per project with `hx plugins trust` (recorded in the global config, never in the repo itself)
+- **Plugin hook timeouts are enforced** - `[plugins].hook_timeout_ms` (default 5000) now actually cancels hung hooks instead of stalling builds forever; set to 0 to disable
+- **Archive extraction hardening** - zip and tar extraction reject entries that would escape the destination directory (zip-slip / path traversal)
+- **Verified self-update** - `hx upgrade` downloads the release archive, verifies its published `.sha256`, and only then replaces the binary
+- **install.sh requires checksums** - the installer now fails instead of warning when checksum verification is impossible (override with `HX_ALLOW_UNVERIFIED=1`), and pins curl/wget to HTTPS + TLS 1.2
+- **BHC Platform key pinning** - `HX_BHC_PLATFORM_PUBKEY` pins an independent Ed25519 trust root for snapshot signatures; a warning is emitted when the key comes from the registry itself
+- **Honest `hx audit`** - removed the simulated vulnerability database; the command now states clearly that HSEC advisory integration is not yet available instead of fabricating results
+- Cache directories are created with owner-only permissions (0700) on Unix
+
+### Fixed
+- Lockfile, cache indices, manifest, and global config are written atomically (temp file + rename), so an interrupted command can no longer corrupt them
+- Watch mode ignores `dist-newstyle/`, `dist/`, `.hx/`, `.git/`, and `.stack-work/`, preventing rebuild loops when the project root is watched
+- Crash fixes: compiler output lines ending in "Compiling", HTTP 304 responses without local index state, non-ASCII package names in `hx add`, and missing home directory no longer panic
+- Unparseable `.cabal` version constraints now log a warning instead of being silently treated as unconstrained
+- Lockfile read errors now include the file path
+
 ## [0.5.0] - 2026-02-02
 
 ### Added

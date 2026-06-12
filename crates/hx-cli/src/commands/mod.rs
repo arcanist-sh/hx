@@ -273,6 +273,8 @@ pub async fn run(cli: Cli) -> Result<i32> {
             PluginsCommands::Run { script, args } => {
                 plugins::run_script(script, args, &output).await
             }
+            PluginsCommands::Trust => plugins::trust(&output).await,
+            PluginsCommands::Untrust => plugins::untrust(&output).await,
         },
         Some(Commands::Coverage {
             html,

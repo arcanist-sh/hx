@@ -1076,7 +1076,7 @@ pub enum ToolchainCommands {
 pub enum DepsCommands {
     /// Show dependency graph
     Graph {
-        /// Output format: dot, tree, or list
+        /// Output format: dot, tree, list, or json
         #[arg(long, short, default_value = "tree")]
         format: GraphFormat,
 
@@ -1153,6 +1153,12 @@ pub enum PluginsCommands {
         #[arg(last = true)]
         args: Vec<String>,
     },
+
+    /// Allow this project's local plugins (.hx/plugins) to run
+    Trust,
+
+    /// Revoke permission for this project's local plugins
+    Untrust,
 }
 
 #[derive(Subcommand, Debug)]

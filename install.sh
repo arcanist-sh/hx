@@ -8,6 +8,7 @@
 #   HX_VERSION      - Specific version to install (default: latest)
 #   HX_INSTALL_DIR  - Installation directory (default: ~/.local/bin or /usr/local/bin)
 #   HX_NO_MODIFY_PATH - Set to skip PATH modification suggestions
+#   HX_ALLOW_UNVERIFIED - Set to 1 to proceed when checksum verification is impossible
 
 set -e
 
@@ -90,9 +91,9 @@ detect_platform() {
 # Get latest version from GitHub API
 get_latest_version() {
     if check_cmd curl; then
-        curl -fsSL "$GITHUB_API" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        curl --proto '=https' --tlsv1.2 -fsSL "$GITHUB_API" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
     elif check_cmd wget; then
-        wget -qO- "$GITHUB_API" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        wget --https-only -qO- "$GITHUB_API" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
@@ -104,11 +105,22 @@ download() {
     dest="$2"
 
     if check_cmd curl; then
-        curl -fsSL "$url" -o "$dest"
+        curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$dest"
     elif check_cmd wget; then
-        wget -q "$url" -O "$dest"
+        wget --https-only -q "$url" -O "$dest"
     else
         error "Neither curl nor wget found. Please install one of them."
+    fi
+}
+
+# Called when checksum verification cannot be performed; aborts unless the
+# user explicitly opted out with HX_ALLOW_UNVERIFIED=1
+checksum_unavailable() {
+    reason="$1"
+    if [ "$HX_ALLOW_UNVERIFIED" = "1" ]; then
+        warn "$reason - proceeding WITHOUT verification (HX_ALLOW_UNVERIFIED=1)"
+    else
+        error "$reason. Refusing to install unverified binaries. Set HX_ALLOW_UNVERIFIED=1 to override."
     fi
 }
 
@@ -199,14 +211,14 @@ main() {
         error "Failed to download $ARCHIVE. Check if the release exists."
     fi
 
-    # Verify checksum
+    # Verify checksum (mandatory unless HX_ALLOW_UNVERIFIED=1)
     if check_cmd sha256sum; then
         info "Verifying checksum..."
         if download "$CHECKSUM_URL" "$TMPDIR/$ARCHIVE.sha256" 2>/dev/null; then
             (cd "$TMPDIR" && sha256sum -c "$ARCHIVE.sha256" >/dev/null 2>&1) || \
                 error "Checksum verification failed"
         else
-            warn "Checksum file not found, skipping verification"
+            checksum_unavailable "Checksum file not found at $CHECKSUM_URL"
         fi
     elif check_cmd shasum; then
         info "Verifying checksum..."
@@ -217,10 +229,10 @@ main() {
                 error "Checksum verification failed"
             fi
         else
-            warn "Checksum file not found, skipping verification"
+            checksum_unavailable "Checksum file not found at $CHECKSUM_URL"
         fi
     else
-        warn "sha256sum not found, skipping checksum verification"
+        checksum_unavailable "Neither sha256sum nor shasum is available"
     fi
 
     # Extract

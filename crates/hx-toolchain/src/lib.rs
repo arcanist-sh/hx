@@ -15,6 +15,7 @@ pub mod check;
 pub mod detect;
 pub mod ghc;
 pub mod install;
+pub mod verify;
 
 pub use bhc::{
     BhcError, BhcInstallOptions, BhcInstallResult, BhcVersion, InstalledBhc, KNOWN_BHC_VERSIONS,

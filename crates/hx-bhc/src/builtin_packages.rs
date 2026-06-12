@@ -85,10 +85,7 @@ pub fn builtin_packages() -> HashMap<&'static str, BuiltinPackage> {
         },
     ];
 
-    entries
-        .into_iter()
-        .map(|e| (e.haskell_name, e))
-        .collect()
+    entries.into_iter().map(|e| (e.haskell_name, e)).collect()
 }
 
 /// Check if a package name is a BHC builtin.

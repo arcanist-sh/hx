@@ -105,7 +105,7 @@ impl BhcPackageCacheIndex {
             ))
         })?;
 
-        std::fs::write(&path, content).map_err(|e| Error::Io {
+        hx_core::atomic_write(&path, content).map_err(|e| Error::Io {
             message: "failed to write BHC package cache index".to_string(),
             path: Some(path),
             source: e,
