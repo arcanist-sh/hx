@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-17
+
+### Changed
+- **BHC build pipeline emits BHC-native flags** - `hx build` now generates BHC's actual CLI flags instead of GHC-style ones: `--hidir`/`--odir`, `--import-path <dir>`, `--package-db <path>`, `-O <n>`, `--Wall`/`--Werror`, and `.bhi` interface files
+- Package database is read directly from the filesystem by scanning `.conf` files instead of shelling out to `bhc-pkg`, dropping the `which` dependency
+- Pinned the Rust toolchain to 1.96.0 (`rust-toolchain.toml` + `mise.toml`) and set `rust-version = "1.96"` as the workspace MSRV
+- Refreshed dependencies within semver and upgraded `clap_mangen` 0.2 → 0.3
+
+### Added
+- BHC builtin package mapping (`base`, `text`, `containers`, …) so packages provided by BHC's stdlib are skipped during compilation
+
 ## [0.6.0] - 2026-06-12
 
 ### Added
@@ -237,7 +248,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/raskell-io/hx/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/arcanist-sh/hx/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/arcanist-sh/hx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/raskell-io/hx/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/raskell-io/hx/compare/v0.3.6...v0.4.0
 [0.3.6]: https://github.com/raskell-io/hx/compare/v0.3.5...v0.3.6
