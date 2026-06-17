@@ -49,70 +49,58 @@ fn bench_init(c: &mut Criterion) {
 
     // Benchmark hx init (binary project)
     group.bench_function("hx_init_bin", |b| {
-        b.iter_with_setup(
-            create_temp_dir,
-            |temp| {
-                let project_dir = temp.path().join("bench-project");
-                Command::new(env!("CARGO_BIN_EXE_hx"))
-                    .args(["init", "--name", "bench-project"])
-                    .arg(&project_dir)
-                    .output()
-                    .expect("hx init failed");
-            },
-        )
+        b.iter_with_setup(create_temp_dir, |temp| {
+            let project_dir = temp.path().join("bench-project");
+            Command::new(env!("CARGO_BIN_EXE_hx"))
+                .args(["init", "--name", "bench-project"])
+                .arg(&project_dir)
+                .output()
+                .expect("hx init failed");
+        })
     });
 
     // Benchmark hx init (library project)
     group.bench_function("hx_init_lib", |b| {
-        b.iter_with_setup(
-            create_temp_dir,
-            |temp| {
-                let project_dir = temp.path().join("bench-lib");
-                Command::new(env!("CARGO_BIN_EXE_hx"))
-                    .args(["init", "--lib", "--name", "bench-lib"])
-                    .arg(&project_dir)
-                    .output()
-                    .expect("hx init failed");
-            },
-        )
+        b.iter_with_setup(create_temp_dir, |temp| {
+            let project_dir = temp.path().join("bench-lib");
+            Command::new(env!("CARGO_BIN_EXE_hx"))
+                .args(["init", "--lib", "--name", "bench-lib"])
+                .arg(&project_dir)
+                .output()
+                .expect("hx init failed");
+        })
     });
 
     // Compare with cabal init if available
     if has_cabal() {
         group.bench_function("cabal_init", |b| {
-            b.iter_with_setup(
-                create_temp_dir,
-                |temp| {
-                    let project_dir = temp.path().join("cabal-project");
-                    std::fs::create_dir_all(&project_dir).unwrap();
-                    Command::new("cabal")
-                        .current_dir(&project_dir)
-                        .args([
-                            "init",
-                            "--non-interactive",
-                            "--package-name=cabal-project",
-                            "--no-comments",
-                        ])
-                        .output()
-                        .expect("cabal init failed");
-                },
-            )
+            b.iter_with_setup(create_temp_dir, |temp| {
+                let project_dir = temp.path().join("cabal-project");
+                std::fs::create_dir_all(&project_dir).unwrap();
+                Command::new("cabal")
+                    .current_dir(&project_dir)
+                    .args([
+                        "init",
+                        "--non-interactive",
+                        "--package-name=cabal-project",
+                        "--no-comments",
+                    ])
+                    .output()
+                    .expect("cabal init failed");
+            })
         });
     }
 
     // Compare with stack new if available
     if has_stack() {
         group.bench_function("stack_new", |b| {
-            b.iter_with_setup(
-                create_temp_dir,
-                |temp| {
-                    Command::new("stack")
-                        .current_dir(temp.path())
-                        .args(["new", "stack-project", "simple"])
-                        .output()
-                        .expect("stack new failed");
-                },
-            )
+            b.iter_with_setup(create_temp_dir, |temp| {
+                Command::new("stack")
+                    .current_dir(temp.path())
+                    .args(["new", "stack-project", "simple"])
+                    .output()
+                    .expect("stack new failed");
+            })
         });
     }
 
