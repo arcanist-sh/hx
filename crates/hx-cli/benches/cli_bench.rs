@@ -19,14 +19,6 @@ fn create_temp_dir() -> TempDir {
     TempDir::new().expect("Failed to create temp directory")
 }
 
-/// Helper to run hx command and capture timing
-fn run_hx(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_hx"))
-        .args(args)
-        .output()
-        .expect("Failed to execute hx")
-}
-
 /// Helper to check if cabal is available
 fn has_cabal() -> bool {
     Command::new("cabal")
@@ -58,7 +50,7 @@ fn bench_init(c: &mut Criterion) {
     // Benchmark hx init (binary project)
     group.bench_function("hx_init_bin", |b| {
         b.iter_with_setup(
-            || create_temp_dir(),
+            create_temp_dir,
             |temp| {
                 let project_dir = temp.path().join("bench-project");
                 Command::new(env!("CARGO_BIN_EXE_hx"))
@@ -73,7 +65,7 @@ fn bench_init(c: &mut Criterion) {
     // Benchmark hx init (library project)
     group.bench_function("hx_init_lib", |b| {
         b.iter_with_setup(
-            || create_temp_dir(),
+            create_temp_dir,
             |temp| {
                 let project_dir = temp.path().join("bench-lib");
                 Command::new(env!("CARGO_BIN_EXE_hx"))
@@ -89,7 +81,7 @@ fn bench_init(c: &mut Criterion) {
     if has_cabal() {
         group.bench_function("cabal_init", |b| {
             b.iter_with_setup(
-                || create_temp_dir(),
+                create_temp_dir,
                 |temp| {
                     let project_dir = temp.path().join("cabal-project");
                     std::fs::create_dir_all(&project_dir).unwrap();
@@ -112,7 +104,7 @@ fn bench_init(c: &mut Criterion) {
     if has_stack() {
         group.bench_function("stack_new", |b| {
             b.iter_with_setup(
-                || create_temp_dir(),
+                create_temp_dir,
                 |temp| {
                     Command::new("stack")
                         .current_dir(temp.path())

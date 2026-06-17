@@ -2,7 +2,7 @@
 
 ## General
 
-- Use Rust 1.94.1 (edition 2024)
+- Use Rust 1.96.0 (edition 2024)
 - Run `cargo fmt` before committing
 - All code must pass `cargo clippy -- -D warnings`
 - Prefer explicit error handling over `.unwrap()` in library code

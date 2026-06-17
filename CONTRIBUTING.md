@@ -83,7 +83,7 @@ When in doubt, ask: "Does this make `hx build` faster or more reliable?"
 
 ### Rust
 
-- Edition 2024, Rust 1.94.1+
+- Edition 2024, Rust 1.96.0+
 - `cargo fmt` before every commit
 - `cargo clippy -- -D warnings` must pass
 - No `.unwrap()` in library code — use proper error handling
