@@ -35,11 +35,38 @@ async fn import_from_stack(path: Option<String>, output: &Output) -> Result<i32>
     // Parse stack.yaml (basic YAML parsing)
     let stack_config = parse_stack_yaml(&content)?;
 
-    // Convert resolver to GHC version
-    let ghc_version = resolver_to_ghc(&stack_config.resolver);
+    // Determine the GHC version: an explicit `compiler:` field wins over the
+    // resolver-based guess, since the resolver only implies a default GHC.
+    let ghc_version = stack_config
+        .compiler
+        .as_deref()
+        .map(compiler_to_ghc)
+        .unwrap_or_else(|| resolver_to_ghc(&stack_config.resolver));
 
     output.list_item("resolver", &stack_config.resolver);
+    if let Some(compiler) = &stack_config.compiler {
+        output.list_item("compiler", compiler);
+    }
     output.list_item("ghc version", &ghc_version);
+
+    // Local packages (other than the project root ".") need multi-package
+    // support, which import does not generate yet. Surface them instead of
+    // silently dropping them.
+    let local_packages: Vec<&String> = stack_config
+        .packages
+        .iter()
+        .filter(|p| p.as_str() != ".")
+        .collect();
+    if !local_packages.is_empty() {
+        output.warn(&format!(
+            "{} local package(s) found; multi-package projects are not imported yet",
+            local_packages.len()
+        ));
+        for pkg in &local_packages {
+            output.list_item("local package", pkg);
+        }
+        output.info("Only the resolver, compiler, and extra-deps were imported");
+    }
 
     // Build hx.toml content
     let mut hx_toml = format!(
@@ -160,6 +187,8 @@ ghc = "{}"
 struct StackConfig {
     name: Option<String>,
     resolver: String,
+    /// Explicit `compiler:` field (e.g. `ghc-9.14`), when present.
+    compiler: Option<String>,
     extra_deps: Vec<String>,
     packages: Vec<String>,
 }
@@ -193,7 +222,18 @@ fn parse_stack_yaml(content: &str) -> Result<StackConfig> {
 
         // Parse resolver
         if let Some(resolver) = trimmed.strip_prefix("resolver:") {
-            config.resolver = resolver.trim().to_string();
+            config.resolver = strip_yaml_comment(resolver.trim()).to_string();
+            in_extra_deps = false;
+            in_packages = false;
+            continue;
+        }
+
+        // Parse explicit compiler (takes precedence over the resolver guess)
+        if let Some(compiler) = trimmed.strip_prefix("compiler:") {
+            let compiler = strip_yaml_comment(compiler.trim());
+            if !compiler.is_empty() {
+                config.compiler = Some(compiler.to_string());
+            }
             in_extra_deps = false;
             in_packages = false;
             continue;
@@ -201,7 +241,7 @@ fn parse_stack_yaml(content: &str) -> Result<StackConfig> {
 
         // Parse list items
         if trimmed.starts_with("- ") {
-            let value = trimmed.strip_prefix("- ").unwrap().trim().to_string();
+            let value = strip_yaml_comment(trimmed.strip_prefix("- ").unwrap().trim()).to_string();
             if in_extra_deps {
                 config.extra_deps.push(value);
             } else if in_packages {
@@ -222,6 +262,30 @@ fn parse_stack_yaml(content: &str) -> Result<StackConfig> {
     }
 
     Ok(config)
+}
+
+/// Strip a trailing YAML comment from a scalar value.
+///
+/// A `#` only begins a comment when it is at the start of the value or
+/// preceded by whitespace, matching YAML's flow-scalar rules. This keeps
+/// `#` characters that are legitimately part of a value intact while
+/// dropping trailing `  # ...` annotations.
+fn strip_yaml_comment(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'#' && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {
+            return value[..i].trim_end();
+        }
+    }
+    value.trim_end()
+}
+
+/// Convert a Stack `compiler:` value (e.g. `ghc-9.14`) to a bare GHC version.
+fn compiler_to_ghc(compiler: &str) -> String {
+    compiler
+        .strip_prefix("ghc-")
+        .unwrap_or(compiler)
+        .to_string()
 }
 
 /// Convert Stack resolver to GHC version.
@@ -347,4 +411,87 @@ fn find_cabal_package_name() -> Result<Option<String>> {
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_yaml_comment() {
+        assert_eq!(
+            strip_yaml_comment("yesod-static-1.6.1.0  # <1.6.1.1"),
+            "yesod-static-1.6.1.0"
+        );
+        assert_eq!(strip_yaml_comment("# whole line"), "");
+        assert_eq!(strip_yaml_comment("ghc-9.14"), "ghc-9.14");
+        // A '#' not preceded by whitespace is part of the value, not a comment.
+        assert_eq!(strip_yaml_comment("pkg-1.0#frag"), "pkg-1.0#frag");
+        assert_eq!(
+            strip_yaml_comment("nightly-2026-03-23"),
+            "nightly-2026-03-23"
+        );
+    }
+
+    #[test]
+    fn test_parse_stack_yaml_strips_inline_dependency_comments() {
+        // Regression for the misparsed dependency in issue #2: the trailing
+        // comment must not leak into the version string.
+        let yaml = "\
+resolver: nightly-2026-03-23
+extra-deps:
+- haskeline-0.8.4.1
+- yesod-static-1.6.1.0  # <1.6.1.1 to avoid https://github.com/psibi/crypton-conduit/issues/3
+- yesod-test-1.6.19
+";
+        let config = parse_stack_yaml(yaml).unwrap();
+        assert_eq!(
+            config.extra_deps,
+            vec![
+                "haskeline-0.8.4.1",
+                "yesod-static-1.6.1.0",
+                "yesod-test-1.6.19"
+            ]
+        );
+        let (name, version) = parse_dependency(&config.extra_deps[1]);
+        assert_eq!(name, "yesod-static");
+        assert_eq!(version, "1.6.1.0");
+    }
+
+    #[test]
+    fn test_parse_stack_yaml_reads_explicit_compiler() {
+        // Regression for the wrong GHC version in issue #2: an explicit
+        // `compiler:` must be captured and must win over the resolver guess.
+        let yaml = "\
+resolver: nightly-2026-03-23
+compiler: ghc-9.14
+";
+        let config = parse_stack_yaml(yaml).unwrap();
+        assert_eq!(config.compiler.as_deref(), Some("ghc-9.14"));
+        assert_eq!(compiler_to_ghc(config.compiler.as_ref().unwrap()), "9.14");
+        // The resolver alone would have produced a different (default) version.
+        assert_ne!(
+            compiler_to_ghc("ghc-9.14"),
+            resolver_to_ghc(&config.resolver)
+        );
+    }
+
+    #[test]
+    fn test_parse_stack_yaml_captures_local_packages() {
+        let yaml = "\
+resolver: lts-22.7
+packages:
+- hledger-lib
+- hledger
+- hledger-ui
+- hledger-web
+";
+        let config = parse_stack_yaml(yaml).unwrap();
+        assert_eq!(
+            config.packages,
+            vec!["hledger-lib", "hledger", "hledger-ui", "hledger-web"]
+        );
+        // The resolver still maps to its GHC default when no compiler is set.
+        assert_eq!(resolver_to_ghc(&config.resolver), "9.6.4");
+    }
 }
