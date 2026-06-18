@@ -175,5 +175,5 @@ jobs:
           publish hx-bhc
           publish hx-plugins
           publish hx-doctor
-          publish hx-lsp
+          publish hx-ls
           publish hx-cli

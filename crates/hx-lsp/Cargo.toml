@@ -1,5 +1,7 @@
 [package]
-name = "hx-lsp"
+# Published to crates.io as `hx-ls`: the `hx-lsp` name is owned by an unrelated
+# crate. The Rust library name stays `hx_lsp` (see [lib]) so imports are unchanged.
+name = "hx-ls"
 description = "Language Server Protocol implementation for hx"
 version.workspace = true
 edition.workspace = true
@@ -9,6 +11,9 @@ repository.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
+
+[lib]
+name = "hx_lsp"
 
 [dependencies]
 hx-core.workspace = true

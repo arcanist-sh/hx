@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-06-18
+
+### Fixed
+- **`cargo install hx-cli` works.** The language-server crate is now published to crates.io as **`hx-ls`** — the `hx-lsp` name is owned by an unrelated crate, which blocked the publish chain at its last step and left `hx-cli` unpublished. The Rust library name stays `hx_lsp`, so no source or import changes; this completes crates.io publishing for the whole workspace including `hx-cli`.
+
 ## [0.7.4] - 2026-06-18
 
 ### Fixed
@@ -277,7 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/arcanist-sh/hx/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/arcanist-sh/hx/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/arcanist-sh/hx/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/arcanist-sh/hx/compare/v0.7.1...v0.7.2
