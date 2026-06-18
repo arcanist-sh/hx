@@ -1,6 +1,6 @@
 # BHC Platform Snapshots
 
-hx supports BHC Platform curated snapshots — Stackage-like package sets optimized for the [BHC (Basel Haskell Compiler)](https://bhc.dev) backend. Each snapshot provides a set of packages verified to build and work together under BHC.
+The futuristic half of hx. Point your project at the [BHC (Basel Haskell Compiler)](https://bhc.dev) backend and a BHC Platform snapshot — Stackage-like package sets, curated and verified to build together under BHC — and compile Haskell on a next-generation toolchain without leaving the workflow you already know.
 
 > **Using GHC?** See [STACKAGE.md](./STACKAGE.md) for Stackage snapshot support.
 

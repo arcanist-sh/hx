@@ -1,6 +1,6 @@
-# Stackage Snapshot Support
+# Stackage Snapshots
 
-hx supports [Stackage](https://www.stackage.org/) snapshots for reproducible builds with curated, compatible package versions.
+Pin a whole dependency universe with one line. Point `hx.toml` at a [Stackage](https://www.stackage.org/) snapshot and every build resolves against a curated, known-compatible set of package versions — reproducible today and a year from now.
 
 > **Using BHC?** See [BHC_PLATFORM.md](./BHC_PLATFORM.md) for BHC Platform curated snapshots, the BHC equivalent of Stackage.
 

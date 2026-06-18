@@ -1,6 +1,6 @@
-# Cross-Compilation Support
+# Cross-Compilation
 
-hx supports cross-compilation for building Haskell projects targeting different platforms.
+Ship a Haskell binary for any target from the machine you already have. One flag — `hx build --target` — and hx handles the toolchain wiring, so building for Linux ARM from your Mac is just another build.
 
 ## Usage
 

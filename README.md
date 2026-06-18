@@ -5,8 +5,9 @@
 </h1>
 
 <p align="center">
-  <em>A fast, opinionated, batteries-included toolchain for Haskell.</em><br>
-  <em>Haskell, finally fast.</em>
+  <strong>Haskell, finally fast.</strong><br>
+  <em>One opinionated, batteries-included toolchain for Haskell.</em><br>
+  <em>Fast, unified, futuristic.</em>
 </p>
 
 <p align="center">
@@ -32,23 +33,26 @@
 
 ---
 
-hx is a modern toolchain CLI for Haskell, written in Rust. It wraps existing tools (GHC, Cabal, GHCup, HLS) in a fast, unified interface with excellent error messages and deterministic builds.
+Haskell's tooling is powerful — and scattered. Starting a project means juggling `ghcup`, `cabal`, `stack`, `fourmolu`, `hlint`, and `hpc`, each with its own flags, config, and failure modes.
 
-## Features
+**hx** collapses all of it into a single, fast binary. Written in Rust, it drives the tools you already trust behind one coherent interface — with deterministic builds, errors that tell you how to fix them, and a feedback loop quick enough to stay out of your way.
 
-- **Fast feedback loop** - Common workflows are snappy with parallel builds
-- **Deterministic builds** - Lockfile + frozen plans for reproducibility
-- **Native builds** - Direct GHC invocation without cabal for simple projects
-- **Excellent errors** - Actionable messages with fix suggestions
-- **Watch mode** - Auto-rebuild on file changes
-- **Test coverage** - Integrated hpc support with HTML reports
-- **Plugin system** - Extensible with Steel (Scheme) scripts
-- **Self-contained** - Manages GHC versions directly, no ghcup required
-- **BHC backend** - Optional [Basel Haskell Compiler](docs/BHC_PLATFORM.md) backend with curated BHC Platform snapshots
+> **One command to install. One file to configure. One tool to learn.**
 
 <div align="center">
   <img src=".github/static/demo.gif" alt="hx demo" width="600" />
 </div>
+
+## Why hx?
+
+- **Batteries included** — Build, test, run, format, lint, profile, and publish. Watch mode, coverage reports, and IDE setup. Everything in one tool.
+- **Managed toolchains** — Automatic GHC installation and per-project version pinning in `hx.toml`. No ghcup required.
+- **Deterministic builds** — TOML lockfiles with fingerprint verification. Reproducible across machines and CI — correct by construction, not by luck.
+- **Excellent errors** — Actionable messages with fix suggestions. `hx doctor` diagnoses your setup and tells you exactly what to do.
+- **Drop-in compatible** — Works with existing `.cabal` files and Hackage. Import from Stack or Cabal — your workflow stays the same, just better.
+- **Extensible** — Plugin system with Steel (Scheme), pre/post-build hooks, and Nix integration.
+- **Blazingly fast** — Native builds bypass Cabal overhead: ~5.6× faster cold builds, ~7.8× faster incremental.
+- **Futuristic** — A first-class [BHC](docs/BHC_PLATFORM.md) backend: a next-generation Haskell compiler with curated Platform snapshots.
 
 ## Installation
 
@@ -470,12 +474,14 @@ cargo run -p hx-cli -- --help
 
 ## Philosophy
 
-hx follows the [Astral](https://astral.sh/) approach:
+hx follows the [Astral](https://astral.sh/) playbook — earn trust by improving what exists before replacing any of it:
 
-1. **Wrap first** - Use existing tools (Cabal, GHC) rather than reimplementing
-2. **Tame second** - Add better UX, error messages, and workflows
-3. **Replace last** - Only replace components when truly necessary (native builds)
+1. **Wrap first** — Drive the tools you already rely on (GHC, Cabal) instead of reimplementing them.
+2. **Tame second** — Layer on better UX, error messages, and workflows until the rough edges disappear.
+3. **Replace last** — Swap in faster paths (native builds) and a next-generation compiler ([BHC](docs/BHC_PLATFORM.md)) only where they earn their place.
+
+The destination: a Haskell toolchain that's **fast, unified, and futuristic** — without asking you to throw away what already works.
 
 ## License
 
-MIT
+MIT — part of [arcanist.sh](https://arcanist.sh).

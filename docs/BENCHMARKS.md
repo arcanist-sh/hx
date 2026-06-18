@@ -1,6 +1,6 @@
-# hx Performance Benchmarks
+# Benchmarks
 
-Comprehensive performance benchmarks comparing hx against cabal and stack.
+Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal and stack across the workflows you run all day.
 
 > Note: these results were last measured with hx 0.5.0 and have not been
 > re-run for newer releases.

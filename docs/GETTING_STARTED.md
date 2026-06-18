@@ -1,12 +1,12 @@
 # Getting Started with hx Development
 
-Welcome to the hx codebase. This document will help you understand the project, its philosophy, and how to navigate the code.
+Welcome to the codebase behind **Haskell, finally fast.** This guide is for people *building* hx — the project's philosophy, its architecture, and how to find your way around the code. (Looking to *use* hx? Start at the [README](../README.md) or [docs.arcanist.sh/hx](https://docs.arcanist.sh/hx/docs/).)
 
 ---
 
 ## What is hx?
 
-**hx** is a fast, opinionated, batteries-included toolchain CLI for Haskell, written in Rust.
+**hx** is a fast, opinionated, batteries-included toolchain CLI for Haskell, written in Rust — one binary that replaces the cluster of tools a Haskell project normally bolts together (`ghcup`, `cabal`, `stack`, `fourmolu`, `hlint`, `hpc`).
 
 The name is short, memorable, and designed to feel inevitable:
 
