@@ -516,8 +516,11 @@ mod tests {
         // Library and import dirs should point to install_dir/lib
         assert!(content.contains("library-dirs:"));
         assert!(content.contains("import-dirs:"));
-        let lib_path = "/home/user/.cache/hx/store/text-2.1.0-abc123def456/lib";
-        assert!(content.contains(lib_path));
+        // Build the expected path with `join` so the separator matches the
+        // platform (generation uses join too); a hardcoded `/lib` fails on
+        // Windows where the rendered path ends in `\lib`.
+        let lib_path = Path::new("/home/user/.cache/hx/store/text-2.1.0-abc123def456").join("lib");
+        assert!(content.contains(&lib_path.display().to_string()));
     }
 
     #[test]

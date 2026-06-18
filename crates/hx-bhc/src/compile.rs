@@ -227,11 +227,27 @@ mod tests {
         assert!(args.contains(&"-c".to_string()));
         assert!(args.contains(&"src/Main.hs".to_string()));
 
-        // Output directories
+        // Output directories. Build the expected paths with `join` so the
+        // separator matches the platform (the code under test uses join too),
+        // otherwise this fails on Windows where join yields `dist/build\hi`.
         assert!(args.contains(&"--hidir".to_string()));
-        assert!(args.contains(&Path::new("dist/build/hi").to_string_lossy().to_string()));
+        assert!(
+            args.contains(
+                &Path::new("dist/build")
+                    .join("hi")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
         assert!(args.contains(&"--odir".to_string()));
-        assert!(args.contains(&Path::new("dist/build/o").to_string_lossy().to_string()));
+        assert!(
+            args.contains(
+                &Path::new("dist/build")
+                    .join("o")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
 
         // Source dirs
         assert!(args.contains(&"--import-path".to_string()));
