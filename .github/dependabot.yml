@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Keep GitHub Actions current so Node-runtime deprecations (e.g. node20 ->
+  # node24) are surfaced as PRs instead of silently drifting in CI.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
