@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-18
+
 ### Added
 - **`hx import --from stack` handles multi-package projects** - a `stack.yaml` listing local `packages:` now generates a `cabal.project` alongside `hx.toml` so hx recognizes the workspace members, instead of dropping them ([#2])
 
@@ -257,7 +259,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/arcanist-sh/hx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/arcanist-sh/hx/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/arcanist-sh/hx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/raskell-io/hx/compare/v0.4.0...v0.5.0
