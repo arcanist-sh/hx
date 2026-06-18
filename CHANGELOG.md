@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`hx import --from stack` handles multi-package projects** - a `stack.yaml` listing local `packages:` now generates a `cabal.project` alongside `hx.toml` so hx recognizes the workspace members, instead of dropping them ([#2])
+
+### Fixed
+- **`hx import --from stack` respects the explicit `compiler:` field** - it now takes precedence over the resolver-derived GHC default ([#2])
+- **`hx import --from stack` strips inline YAML comments** - trailing `# ...` annotations on extra-deps/resolver lines no longer leak into the imported version string ([#2])
+
+[#2]: https://github.com/arcanist-sh/hx/issues/2
+
 ## [0.7.0] - 2026-06-17
 
 ### Changed

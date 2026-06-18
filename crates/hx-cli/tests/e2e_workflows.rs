@@ -440,3 +440,43 @@ fn test_workflow_coverage_commands() {
         .stdout(predicate::str::contains("--json"))
         .stdout(predicate::str::contains("--threshold"));
 }
+
+// =============================================================================
+// Workflow 16: Import a multi-package Stack project
+// =============================================================================
+
+#[test]
+fn test_workflow_import_stack_multipackage() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path();
+
+    // A multi-package stack.yaml with an explicit compiler and an extra-dep
+    // carrying an inline comment (exercises the issue #2 parsing fixes).
+    fs::write(
+        dir.join("stack.yaml"),
+        "resolver: nightly-2026-03-23\n\
+         compiler: ghc-9.8.2\n\
+         packages:\n\
+         - app\n\
+         - lib\n\
+         extra-deps:\n\
+         - some-dep-1.2.3  # pin to avoid a regression\n",
+    )
+    .unwrap();
+
+    hx().current_dir(dir)
+        .args(["import", "--from", "stack"])
+        .assert()
+        .success();
+
+    // hx.toml uses the explicit compiler version, and the inline comment is
+    // stripped from the dependency version.
+    let hx_toml = fs::read_to_string(dir.join("hx.toml")).unwrap();
+    assert!(hx_toml.contains("ghc = \"9.8.2\""), "got:\n{hx_toml}");
+    assert!(hx_toml.contains("some-dep = \"1.2.3\""), "got:\n{hx_toml}");
+
+    // cabal.project is generated so hx recognizes the workspace members.
+    let cabal_project = fs::read_to_string(dir.join("cabal.project")).unwrap();
+    assert!(cabal_project.contains("./app"), "got:\n{cabal_project}");
+    assert!(cabal_project.contains("./lib"), "got:\n{cabal_project}");
+}

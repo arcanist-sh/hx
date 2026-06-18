@@ -49,23 +49,20 @@ async fn import_from_stack(path: Option<String>, output: &Output) -> Result<i32>
     }
     output.list_item("ghc version", &ghc_version);
 
-    // Local packages (other than the project root ".") need multi-package
-    // support, which import does not generate yet. Surface them instead of
-    // silently dropping them.
-    let local_packages: Vec<&String> = stack_config
-        .packages
-        .iter()
-        .filter(|p| p.as_str() != ".")
-        .collect();
-    if !local_packages.is_empty() {
-        output.warn(&format!(
-            "{} local package(s) found; multi-package projects are not imported yet",
-            local_packages.len()
-        ));
-        for pkg in &local_packages {
-            output.list_item("local package", pkg);
+    // A stack project that lists local packages maps onto an hx workspace.
+    // hx discovers workspace members from a cabal.project file, so build one
+    // (extra-deps stay pinned at the workspace root in hx.toml).
+    let cabal_project = build_cabal_project(&stack_config.packages);
+    if cabal_project.is_some() {
+        let members: Vec<&String> = stack_config
+            .packages
+            .iter()
+            .filter(|p| p.as_str() != ".")
+            .collect();
+        output.list_item("workspace packages", &members.len().to_string());
+        for pkg in &members {
+            output.list_item("package", pkg);
         }
-        output.info("Only the resolver, compiler, and extra-deps were imported");
     }
 
     // Build hx.toml content
@@ -105,10 +102,50 @@ ghc = "{}"
 
     output.status("Created", "hx.toml");
 
+    // Write cabal.project so hx recognizes the workspace members.
+    if let Some(content) = cabal_project {
+        let cabal_project_path = Path::new("cabal.project");
+        if cabal_project_path.exists() {
+            output.warn("cabal.project already exists; leaving it unchanged");
+            output.info("Ensure it lists your packages so hx detects the workspace");
+        } else {
+            fs::write(cabal_project_path, &content).context("Failed to write cabal.project")?;
+            output.status("Created", "cabal.project");
+            output.info("Imported a multi-package project; each member keeps its own .cabal");
+        }
+    }
+
     // Remind about lockfile
     output.info("Run `hx lock` to generate the lockfile");
 
     Ok(0)
+}
+
+/// Build a `cabal.project` body listing workspace members, or `None` when the
+/// stack project has no local packages beyond the root (`.`).
+///
+/// hx detects a workspace from the presence of a cabal.project file and parses
+/// its `packages:` directive. The single-line form is emitted deliberately:
+/// hx's parser only attaches continuation lines once it has seen a package on
+/// the `packages:` line itself.
+fn build_cabal_project(packages: &[String]) -> Option<String> {
+    if !packages.iter().any(|p| p != ".") {
+        return None;
+    }
+    let paths: Vec<String> = packages.iter().map(|p| normalize_package_path(p)).collect();
+    Some(format!("packages: {}\n", paths.join(" ")))
+}
+
+/// Normalize a stack package directory into a cabal.project path.
+/// Bare names are made explicitly relative (`pkg` -> `./pkg`); already-relative
+/// or absolute paths are kept as-is.
+fn normalize_package_path(path: &str) -> String {
+    let path = path.trim().trim_end_matches('/');
+    if path == "." || path.starts_with("./") || path.starts_with("../") || path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("./{path}")
+    }
 }
 
 /// Import from cabal.project.
@@ -493,5 +530,38 @@ packages:
         );
         // The resolver still maps to its GHC default when no compiler is set.
         assert_eq!(resolver_to_ghc(&config.resolver), "9.6.4");
+    }
+
+    #[test]
+    fn test_normalize_package_path() {
+        assert_eq!(normalize_package_path("hledger-lib"), "./hledger-lib");
+        assert_eq!(normalize_package_path("."), ".");
+        assert_eq!(normalize_package_path("./pkg"), "./pkg");
+        assert_eq!(normalize_package_path("../sibling"), "../sibling");
+        assert_eq!(normalize_package_path("/abs/pkg"), "/abs/pkg");
+        assert_eq!(normalize_package_path("pkg/"), "./pkg");
+    }
+
+    #[test]
+    fn test_build_cabal_project_multi_package() {
+        // A multi-package stack project becomes an hx workspace: a single-line
+        // cabal.project listing every member (relative-path normalized).
+        let packages = vec![
+            "hledger-lib".to_string(),
+            "hledger".to_string(),
+            "hledger-ui".to_string(),
+            "hledger-web".to_string(),
+        ];
+        assert_eq!(
+            build_cabal_project(&packages).as_deref(),
+            Some("packages: ./hledger-lib ./hledger ./hledger-ui ./hledger-web\n")
+        );
+    }
+
+    #[test]
+    fn test_build_cabal_project_single_package_is_none() {
+        // A lone root package (or none at all) is not a workspace.
+        assert_eq!(build_cabal_project(&[".".to_string()]), None);
+        assert_eq!(build_cabal_project(&[]), None);
     }
 }
