@@ -8,7 +8,7 @@ authors.workspace = true
 description = "Dependency resolver for Haskell packages"
 
 [dependencies]
-hx-core = { path = "../hx-core" }
+hx-core.workspace = true
 
 # Parsing
 tar = "0.4"
