@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-06-18
+
+### Fixed
+- **crates.io publishing works end to end** - `hx-solver` declared its `hx-core` dependency as path-only, which crates.io rejects on publish; this failed `hx-solver` and cascaded to every crate depending on it (`hx-cabal`, `hx-bhc`, `hx-doctor`, `hx-cli`). `hx-cli` had therefore never reached crates.io and `cargo install hx-cli` never worked. `hx-solver` now inherits the dependency from the workspace, so the full crate graph — including `hx-cli` — publishes.
+
+### Changed
+- CI: the crates.io publish job no longer hides failures behind `|| true` / `continue-on-error`. It tolerates an already-published version (idempotent re-runs) but fails the job on any real publish error, and uses the `CARGO_REGISTRY_TOKEN` environment variable instead of the deprecated `--token` flag.
+
 ## [0.7.3] - 2026-06-18
 
 ### Changed
@@ -269,7 +277,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/arcanist-sh/hx/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/arcanist-sh/hx/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/arcanist-sh/hx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/arcanist-sh/hx/compare/v0.7.0...v0.7.1
