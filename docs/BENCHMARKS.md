@@ -1,218 +1,101 @@
 # Benchmarks
 
-Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal and stack across the workflows you run all day.
+Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal across the workflows you run all day.
 
-> Note: these results were last measured with hx 0.5.0 and have not been
-> re-run for newer releases.
-
-For full benchmark documentation with methodology, see: https://arcanist.sh/hx/benchmarks/
+> **Measured with hx 0.7.5 on 2026-06-18.** Honest summary: hx's native build path is meaningfully faster than cabal on **cold builds** and **CLI startup**; it is **not** faster on no-op incremental rebuilds or `clean` (see below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
 
 ## Test Environment
 
 | Property | Value |
 |----------|-------|
-| **hx version** | 0.5.0 |
+| **hx version** | 0.7.5 |
 | **GHC version** | 9.8.2 |
 | **Cabal version** | 3.12.1.0 |
-| **Stack version** | 2.15.1 |
-| **Platform** | macOS (Apple Silicon M4) |
-| **Date** | 2026-02-02 |
+| **stack** | not measured |
+| **Platform** | macOS, Apple M4 (10-core) |
+| **Tooling** | hyperfine 1.20.0 (8–20 runs, 2–3 warmup) |
+| **Date** | 2026-06-18 |
 
-## Executive Summary
+## Results
 
-| Operation | hx | cabal | stack | hx Speedup |
-|-----------|-----|-------|-------|------------|
-| CLI startup | **12ms** | 45ms | 89ms | 3.8x / 7.4x |
-| Project init | **68ms** | 320ms | 2.1s | 4.7x / 31x |
-| Cold build (simple) | **0.48s** | 2.68s | 3.2s | 5.6x / 6.7x |
-| Incremental build | **0.05s** | 0.39s | 0.52s | 7.8x / 10.4x |
-| Clean | **8ms** | 180ms | 95ms | 22x / 12x |
+**Test project:** a simple 3-module executable (`Main.hs`, `Lib.hs`, `Utils.hs`) depending only on `base` — the case hx's native build mode targets.
 
-## CLI Startup Time
+| Operation | hx (`--native`) | cabal | Result |
+|-----------|-----------------|-------|--------|
+| CLI startup (`--help`) | **4.0 ms** | 18.0 ms | hx **4.5× faster** |
+| Cold build (clean state) | **0.45 s** | 2.02 s | hx **4.4× faster** |
+| Incremental (no changes) | 78.6 ms | **21.6 ms** | cabal 3.6× faster |
+| Clean | 31.9 ms | **17.6 ms** | cabal 1.8× faster |
 
-How fast does the tool respond to simple commands?
+### Where hx wins — and where it doesn't
 
-| Command | hx | cabal | stack |
-|---------|-----|-------|-------|
-| `--help` | 12ms | 45ms | 89ms |
-| `--version` | 8ms | 38ms | 72ms |
-
-**Why hx is faster:** hx is a native Rust binary with no runtime initialization overhead. Cabal and stack are Haskell binaries that must initialize the GHC runtime system.
-
-## Project Initialization
-
-| Tool | Time | Speedup vs hx |
-|------|------|---------------|
-| **hx init** | 68ms | — |
-| cabal init | 320ms | 4.7x slower |
-| stack new | 2.1s | 31x slower |
-
-## Build Performance
-
-**Test project:** Simple 3-module executable (Main.hs, Lib.hs, Utils.hs) with single `base` dependency.
-
-### Cold Build (Clean State)
-
-| Mode | Time | Speedup |
-|------|------|---------|
-| **hx build --native** | 0.48s | — |
-| hx build (cabal backend) | 2.52s | 5.3x slower |
-| cabal build | 2.68s | 5.6x slower |
-| stack build | 3.2s | 6.7x slower |
-
-### Incremental Build (No Changes)
-
-| Mode | Time | Speedup |
-|------|------|---------|
-| **hx build --native** | 0.05s | — |
-| hx build (cabal backend) | 0.35s | 7x slower |
-| cabal build | 0.39s | 7.8x slower |
-| stack build | 0.52s | 10.4x slower |
-
-### Incremental Build (Single File Changed)
-
-| Mode | Time | Speedup |
-|------|------|---------|
-| **hx build --native** | 0.31s | — |
-| cabal build | 1.42s | 4.6x slower |
-| stack build | 1.8s | 5.8x slower |
+- **Cold builds (≈4.4×) and CLI startup (≈4.5×) are hx's real, repeatable advantages.** The native build path constructs the module graph and invokes GHC directly, skipping cabal's package-database queries and build-plan calculation; and hx is a native Rust binary with no GHC-runtime startup cost.
+- **No-op incremental rebuilds and `clean` are _not_ faster today.** hx's native no-op spends ~74 ms hashing sources and checking its fingerprint cache, where cabal's no-op check is ~3 ms (its 21.6 ms is almost entirely process startup). This is a known gap being tracked, not a strength to advertise. Earlier published figures here (cabal "0.39 s" incremental, "180 ms" clean) appear to have been overstated, which inflated the speedups derived from them.
 
 ## Native Build Mode
 
 hx's native build mode bypasses cabal entirely for simple projects:
 
-1. **Direct GHC invocation** — constructs module graph and calls GHC directly
-2. **No cabal overhead** — no package database queries, no build plan calculation
-3. **Aggressive caching** — fingerprint-based caching with minimal I/O
-4. **Parallel compilation** — native parallel builds without cabal's job scheduling
+1. **Direct GHC invocation** — constructs the module graph and calls GHC directly
+2. **No cabal overhead** — no package-database queries, no build-plan calculation
+3. **Fingerprint caching** — content-hash-based incremental decisions
+4. **Parallel compilation** — native parallel builds
 
 ### When Native Builds Apply
 
-| Scenario | Native Build? |
-|----------|--------------|
+| Scenario | Native build? |
+|----------|---------------|
 | Single-package project | Yes |
 | Only `base` dependencies | Yes |
 | Multiple external dependencies | No (falls back to cabal) |
-| Custom Setup.hs | No |
+| Custom `Setup.hs` | No |
 | C FFI / foreign libraries | No |
 
-## Preprocessor Performance
-
-| Preprocessor | File Type | Additional Time |
-|--------------|-----------|-----------------|
-| **alex** | `.x` | ~50ms |
-| **happy** | `.y` | ~100ms |
-| **hsc2hs** | `.hsc` | ~335ms |
-| **c2hs** | `.chs` | ~280ms |
-
-## Dependency Resolution
-
-| Tool | Time | Notes |
-|------|------|-------|
-| **hx lock** | 1.2s | Native Rust solver |
-| cabal freeze | 8.5s | Full constraint solving |
-| stack lock | 0.8s | Stackage pre-computed |
-
-### Solver Scaling (Synthetic)
-
-| Packages | hx | cabal |
-|----------|-----|-------|
-| 10 | 5ms | 120ms |
-| 20 | 18ms | 450ms |
-| 50 | 85ms | 2.8s |
-| 100 | 320ms | 12.5s |
-
-## Clean Operations
-
-| Tool | Time |
-|------|------|
-| **hx clean** | 8ms |
-| cabal clean | 180ms |
-| stack clean | 95ms |
-
-## Memory Usage
-
-| Operation | hx | cabal | stack |
-|-----------|-----|-------|-------|
-| CLI startup | 8 MB | 45 MB | 85 MB |
-| Project init | 12 MB | 120 MB | 180 MB |
-| Build (simple) | 45 MB | 250 MB | 320 MB |
-| Dependency resolution | 80 MB | 450 MB | 180 MB |
-
-## Running Benchmarks
-
-### Quick Comparison
+## Reproducing These Numbers
 
 ```bash
-# Install hyperfine
+# install hyperfine
 cargo install hyperfine
 
-# Run benchmark suite
-./scripts/benchmark-comparison.sh
-```
-
-### Manual Benchmark
-
-```bash
-# Create test project
+# create the 3-module test project
 mkdir /tmp/hx-bench && cd /tmp/hx-bench
-
-cat > hx.toml << 'EOF'
-[project]
-name = "hx-bench"
-[toolchain]
-ghc = "9.8.2"
-EOF
-
-cat > hx-bench.cabal << 'EOF'
+hx init bench --name bench
+cat > bench.cabal << 'EOF'
 cabal-version: 3.0
-name: hx-bench
+name: bench
 version: 0.1.0.0
 build-type: Simple
-
-executable hx-bench
+executable bench
     main-is: Main.hs
     other-modules: Lib, Utils
     hs-source-dirs: src
     default-language: GHC2021
     build-depends: base
 EOF
+printf 'module Lib (greeting) where\ngreeting = "Hello"\n' > src/Lib.hs
+printf 'module Utils (format) where\nformat s = ">>> " ++ s ++ " <<<"\n' > src/Utils.hs
+printf 'module Main where\nimport Lib\nimport Utils\nmain = putStrLn (format greeting)\n' > src/Main.hs
 
-mkdir src
-echo 'module Main where; import Lib; import Utils; main = putStrLn (format greeting)' > src/Main.hs
-echo 'module Lib (greeting) where; greeting = "Hello"' > src/Lib.hs
-echo 'module Utils (format) where; format s = ">>> " ++ s ++ " <<<"' > src/Utils.hs
+# cold build (clean before each run)
+hyperfine --warmup 1 --prepare 'rm -rf .hx dist-newstyle' 'hx build --native' 'cabal build'
 
-# Benchmark cold build
-rm -rf .hx dist-newstyle
-hyperfine --warmup 2 'hx build --native' 'cabal build'
-
-# Benchmark incremental
-hyperfine --warmup 2 'hx build --native' 'cabal build'
+# incremental (no changes) — warm up first
+hx build --native && cabal build
+hyperfine --warmup 3 'hx build --native' 'cabal build'
 ```
 
-### Criterion Benchmarks
+> Note: `scripts/benchmark-comparison.sh` mis-quotes commands passed to hyperfine and currently fails; prefer the direct invocations above until it's fixed.
 
-```bash
-# Solver benchmarks
-cargo bench -p hx-solver
+## Not Re-Measured for 0.7.5
 
-# CLI benchmarks
-cargo bench -p hx-cli
+The following were measured at 0.5.0 but **have not been re-run** for 0.7.5, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, dependency-resolution/solver scaling, and memory usage. Contributions welcome.
 
-# View HTML reports
-open target/criterion/report/index.html
-```
+## Historical Results (cold build)
 
-## Historical Results
-
-| Version | Date | Native Cold | Cabal Cold | Speedup |
-|---------|------|-------------|------------|---------|
-| 0.5.0 | 2026-02-02 | 0.48s | 2.68s | 5.6x |
-| 0.4.0 | 2026-01-18 | 0.48s | 2.68s | 5.6x |
-| 0.3.6 | 2026-01-17 | 0.48s | 2.68s | 5.6x |
-| 0.3.0 | 2026-01-10 | 0.52s | 2.68s | 5.2x |
-| 0.2.0 | 2025-12-15 | 0.61s | 2.70s | 4.4x |
+| Version | Date | hx `--native` | cabal | Speedup | Source |
+|---------|------|---------------|-------|---------|--------|
+| 0.7.5 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
+| 0.5.0 | 2026-02-02 | 0.48 s | 2.68 s | 5.6× | unverified (not reproduced) |
 
 ## Contributing Benchmarks
 
