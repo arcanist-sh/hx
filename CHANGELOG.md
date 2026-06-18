@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-06-18
+
+### Changed
+- CI: release workflow actions bumped to their Node 24 majors (`upload-artifact` v7, `download-artifact` v8, `action-gh-release` v3) to clear Node 20 deprecation warnings; added a grouped GitHub Actions Dependabot config so future runtime deprecations surface as PRs.
+
 ## [0.7.2] - 2026-06-18
 
 ### Changed
@@ -264,7 +269,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/arcanist-sh/hx/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/arcanist-sh/hx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/arcanist-sh/hx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/arcanist-sh/hx/compare/v0.6.0...v0.7.0
