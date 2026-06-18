@@ -22,9 +22,9 @@
 </p>
 
 <p align="center">
-  <a href="https://hx.raskell.io/docs/">Documentation</a> •
-  <a href="https://hx.raskell.io/features/">Features</a> •
-  <a href="https://hx.raskell.io/benchmarks/">Benchmarks</a> •
+  <a href="https://docs.arcanist.sh/hx/docs/">Documentation</a> •
+  <a href="https://arcanist.sh/hx/features/">Features</a> •
+  <a href="https://arcanist.sh/hx/benchmarks/">Benchmarks</a> •
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -56,10 +56,10 @@ hx is a modern toolchain CLI for Haskell, written in Rust. It wraps existing too
 
 ```bash
 # macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/raskell-io/hx/main/install.sh | sh
+curl -fsSL https://arcanist.sh/hx/install.sh | sh
 
 # Or download from releases
-https://github.com/raskell-io/hx/releases
+https://github.com/arcanist-sh/hx/releases
 ```
 
 ### Windows
@@ -71,7 +71,7 @@ winget install raskell-io.hx
 ### From source
 
 ```bash
-cargo install --git https://github.com/raskell-io/hx hx-cli
+cargo install --git https://github.com/arcanist-sh/hx hx-cli
 ```
 
 ### Verify installation

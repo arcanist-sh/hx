@@ -181,7 +181,7 @@ Documentation improvements can be submitted directly as PRs. No issue required.
 
 ```bash
 # Clone the repository
-git clone https://github.com/raskell-io/hx.git
+git clone https://github.com/arcanist-sh/hx.git
 cd hx
 
 # Install Rust (if needed)

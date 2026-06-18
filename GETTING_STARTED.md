@@ -15,7 +15,7 @@ You need either:
 **macOS/Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/raskell-io/hx/main/install.sh | sh
+curl -fsSL https://arcanist.sh/hx/install.sh | sh
 ```
 
 **Windows:**
@@ -27,7 +27,7 @@ winget install raskell-io.hx
 **From source (requires Rust):**
 
 ```bash
-cargo install --git https://github.com/raskell-io/hx hx-cli
+cargo install --git https://github.com/arcanist-sh/hx hx-cli
 ```
 
 ### Verify Installation

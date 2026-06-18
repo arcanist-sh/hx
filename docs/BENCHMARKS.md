@@ -5,7 +5,7 @@ Comprehensive performance benchmarks comparing hx against cabal and stack.
 > Note: these results were last measured with hx 0.5.0 and have not been
 > re-run for newer releases.
 
-For full benchmark documentation with methodology, see: https://hx.raskell.io/benchmarks/
+For full benchmark documentation with methodology, see: https://arcanist.sh/hx/benchmarks/
 
 ## Test Environment
 
@@ -222,4 +222,4 @@ We welcome benchmark contributions:
 2. Suggest new benchmark scenarios
 3. Report unexpected performance regressions
 
-Submit results: [GitHub Issues](https://github.com/raskell-io/hx/issues)
+Submit results: [GitHub Issues](https://github.com/arcanist-sh/hx/issues)

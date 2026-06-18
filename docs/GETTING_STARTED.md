@@ -20,7 +20,7 @@ hx doctor      # Diagnose issues
 
 hx aims to eliminate "Haskell setup hell" by providing a single tool that handles toolchains, dependencies, building, formatting, linting, and IDE integration.
 
-> **Note**: This document is for **developers contributing to hx**. If you're looking for user documentation on how to use hx, visit **[hx.raskell.io/docs](https://hx.raskell.io/docs/)**.
+> **Note**: This document is for **developers contributing to hx**. If you're looking for user documentation on how to use hx, visit **[docs.arcanist.sh/hx/docs](https://docs.arcanist.sh/hx/docs/)**.
 
 ---
 
@@ -208,7 +208,7 @@ See [`.claude/rules/errors.md`](../.claude/rules/errors.md) for the full error U
 
 ```bash
 # Clone
-git clone https://github.com/raskell-io/hx.git
+git clone https://github.com/arcanist-sh/hx.git
 cd hx
 
 # Build
@@ -322,9 +322,9 @@ For end-user documentation on how to use hx, visit the official docs site:
 
 | Resource | URL |
 |----------|-----|
-| **Documentation** | [hx.raskell.io/docs](https://hx.raskell.io/docs/) |
-| **Features** | [hx.raskell.io/features](https://hx.raskell.io/features/) |
-| **Benchmarks** | [hx.raskell.io/benchmarks](https://hx.raskell.io/benchmarks/) |
+| **Documentation** | [docs.arcanist.sh/hx/docs](https://docs.arcanist.sh/hx/docs/) |
+| **Features** | [arcanist.sh/hx/features](https://arcanist.sh/hx/features/) |
+| **Benchmarks** | [arcanist.sh/hx/benchmarks](https://arcanist.sh/hx/benchmarks/) |
 
 ### Project-Level (Developer)
 
@@ -386,8 +386,8 @@ Browse them at `crates/<name>/docs/README.md`.
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/raskell-io/hx/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/raskell-io/hx/discussions)
+- **Issues**: [GitHub Issues](https://github.com/arcanist-sh/hx/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/arcanist-sh/hx/discussions)
 - **Discord**: [raskell.io Discord](https://discord.gg/raskell)
 
 Welcome to hx. We're glad you're here.

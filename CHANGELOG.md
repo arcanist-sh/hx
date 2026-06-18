@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-18
+
+### Changed
+- Refreshed documentation and install links from the legacy `raskell.io` / `raskell-io` brand to the current `arcanist.sh` domains and `arcanist-sh` GitHub org (README, getting-started, benchmarks, contributing, and the crate `repository` metadata). Package-manager identifiers that are still published under the old namespace (e.g. the WinGet package) are left unchanged.
+
 ## [0.7.1] - 2026-06-18
 
 ### Added
@@ -259,7 +264,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/arcanist-sh/hx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/arcanist-sh/hx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/arcanist-sh/hx/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/arcanist-sh/hx/compare/v0.5.0...v0.6.0
