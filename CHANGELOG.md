@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`hx new cli` and `hx new library` now compile.** Both templates were generated with code that failed to build: a `String`/`Text` mismatch in the CLI greeting (missing `OverloadedStrings`, bogus `toText = id`) and `deriving stock (...)` without the `DerivingStrategies` extension. Surfaced by the new real-world build job.
+- **No more "Unable to create steel home directory" warning** on minimal machines: the plugin runtime now ensures the platform data directory exists before initializing Steel.
+
 ## [0.7.8] - 2026-06-19
 
 ### Added

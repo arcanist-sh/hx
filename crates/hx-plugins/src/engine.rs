@@ -50,9 +50,23 @@ pub struct SteelEngine {
     config: PluginConfig,
 }
 
+/// Ensure the platform data directory exists before Steel initializes.
+///
+/// Steel's `Engine::new()` creates its home directory (e.g.
+/// `~/.local/share/steel`). On minimal environments the parent XDG data
+/// directory may be missing, producing a noisy "Unable to create steel home
+/// directory" warning on every invocation. Creating it first keeps startup
+/// quiet; failures are ignored (Steel falls back to its own handling).
+fn ensure_steel_home() {
+    if let Some(dirs) = directories::BaseDirs::new() {
+        let _ = std::fs::create_dir_all(dirs.data_local_dir());
+    }
+}
+
 impl SteelEngine {
     /// Create a new Steel engine with the given configuration.
     pub fn new(config: PluginConfig) -> Self {
+        ensure_steel_home();
         SteelEngine {
             engine: Engine::new(),
             loaded_plugins: Vec::new(),
@@ -139,6 +153,7 @@ fn engine_call_function(engine: &mut Engine, name: &str) -> Result<()> {
 
 /// Create a fresh engine with the hx API and prelude loaded.
 fn new_initialized_engine() -> Result<Engine> {
+    ensure_steel_home();
     let mut engine = Engine::new();
     crate::api::register_all(&mut engine)?;
     engine

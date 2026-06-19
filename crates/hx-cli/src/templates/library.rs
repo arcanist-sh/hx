@@ -178,7 +178,9 @@ This project was generated with `hx new library`.
 MIT License - see LICENSE file.
 "#;
 
-const LIB_HS: &str = r#"-- |
+const LIB_HS: &str = r#"{-# LANGUAGE OverloadedStrings #-}
+
+-- |
 -- Module      : {{module_name}}
 -- Copyright   : (c) {{year}} {{author}}
 -- License     : MIT
@@ -218,7 +220,9 @@ example :: Text -> Result
 example input = processInternal ("Hello, " <> input <> "!")
 "#;
 
-const INTERNAL_HS: &str = r#"-- |
+const INTERNAL_HS: &str = r#"{-# LANGUAGE DerivingStrategies #-}
+
+-- |
 -- Module      : {{module_name}}.Internal
 -- Copyright   : (c) {{year}} {{author}}
 -- License     : MIT

@@ -152,7 +152,9 @@ main :: IO ()
 main = run
 "#;
 
-const CLI_HS: &str = r#"-- | Command-line interface definition
+const CLI_HS: &str = r#"{-# LANGUAGE DerivingStrategies #-}
+
+-- | Command-line interface definition
 module Cli
     ( run
     , Options(..)
@@ -225,20 +227,20 @@ greetCommand = Greet
         )
 "#;
 
-const APP_HS: &str = r#"-- | Application logic
+const APP_HS: &str = r#"{-# LANGUAGE OverloadedStrings #-}
+
+-- | Application logic
 module App
     ( greet
     , showVersion
     ) where
 
-import Data.Text (Text)
+import Data.Text (pack)
 import qualified Data.Text.IO as T
 
 -- | Print a greeting
 greet :: String -> IO ()
-greet name = T.putStrLn $ "Hello, " <> toText name <> "!"
-  where
-    toText = id  -- In real app, convert properly
+greet name = T.putStrLn $ "Hello, " <> pack name <> "!"
 
 -- | Show version information
 showVersion :: IO ()
