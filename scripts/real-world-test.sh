@@ -88,6 +88,37 @@ if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
   done
 fi
 
+# --- Scenario: daily-driver commands on a real project ---------------------
+# Runs against a scaffolded cli project (real Hackage dependencies) to cover
+# the commands a user touches every day, beyond `new`/`build`.
+if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
+  CMDS="$WORK/hxrw-cmds"
+  ( cd "$WORK" && "$HX" new cli hxrw-cmds >/dev/null 2>&1 ) || true
+
+  run "cmd: check"        bash -c "cd '$CMDS' && '$HX' check"
+  run "cmd: add"          bash -c "cd '$CMDS' && '$HX' add containers"
+  run "cmd: build (+dep)" bash -c "cd '$CMDS' && '$HX' build"
+  run "cmd: lock"         bash -c "cd '$CMDS' && '$HX' lock"
+  run "cmd: sync"         bash -c "cd '$CMDS' && '$HX' sync"
+  run "cmd: tree"         bash -c "cd '$CMDS' && '$HX' tree"
+  run "cmd: outdated"     bash -c "cd '$CMDS' && '$HX' outdated"
+  run "cmd: publish-dry"  bash -c "cd '$CMDS' && '$HX' publish --dry-run"
+
+  # fmt/lint need fourmolu/hlint; skip (not fail) when they aren't installed.
+  if command -v fourmolu >/dev/null 2>&1; then
+    run "cmd: fmt"        bash -c "cd '$CMDS' && '$HX' fmt"
+  else
+    echo "SKIP: cmd: fmt (fourmolu not installed)"
+    SKIP=$((SKIP + 1)); RESULTS+=("SKIP  cmd: fmt (no fourmolu)")
+  fi
+  if command -v hlint >/dev/null 2>&1; then
+    run "cmd: lint"       bash -c "cd '$CMDS' && '$HX' lint"
+  else
+    echo "SKIP: cmd: lint (hlint not installed)"
+    SKIP=$((SKIP + 1)); RESULTS+=("SKIP  cmd: lint (no hlint)")
+  fi
+fi
+
 # --- Summary ---------------------------------------------------------------
 echo
 echo "==================== real-world results ===================="
