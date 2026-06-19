@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-06-19
+
+### Performance
+- **`hx clean` is ~8.6× faster.** It was spinning up the plugin (Steel) runtime on every invocation even when no clean hooks were configured, which dominated an operation that is just `rm -rf .hx`. Plugin init is now gated on configured pre/post-clean hooks: 31.9 ms → 3.7 ms (now ~4.8× faster than `cabal clean`, previously slower). With this, hx is faster than cabal on all four measured operations.
+
+### Fixed
+- `scripts/benchmark-comparison.sh` wrapped each command in single quotes before passing it to hyperfine, so every benchmark failed with exit 127. The quoting is corrected so the script runs.
+
 ## [0.7.6] - 2026-06-19
 
 ### Performance
@@ -289,7 +297,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.7...HEAD
+[0.7.7]: https://github.com/arcanist-sh/hx/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/arcanist-sh/hx/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/arcanist-sh/hx/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/arcanist-sh/hx/compare/v0.7.3...v0.7.4

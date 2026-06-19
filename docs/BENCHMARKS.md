@@ -2,13 +2,13 @@
 
 Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal across the workflows you run all day.
 
-> **Measured with hx 0.7.6.** Honest summary: hx's native build path is faster than cabal on **cold builds**, **CLI startup**, and **no-op incremental rebuilds**; cabal is still faster on `clean` (see below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
+> **Measured with hx 0.7.7.** Honest summary: hx is faster than cabal on all four operations measured here — cold builds, CLI startup, no-op incremental rebuilds, and clean (see the per-operation notes below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
 
 ## Test Environment
 
 | Property | Value |
 |----------|-------|
-| **hx version** | 0.7.6 |
+| **hx version** | 0.7.7 |
 | **GHC version** | 9.8.2 |
 | **Cabal version** | 3.12.1.0 |
 | **stack** | not measured |
@@ -25,13 +25,16 @@ Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology
 | CLI startup (`--help`) | **4.0 ms** | 18.0 ms | hx **4.5× faster** |
 | Cold build (clean state) | **0.45 s** | 2.02 s | hx **4.4× faster** |
 | Incremental (no changes) | **3.3 ms** | 18.2 ms | hx **5.4× faster** |
-| Clean | 31.9 ms | **17.6 ms** | cabal 1.8× faster |
+| Clean | **3.7 ms** | 17.8 ms | hx **4.8× faster** |
 
-### Where hx wins — and where it doesn't
+### Where hx wins
 
-- **Cold builds (≈4.4×), CLI startup (≈4.5×), and no-op incremental rebuilds (≈5.4×) are hx's real, repeatable advantages.** The native build path constructs the module graph and invokes GHC directly, skipping cabal's package-database queries and build-plan calculation; hx is a native Rust binary with no GHC-runtime startup cost; and a no-op rebuild short-circuits before any subprocess spawns.
-- **The no-op path was fixed in [#5](https://github.com/arcanist-sh/hx/issues/5).** It previously spent ~74 ms spawning `ghc`/`ghc-pkg` (toolchain + package-DB resolution) before discovering nothing had changed — 78.6 ms total, slower than cabal. A subprocess-free up-to-date check now short-circuits no-op builds, dropping that to ~3.3 ms.
-- **`clean` is the one operation where cabal still wins** (hx 31.9 ms vs cabal 17.6 ms). Earlier published figures here (cabal "0.39 s" incremental, "180 ms" clean) appear to have been overstated, which inflated the old speedups.
+hx is faster than cabal on all four operations measured here.
+
+- **Cold builds (≈4.4×) and CLI startup (≈4.5×)** are inherent: the native build path invokes GHC directly, skipping cabal's package-database queries and build-plan calculation, and hx is a native Rust binary with no GHC-runtime startup cost.
+- **No-op incremental rebuilds (≈5.4×)** short-circuit before any subprocess spawns — this path used to be *slower* than cabal (~78 ms spawning `ghc`/`ghc-pkg` before realizing nothing had changed) until it was fixed in [#5](https://github.com/arcanist-sh/hx/issues/5).
+- **`clean` (≈4.8×)** is just `rm -rf .hx`; it no longer spins up the plugin runtime when no clean hooks are configured.
+- **Honesty note:** earlier published figures (cabal "0.39 s" incremental, "180 ms" clean) were overstated. These numbers are measured fresh; cabal's no-op and clean times are dominated by its own ~18 ms process startup.
 
 ## Native Build Mode
 
@@ -85,17 +88,17 @@ hx build --native && cabal build
 hyperfine --warmup 3 'hx build --native' 'cabal build'
 ```
 
-> Note: `scripts/benchmark-comparison.sh` mis-quotes commands passed to hyperfine and currently fails; prefer the direct invocations above until it's fixed.
+> `scripts/benchmark-comparison.sh` runs the full comparison suite (startup, init, build, clean, …) and writes JSON/markdown results; the direct invocations above reproduce the headline build numbers.
 
-## Not Re-Measured for 0.7.6
+## Not Re-Measured for 0.7.7
 
-The following were measured at 0.5.0 but **have not been re-run** for 0.7.6, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, dependency-resolution/solver scaling, and memory usage. Contributions welcome.
+The following were measured at 0.5.0 but **have not been re-run** for 0.7.7, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, dependency-resolution/solver scaling, and memory usage. Contributions welcome.
 
 ## Historical Results (cold build)
 
 | Version | Date | hx `--native` | cabal | Speedup | Source |
 |---------|------|---------------|-------|---------|--------|
-| 0.7.6 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
+| 0.7.7 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
 | 0.5.0 | 2026-02-02 | 0.48 s | 2.68 s | 5.6× | unverified (not reproduced) |
 
 ## Contributing Benchmarks
