@@ -351,8 +351,12 @@ pub fn find_all_main_modules(graph: &ModuleGraph) -> Vec<String> {
 pub struct ModuleState {
     /// SHA256 hash of the source file content
     pub source_hash: String,
-    /// Modification time (unix timestamp)
+    /// Modification time (nanoseconds since the Unix epoch)
     pub mtime: u64,
+    /// Source file size in bytes. Together with `mtime` this is a cheap
+    /// change signal that lets us skip hashing unchanged files.
+    #[serde(default)]
+    pub size: u64,
     /// Hash of interface files this module depends on
     pub deps_hash: String,
     /// Last successful compile timestamp
@@ -447,17 +451,27 @@ impl BuildState {
             return true;
         }
 
-        // Check if source file changed
-        match compute_file_hash(source_path) {
-            Ok(hash) if hash != state.source_hash => {
-                debug!("Module {} needs rebuild: source changed", module_name);
-                return true;
+        // Check if the source file changed.
+        //
+        // Fast path: a `stat` (mtime + size) is microseconds; hashing reads
+        // the whole file. If both mtime and size match the recorded values,
+        // the source is unchanged and we skip hashing entirely. Only when
+        // they differ do we fall back to a content hash — so a `touch`
+        // (mtime bumped, identical content) still avoids a needless recompile.
+        let unchanged_by_metadata = file_meta(source_path)
+            .is_some_and(|(mtime, size)| mtime == state.mtime && size == state.size);
+        if !unchanged_by_metadata {
+            match compute_file_hash(source_path) {
+                Ok(hash) if hash != state.source_hash => {
+                    debug!("Module {} needs rebuild: source changed", module_name);
+                    return true;
+                }
+                Err(_) => {
+                    debug!("Module {} needs rebuild: cannot hash source", module_name);
+                    return true;
+                }
+                _ => {}
             }
-            Err(_) => {
-                debug!("Module {} needs rebuild: cannot hash source", module_name);
-                return true;
-            }
-            _ => {}
         }
 
         // Check if any dependency was recompiled more recently
@@ -473,15 +487,7 @@ impl BuildState {
     /// Update state for a successfully compiled module.
     pub fn mark_compiled(&mut self, module_name: &str, source_path: &Path, deps: &[String]) {
         let source_hash = compute_file_hash(source_path).unwrap_or_default();
-        let mtime = source_path
-            .metadata()
-            .and_then(|m| m.modified())
-            .map(|t| {
-                t.duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
+        let (mtime, size) = file_meta(source_path).unwrap_or((0, 0));
         let deps_hash = compute_deps_hash(deps, &self.modules);
         let compiled_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -493,6 +499,7 @@ impl BuildState {
             ModuleState {
                 source_hash,
                 mtime,
+                size,
                 deps_hash,
                 compiled_at,
             },
@@ -506,6 +513,19 @@ fn compute_file_hash(path: &Path) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(&content);
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Cheap source-change signal: `(mtime_nanos, size_bytes)` from a single
+/// `stat`. Used to skip hashing files that haven't changed.
+fn file_meta(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos() as u64;
+    Some((mtime, meta.len()))
 }
 
 /// Compute hash of module dependencies.
@@ -998,33 +1018,14 @@ impl NativeBuilder {
         let mut build_state = BuildState::load(project_root).unwrap_or_default();
         let flags_hash = compute_flags_hash(&options);
 
-        // Determine which modules need recompilation
-        let modules_needing_rebuild: HashSet<String> = graph
-            .modules
-            .iter()
-            .filter(|(name, info)| {
-                let deps = graph
-                    .dependencies
-                    .get(*name)
-                    .map(|d| d.as_slice())
-                    .unwrap_or(&[]);
-                build_state.needs_rebuild(
-                    name,
-                    &info.path,
-                    deps,
-                    &self.ghc.version,
-                    &flags_hash,
-                    &output_dir,
-                )
-            })
-            .map(|(name, _)| name.clone())
-            .collect();
-
-        // If a module needs rebuild, all its dependents also need rebuild
-        let mut all_rebuild: HashSet<String> = modules_needing_rebuild.clone();
-        for module_name in &modules_needing_rebuild {
-            collect_dependents(&graph, module_name, &mut all_rebuild);
-        }
+        // Determine which modules need recompilation (and their dependents).
+        let all_rebuild = compute_rebuild_set(
+            &graph,
+            &build_state,
+            &self.ghc.version,
+            &flags_hash,
+            &output_dir,
+        );
 
         let rebuild_count = all_rebuild.len();
         let skip_count = module_count - rebuild_count;
@@ -1612,6 +1613,63 @@ fn parse_ghc_output(output: &CommandOutput) -> (Vec<String>, Vec<String>) {
 }
 
 /// Collect all modules that depend on a given module (transitively).
+/// Compute the set of modules that need recompilation, including the
+/// dependents of any changed module. Shared by the incremental build and the
+/// no-op short-circuit so the two can never disagree about staleness.
+fn compute_rebuild_set(
+    graph: &ModuleGraph,
+    build_state: &BuildState,
+    ghc_version: &str,
+    flags_hash: &str,
+    output_dir: &Path,
+) -> HashSet<String> {
+    let modules_needing_rebuild: HashSet<String> = graph
+        .modules
+        .iter()
+        .filter(|(name, info)| {
+            let deps = graph
+                .dependencies
+                .get(*name)
+                .map(|d| d.as_slice())
+                .unwrap_or(&[]);
+            build_state.needs_rebuild(name, &info.path, deps, ghc_version, flags_hash, output_dir)
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    let mut all_rebuild: HashSet<String> = modules_needing_rebuild.clone();
+    for module_name in &modules_needing_rebuild {
+        collect_dependents(graph, module_name, &mut all_rebuild);
+    }
+    all_rebuild
+}
+
+/// Cheap, subprocess-free check of whether a native build is already up to
+/// date — every module's output exists and no source has changed. This lets
+/// the CLI skip GHC/ghc-pkg toolchain resolution entirely on a no-op rebuild
+/// (those subprocess spawns dominate the cost of an otherwise empty build).
+pub fn native_build_up_to_date(
+    project_root: &Path,
+    src_dirs: &[PathBuf],
+    output_dir: &Path,
+    ghc_version: &str,
+    flags_hash: &str,
+) -> bool {
+    // Projects with preprocessor inputs (.x/.y/.hsc/.chs) need generated
+    // sources; don't fast-path those — let the full build produce them.
+    if !crate::preprocessor::detect_preprocessors(src_dirs).is_empty() {
+        return false;
+    }
+    let graph = match build_module_graph(src_dirs) {
+        Ok(g) if !g.modules.is_empty() => g,
+        _ => return false,
+    };
+    let Some(build_state) = BuildState::load(project_root) else {
+        return false;
+    };
+    compute_rebuild_set(&graph, &build_state, ghc_version, flags_hash, output_dir).is_empty()
+}
+
 fn collect_dependents(graph: &ModuleGraph, module: &str, dependents: &mut HashSet<String>) {
     for (name, deps) in &graph.dependencies {
         if deps.contains(&module.to_string()) && !dependents.contains(name) {
@@ -1923,6 +1981,74 @@ mod tests {
         assert_eq!(options.optimization, 1);
         assert!(options.warnings);
         assert!(!options.werror);
+    }
+
+    #[test]
+    fn test_native_build_up_to_date_fast_path() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        let main_path = src_dir.join("Main.hs");
+        fs::write(
+            &main_path,
+            "module Main where\nmain :: IO ()\nmain = pure ()\n",
+        )
+        .unwrap();
+
+        // Pretend Main was already compiled: its output files exist...
+        let output_dir = root.join(".hx/native-build");
+        fs::create_dir_all(output_dir.join("o")).unwrap();
+        fs::create_dir_all(output_dir.join("hi")).unwrap();
+        fs::write(output_dir.join("o").join("Main.o"), b"").unwrap();
+        fs::write(output_dir.join("hi").join("Main.hi"), b"").unwrap();
+
+        // ...and its state is recorded (hash + mtime + size, via mark_compiled).
+        let mut state = BuildState {
+            ghc_version: "9.8.2".to_string(),
+            flags_hash: "flags".to_string(),
+            modules: HashMap::new(),
+        };
+        state.mark_compiled("Main", &main_path, &[]);
+        state.save(root).unwrap();
+
+        // Nothing changed -> up to date (taken via the mtime/size fast path).
+        assert!(native_build_up_to_date(
+            root,
+            &[src_dir.clone()],
+            &output_dir,
+            "9.8.2",
+            "flags"
+        ));
+
+        // Source changed -> mtime/size differ -> content hash differs -> rebuild.
+        fs::write(
+            &main_path,
+            "module Main where\nmain :: IO ()\nmain = print 42\n",
+        )
+        .unwrap();
+        assert!(!native_build_up_to_date(
+            root,
+            &[src_dir.clone()],
+            &output_dir,
+            "9.8.2",
+            "flags"
+        ));
+
+        // A different GHC version invalidates even if content matches.
+        fs::write(
+            &main_path,
+            "module Main where\nmain :: IO ()\nmain = pure ()\n",
+        )
+        .unwrap();
+        assert!(!native_build_up_to_date(
+            root,
+            &[src_dir],
+            &output_dir,
+            "9.10.1",
+            "flags"
+        ));
     }
 
     #[test]

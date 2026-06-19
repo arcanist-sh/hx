@@ -2,7 +2,10 @@
 
 use anyhow::Result;
 use hx_cabal::build::{self as cabal_build, BuildOptions};
-use hx_cabal::native::{GhcConfig, NativeBuildOptions, NativeBuilder, packages_from_lockfile};
+use hx_cabal::native::{
+    GhcConfig, NativeBuildOptions, NativeBuilder, compute_flags_hash, native_build_up_to_date,
+    packages_from_lockfile,
+};
 use hx_cache::{BuildState, StoreIndex, compute_source_fingerprint, save_source_fingerprint};
 use hx_config::{CompilerBackend, Project, find_project_root};
 use hx_lock::Lockfile;
@@ -403,24 +406,8 @@ async fn run_native_build(
         .cloned()
         .unwrap_or_else(|| PathBuf::from("ghc"));
 
-    // Auto-detect GHC config with package databases using the detected path
-    let mut ghc_config = match GhcConfig::detect_with_path(&ghc_path).await {
-        Ok(config) => config,
-        Err(_) => GhcConfig {
-            ghc_path,
-            version: ghc_version.clone(),
-            package_dbs: vec![],
-            packages: vec![],
-            resolved_packages: vec![],
-        },
-    };
-
-    // Get packages from lockfile if it exists
-    let lockfile_path = project.lockfile_path();
-    let packages = packages_from_lockfile(&lockfile_path);
-    ghc_config = ghc_config.with_packages(packages);
-
-    // Get build config from manifest
+    // Build the native options first — they don't depend on toolchain
+    // resolution, so we can use them for a cheap up-to-date check.
     let build_config = &project.manifest.build;
 
     // Determine optimization level
@@ -458,6 +445,46 @@ async fn run_native_build(
         native_linking: true, // Enable native linking with resolved packages
         target,               // Cross-compilation target
     };
+
+    // Fast path: if nothing has changed, skip toolchain resolution entirely.
+    // Detecting GHC and querying ghc-pkg spawns several subprocesses that
+    // dominate the cost of an otherwise no-op build.
+    let abs_src_dirs: Vec<PathBuf> = native_options
+        .src_dirs
+        .iter()
+        .map(|d| project.root.join(d))
+        .filter(|p| p.exists())
+        .collect();
+    let output_dir = project.root.join(&native_options.output_dir);
+    let flags_hash = compute_flags_hash(&native_options);
+    if native_build_up_to_date(
+        &project.root,
+        &abs_src_dirs,
+        &output_dir,
+        &ghc_version,
+        &flags_hash,
+    ) {
+        output.status("Building", &format!("{} (native)", project.name()));
+        output.status("Finished", "up to date");
+        return Ok(0);
+    }
+
+    // Something changed — resolve the toolchain and package databases.
+    let mut ghc_config = match GhcConfig::detect_with_path(&ghc_path).await {
+        Ok(config) => config,
+        Err(_) => GhcConfig {
+            ghc_path,
+            version: ghc_version.clone(),
+            package_dbs: vec![],
+            packages: vec![],
+            resolved_packages: vec![],
+        },
+    };
+
+    // Get packages from lockfile if it exists
+    let lockfile_path = project.lockfile_path();
+    let packages = packages_from_lockfile(&lockfile_path);
+    ghc_config = ghc_config.with_packages(packages);
 
     // Create builder and run
     let builder = NativeBuilder::new(ghc_config);
