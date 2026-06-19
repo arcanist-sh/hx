@@ -138,9 +138,9 @@ benchmark_with_hyperfine() {
 echo -e "${GREEN}=== Benchmark 1: CLI Startup Time ===${NC}"
 echo ""
 
-STARTUP_CMDS=("'hx --help'")
-[[ "$HAS_CABAL" == "yes" ]] && STARTUP_CMDS+=("'cabal --help'")
-[[ "$HAS_STACK" == "yes" ]] && STARTUP_CMDS+=("'stack --help'")
+STARTUP_CMDS=("hx --help")
+[[ "$HAS_CABAL" == "yes" ]] && STARTUP_CMDS+=("cabal --help")
+[[ "$HAS_STACK" == "yes" ]] && STARTUP_CMDS+=("stack --help")
 
 benchmark_with_hyperfine "startup" "${STARTUP_CMDS[@]}"
 
@@ -151,9 +151,9 @@ benchmark_with_hyperfine "startup" "${STARTUP_CMDS[@]}"
 echo -e "${GREEN}=== Benchmark 2: Version Check ===${NC}"
 echo ""
 
-VERSION_CMDS=("'hx --version'")
-[[ "$HAS_CABAL" == "yes" ]] && VERSION_CMDS+=("'cabal --version'")
-[[ "$HAS_STACK" == "yes" ]] && VERSION_CMDS+=("'stack --version'")
+VERSION_CMDS=("hx --version")
+[[ "$HAS_CABAL" == "yes" ]] && VERSION_CMDS+=("cabal --version")
+[[ "$HAS_STACK" == "yes" ]] && VERSION_CMDS+=("stack --version")
 
 benchmark_with_hyperfine "version" "${VERSION_CMDS[@]}"
 
@@ -166,18 +166,18 @@ echo ""
 
 # hx init
 HX_INIT_DIR="$BENCH_DIR/hx-init-test"
-INIT_CMDS=("'rm -rf $HX_INIT_DIR && hx init --name hx-init-test $HX_INIT_DIR'")
+INIT_CMDS=("rm -rf $HX_INIT_DIR && hx init --name hx-init-test $HX_INIT_DIR")
 
 # cabal init
 if [[ "$HAS_CABAL" == "yes" ]]; then
     CABAL_INIT_DIR="$BENCH_DIR/cabal-init-test"
-    INIT_CMDS+=("'rm -rf $CABAL_INIT_DIR && mkdir -p $CABAL_INIT_DIR && cd $CABAL_INIT_DIR && cabal init --non-interactive --package-name=cabal-init-test --no-comments'")
+    INIT_CMDS+=("rm -rf $CABAL_INIT_DIR && mkdir -p $CABAL_INIT_DIR && cd $CABAL_INIT_DIR && cabal init --non-interactive --package-name=cabal-init-test --no-comments")
 fi
 
 # stack new
 if [[ "$HAS_STACK" == "yes" ]]; then
     STACK_INIT_DIR="$BENCH_DIR/stack-init-test"
-    INIT_CMDS+=("'rm -rf $STACK_INIT_DIR && cd $BENCH_DIR && stack new stack-init-test simple --resolver=lts-22.7'")
+    INIT_CMDS+=("rm -rf $STACK_INIT_DIR && cd $BENCH_DIR && stack new stack-init-test simple --resolver=lts-22.7")
 fi
 
 benchmark_with_hyperfine "init" "${INIT_CMDS[@]}"
@@ -211,8 +211,8 @@ echo ""
 
 # Cold build comparison
 echo "Cold Build (after clean):"
-BUILD_CMDS=("'cd $SIMPLE_PROJECT && rm -rf .hx dist-newstyle && hx build --native'")
-[[ "$HAS_CABAL" == "yes" ]] && BUILD_CMDS+=("'cd $SIMPLE_PROJECT && rm -rf .hx dist-newstyle && cabal build'")
+BUILD_CMDS=("cd $SIMPLE_PROJECT && rm -rf .hx dist-newstyle && hx build --native")
+[[ "$HAS_CABAL" == "yes" ]] && BUILD_CMDS+=("cd $SIMPLE_PROJECT && rm -rf .hx dist-newstyle && cabal build")
 
 benchmark_with_hyperfine "build-cold" "${BUILD_CMDS[@]}"
 
@@ -221,8 +221,8 @@ echo "Incremental Build (no changes):"
 # First, do a build to warm up
 cd "$SIMPLE_PROJECT" && hx build --native > /dev/null 2>&1
 
-INCR_CMDS=("'cd $SIMPLE_PROJECT && hx build --native'")
-[[ "$HAS_CABAL" == "yes" ]] && INCR_CMDS+=("'cd $SIMPLE_PROJECT && cabal build'")
+INCR_CMDS=("cd $SIMPLE_PROJECT && hx build --native")
+[[ "$HAS_CABAL" == "yes" ]] && INCR_CMDS+=("cd $SIMPLE_PROJECT && cabal build")
 
 benchmark_with_hyperfine "build-incremental" "${INCR_CMDS[@]}"
 
@@ -244,11 +244,11 @@ done
 CLEAN_CMDS=()
 
 # hx clean
-CLEAN_CMDS+=("'cd $SIMPLE_PROJECT && mkdir -p .hx dist-newstyle && hx clean'")
+CLEAN_CMDS+=("cd $SIMPLE_PROJECT && mkdir -p .hx dist-newstyle && hx clean")
 
 # cabal clean
 if [[ "$HAS_CABAL" == "yes" ]]; then
-    CLEAN_CMDS+=("'cd $SIMPLE_PROJECT && mkdir -p dist-newstyle && cabal clean'")
+    CLEAN_CMDS+=("cd $SIMPLE_PROJECT && mkdir -p dist-newstyle && cabal clean")
 fi
 
 benchmark_with_hyperfine "clean" "${CLEAN_CMDS[@]}"
@@ -260,7 +260,7 @@ benchmark_with_hyperfine "clean" "${CLEAN_CMDS[@]}"
 echo -e "${GREEN}=== Benchmark 6: Environment Diagnostics ===${NC}"
 echo ""
 
-DOCTOR_CMDS=("'hx doctor'")
+DOCTOR_CMDS=("hx doctor")
 # Note: cabal and stack don't have direct equivalents
 
 benchmark_with_hyperfine "doctor" "${DOCTOR_CMDS[@]}"
@@ -272,9 +272,9 @@ benchmark_with_hyperfine "doctor" "${DOCTOR_CMDS[@]}"
 echo -e "${GREEN}=== Benchmark 7: Shell Completions ===${NC}"
 echo ""
 
-COMP_CMDS=("'hx completions bash'")
-COMP_CMDS+=("'hx completions zsh'")
-COMP_CMDS+=("'hx completions fish'")
+COMP_CMDS=("hx completions bash")
+COMP_CMDS+=("hx completions zsh")
+COMP_CMDS+=("hx completions fish")
 
 benchmark_with_hyperfine "completions" "${COMP_CMDS[@]}"
 

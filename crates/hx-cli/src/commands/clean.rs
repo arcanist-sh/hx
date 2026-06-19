@@ -31,8 +31,16 @@ pub async fn run(global: bool, output: &Output) -> Result<i32> {
         let project_root = find_project_root(".")?;
         let project = Project::load(&project_root)?;
 
-        // Initialize plugin hooks
-        let mut hooks = PluginHooks::from_project(&project, None);
+        // Initialize plugin hooks only if this project actually configures
+        // clean hooks. Spinning up the plugin runtime otherwise dominates the
+        // cost of an operation that is just an `rm -rf .hx`.
+        let has_clean_hooks = !project.manifest.plugins.hooks.pre_clean.is_empty()
+            || !project.manifest.plugins.hooks.post_clean.is_empty();
+        let mut hooks = if has_clean_hooks {
+            PluginHooks::from_project(&project, None)
+        } else {
+            None
+        };
         if let Some(ref mut h) = hooks {
             if let Err(e) = h.initialize() {
                 output.verbose(&format!("Plugin initialization warning: {}", e));
