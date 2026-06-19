@@ -1,0 +1,51 @@
+name: Real-world builds
+
+# Validates the core loop (init/new -> build -> test -> run) against projects
+# that pull real Hackage dependencies, not just `base`. This is slow and uses
+# the network, so it runs nightly and on demand rather than on every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Also build the heavier templates (webapp, server, numeric)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+
+jobs:
+  real-world:
+    name: real-world (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Haskell toolchain
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.8.2"
+          cabal-version: "latest"
+
+      - name: Refresh Hackage index
+        run: cabal update
+
+      - name: Build hx
+        run: cargo build --release -p hx-cli
+
+      - name: Real-world project builds
+        env:
+          REAL_WORLD_FULL: ${{ inputs.full && '1' || '0' }}
+        run: HX="$PWD/target/release/hx" bash scripts/real-world-test.sh
