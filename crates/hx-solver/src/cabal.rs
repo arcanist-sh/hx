@@ -529,6 +529,12 @@ pub fn parse_cabal(content: &str) -> CabalFile {
     let mut current_section = Section::TopLevel;
     let mut in_build_depends = false;
     let mut build_depends_buffer = String::new();
+    // Indentation (in leading-whitespace columns) of the active `build-depends`
+    // field. Cabal's layout rule: a line continues the field only when indented
+    // strictly deeper than the field; a line at the same-or-lesser indent starts
+    // a new field. Using `starts_with(' ')` instead glues sibling fields (e.g.
+    // `default-language:`) onto the dependency list.
+    let mut build_depends_indent = 0;
 
     for line in lines {
         let trimmed = line.trim();
@@ -569,38 +575,38 @@ pub fn parse_cabal(content: &str) -> CabalFile {
 
         // Parse build-depends in library/executable sections
         if matches!(current_section, Section::Library | Section::Executable(_)) {
+            // A line indented deeper than the active build-depends field
+            // continues it; anything else terminates it (and may begin a new
+            // field). Detect new fields by indentation first so a sibling field
+            // never bleeds into the dependency buffer.
+            if in_build_depends && indent_width(line) > build_depends_indent {
+                if !build_depends_buffer.is_empty() {
+                    build_depends_buffer.push(' ');
+                }
+                build_depends_buffer.push_str(trimmed);
+                continue;
+            }
+
+            // Not a continuation: flush any pending build-depends before this
+            // line is interpreted as a new field.
+            if in_build_depends {
+                let deps = parse_build_depends(&build_depends_buffer);
+                match current_section {
+                    Section::Library => result.library_deps.extend(deps),
+                    Section::Executable(_) => result.executable_deps.extend(deps),
+                    _ => {}
+                }
+                build_depends_buffer.clear();
+                in_build_depends = false;
+            }
+
+            // A new build-depends field starts here.
             if let Some((key, value)) = parse_field(line)
                 && key.to_lowercase() == "build-depends"
             {
                 in_build_depends = true;
+                build_depends_indent = indent_width(line);
                 build_depends_buffer = value.to_string();
-                continue;
-            }
-
-            // Continue accumulating build-depends if we're in a continuation
-            if in_build_depends {
-                if line.starts_with(' ') || line.starts_with('\t') {
-                    // Continuation line
-                    build_depends_buffer.push_str(trimmed);
-                } else {
-                    // New field - process the buffer
-                    let deps = parse_build_depends(&build_depends_buffer);
-                    match current_section {
-                        Section::Library => result.library_deps.extend(deps),
-                        Section::Executable(_) => result.executable_deps.extend(deps),
-                        _ => {}
-                    }
-                    build_depends_buffer.clear();
-                    in_build_depends = false;
-
-                    // Process the new field
-                    if let Some((key, value)) = parse_field(line)
-                        && key.to_lowercase() == "build-depends"
-                    {
-                        in_build_depends = true;
-                        build_depends_buffer = value.to_string();
-                    }
-                }
             }
         }
     }
@@ -654,6 +660,11 @@ fn parse_section_header(line: &str) -> Option<Section> {
     }
 
     None
+}
+
+/// Leading-whitespace width of a line, used for Cabal's layout rule.
+fn indent_width(line: &str) -> usize {
+    line.chars().take_while(|c| *c == ' ' || *c == '\t').count()
 }
 
 fn parse_field(line: &str) -> Option<(&str, &str)> {
@@ -761,6 +772,56 @@ library
             .find(|d| d.name == "base")
             .unwrap();
         assert!(matches!(base_dep.constraint, VersionConstraint::And(_, _)));
+    }
+
+    #[test]
+    fn test_build_depends_does_not_bleed_into_sibling_fields() {
+        // Regression: sibling fields at the same indentation as `build-depends`
+        // (here `default-language` / `hs-source-dirs`) were being appended to
+        // the dependency list, producing constraints like
+        // `>= 3 && < 4Hs-Source-Dirs: src`. Cabal's layout rule terminates the
+        // field at the first line that is not indented deeper.
+        let content = r#"
+name:    spacecookie
+version: 1.0.0
+
+library
+  build-depends:    base >= 3 && < 4
+  default-language: Haskell2010
+  hs-source-dirs:   src
+  exposed-modules:  Foo
+"#;
+
+        let cabal = parse_cabal(content);
+        assert_eq!(cabal.library_deps.len(), 1);
+        let base = &cabal.library_deps[0];
+        assert_eq!(base.name, "base");
+        // Parses cleanly as a range, not a bled-together unconstrained mess.
+        assert!(matches!(base.constraint, VersionConstraint::And(_, _)));
+    }
+
+    #[test]
+    fn test_build_depends_wildcard_constraint() {
+        // Regression: Cabal wildcard constraints (`== 0.5.*`) were rejected and
+        // silently downgraded to unconstrained.
+        let content = r#"
+name:    pkg
+version: 1.0.0
+
+library
+  build-depends: containers == 0.5.* || == 0.6.*,
+                 base
+  default-language: Haskell2010
+"#;
+
+        let cabal = parse_cabal(content);
+        let containers = cabal
+            .library_deps
+            .iter()
+            .find(|d| d.name == "containers")
+            .unwrap();
+        // Two wildcard alternatives -> an Or of And ranges, not Any.
+        assert!(matches!(containers.constraint, VersionConstraint::Or(_, _)));
     }
 
     #[test]

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Cabal version-constraint parsing no longer mangles real Hackage `.cabal` files.** Two defects, both surfaced by the new daily-driver command coverage in the real-world job (via `hx outdated`):
+  - Wildcard constraints (`== 0.5.*`, `== 1.0.* || == 1.2.*`) were rejected and silently downgraded to *unconstrained*. They now desugar correctly to `>= A.B && < A.(B+1)`.
+  - Sibling fields at the same indentation as `build-depends` (e.g. `default-language:`, `hs-source-dirs:`) were being appended to the dependency list, producing nonsense like `>= 3 && < 4Hs-Source-Dirs: src`. The parser now follows Cabal's layout rule — a line continues the field only when indented strictly deeper — so fields no longer bleed together.
+  - Net effect: `hx outdated` on a real project goes from a flood of `Could not parse version constraint` warnings (and dropped constraints) to clean output.
+
+### Added
+- The real-world build job now exercises the daily-driver commands (`check`, `add`, `lock`, `sync`, `tree`, `outdated`, `publish --dry-run`, plus `fmt`/`lint` when the tools are present) against a scaffolded project with real Hackage dependencies.
+
 ## [0.7.10] - 2026-06-19
 
 ### Fixed

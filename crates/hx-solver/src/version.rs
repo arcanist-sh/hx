@@ -233,7 +233,15 @@ fn parse_single_constraint(s: &str) -> Result<VersionConstraint, ConstraintParse
         return Ok(VersionConstraint::LessThanOrEqual(version));
     }
     if let Some(rest) = s.strip_prefix("==") {
-        let version = rest.trim().parse()?;
+        let rest = rest.trim();
+        // Cabal wildcard: `== A.B.*` desugars to `>= A.B && < A.(B+1)`.
+        if let Some(prefix) = rest.strip_suffix(".*") {
+            let lower: Version = prefix.trim().parse()?;
+            let upper = wildcard_upper_bound(&lower);
+            return Ok(VersionConstraint::GreaterThanOrEqual(lower)
+                .and(VersionConstraint::LessThan(upper)));
+        }
+        let version = rest.parse()?;
         return Ok(VersionConstraint::Exact(version));
     }
     if let Some(rest) = s.strip_prefix('>') {
@@ -247,6 +255,18 @@ fn parse_single_constraint(s: &str) -> Result<VersionConstraint, ConstraintParse
 
     // No operator - might be just a version (exact match) or invalid
     Err(ConstraintParseError::InvalidFormat(s.to_string()))
+}
+
+/// Compute the exclusive upper bound for a Cabal wildcard constraint.
+///
+/// `== A.B.*` matches any version with prefix `A.B`, i.e. `>= A.B && < A.(B+1)`.
+/// The upper bound increments the last component of the wildcard prefix.
+fn wildcard_upper_bound(lower: &Version) -> Version {
+    let mut components = lower.components.clone();
+    if let Some(last) = components.last_mut() {
+        *last += 1;
+    }
+    Version::new(components)
 }
 
 /// Error parsing a version constraint.
@@ -341,5 +361,30 @@ mod tests {
         let c = parse_constraint("-any").unwrap();
         assert!(c.matches(&"1.0".parse().unwrap()));
         assert!(c.matches(&"999.0".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_constraint_wildcard() {
+        // `== 0.5.*` desugars to `>= 0.5 && < 0.6`.
+        let c = parse_constraint("==0.5.*").unwrap();
+        assert!(!c.matches(&"0.4.9".parse().unwrap()));
+        assert!(c.matches(&"0.5".parse().unwrap()));
+        assert!(c.matches(&"0.5.7".parse().unwrap()));
+        assert!(!c.matches(&"0.6".parse().unwrap()));
+
+        // `== 1.24.*` desugars to `>= 1.24 && < 1.25`.
+        let c = parse_constraint("== 1.24.*").unwrap();
+        assert!(c.matches(&"1.24.0".parse().unwrap()));
+        assert!(!c.matches(&"1.25".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_constraint_wildcard_disjunction() {
+        // A real Hackage pattern: `== 1.0.* || == 1.2.*`.
+        let c = parse_constraint("== 1.0.* || == 1.2.*").unwrap();
+        assert!(c.matches(&"1.0.3".parse().unwrap()));
+        assert!(!c.matches(&"1.1.0".parse().unwrap()));
+        assert!(c.matches(&"1.2.5".parse().unwrap()));
+        assert!(!c.matches(&"1.3.0".parse().unwrap()));
     }
 }
