@@ -45,6 +45,43 @@ run() {
   echo "::endgroup::"
 }
 
+# run_clean <label> <command...>
+#
+# Like run(), but also fails when a command that should produce clean output
+# emits WARN/ERROR diagnostics — even if it exits 0. This catches *silent
+# degradation*: e.g. a constraint parser that warns-and-drops instead of
+# erroring still exits 0, so a plain exit-code check reports a false PASS.
+# Use only for commands expected to be quiet on a healthy project (resolution
+# and metadata queries), not for build/test output.
+run_clean() {
+  local label="$1"
+  shift
+  echo "::group::${label}"
+  local out code noise
+  out="$("$@" 2>&1)"
+  code=$?
+  echo "$out"
+  # Strip ANSI, then look for tracing WARN/ERROR levels or a CLI `error:` line.
+  noise="$(printf '%s\n' "$out" \
+    | sed -E 's/\x1b\[[0-9;]*m//g' \
+    | grep -nE '(^|[[:space:]])(WARN|ERROR)[[:space:]]|^error:' || true)"
+  if [ "$code" -ne 0 ]; then
+    echo "FAIL: ${label} (exit ${code})"
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL  ${label} (exit ${code})")
+  elif [ -n "$noise" ]; then
+    echo "FAIL: ${label} (exited 0 but emitted diagnostics):"
+    printf '%s\n' "$noise" | head -10
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL  ${label} (noisy output)")
+  else
+    echo "PASS: ${label}"
+    PASS=$((PASS + 1))
+    RESULTS+=("PASS  ${label}")
+  fi
+  echo "::endgroup::"
+}
+
 echo "hx under test: $("$HX" --version 2>/dev/null || echo unknown)"
 "$HX" doctor || true   # informational; never fatal
 
@@ -95,14 +132,37 @@ if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
   CMDS="$WORK/hxrw-cmds"
   ( cd "$WORK" && "$HX" new cli hxrw-cmds >/dev/null 2>&1 ) || true
 
-  run "cmd: check"        bash -c "cd '$CMDS' && '$HX' check"
-  run "cmd: add"          bash -c "cd '$CMDS' && '$HX' add containers"
-  run "cmd: build (+dep)" bash -c "cd '$CMDS' && '$HX' build"
-  run "cmd: lock"         bash -c "cd '$CMDS' && '$HX' lock"
-  run "cmd: sync"         bash -c "cd '$CMDS' && '$HX' sync"
-  run "cmd: tree"         bash -c "cd '$CMDS' && '$HX' tree"
-  run "cmd: outdated"     bash -c "cd '$CMDS' && '$HX' outdated"
-  run "cmd: publish-dry"  bash -c "cd '$CMDS' && '$HX' publish --dry-run"
+  # Metadata/resolution commands must be quiet on a healthy project, so they go
+  # through run_clean (a stray WARN means a parser/resolver is silently
+  # degrading). build/publish legitimately print progress, so use plain run.
+  run       "cmd: check"        bash -c "cd '$CMDS' && '$HX' check"
+  run_clean "cmd: add"          bash -c "cd '$CMDS' && '$HX' add containers"
+  run       "cmd: build (+dep)" bash -c "cd '$CMDS' && '$HX' build"
+  run_clean "cmd: lock"         bash -c "cd '$CMDS' && '$HX' lock"
+  run_clean "cmd: sync"         bash -c "cd '$CMDS' && '$HX' sync"
+  run_clean "cmd: tree"         bash -c "cd '$CMDS' && '$HX' tree"
+  run_clean "cmd: outdated"     bash -c "cd '$CMDS' && '$HX' outdated"
+  run       "cmd: publish-dry"  bash -c "cd '$CMDS' && '$HX' publish --dry-run"
+  run_clean "cmd: info"         bash -c "cd '$CMDS' && '$HX' info containers"
+
+  # add -> rm round-trip: removing the dependency must actually drop it from
+  # the .cabal file, not just exit 0.
+  run_clean "cmd: rm"           bash -c "cd '$CMDS' && '$HX' rm containers"
+  echo "::group::cmd: rm removed dependency"
+  if grep -q 'containers' "$CMDS"/*.cabal 2>/dev/null; then
+    echo "FAIL: cmd: rm (containers still present in .cabal after removal)"
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL  cmd: rm did not remove dependency")
+  else
+    echo "PASS: cmd: rm removed the dependency from .cabal"
+    PASS=$((PASS + 1))
+    RESULTS+=("PASS  cmd: rm removed dependency")
+  fi
+  echo "::endgroup::"
+
+  # clean -> rebuild: artifacts are removed and the project builds again.
+  run "cmd: clean"           bash -c "cd '$CMDS' && '$HX' clean"
+  run "cmd: rebuild (clean)" bash -c "cd '$CMDS' && '$HX' build"
 
   # fmt/lint need fourmolu/hlint; skip (not fail) when they aren't installed.
   if command -v fourmolu >/dev/null 2>&1; then
