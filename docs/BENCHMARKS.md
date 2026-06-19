@@ -2,13 +2,13 @@
 
 Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal across the workflows you run all day.
 
-> **Measured with hx 0.7.5.** Honest summary: hx's native build path is faster than cabal on **cold builds**, **CLI startup**, and **no-op incremental rebuilds**; cabal is still faster on `clean` (see below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
+> **Measured with hx 0.7.6.** Honest summary: hx's native build path is faster than cabal on **cold builds**, **CLI startup**, and **no-op incremental rebuilds**; cabal is still faster on `clean` (see below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
 
 ## Test Environment
 
 | Property | Value |
 |----------|-------|
-| **hx version** | 0.7.5 |
+| **hx version** | 0.7.6 |
 | **GHC version** | 9.8.2 |
 | **Cabal version** | 3.12.1.0 |
 | **stack** | not measured |
@@ -87,15 +87,15 @@ hyperfine --warmup 3 'hx build --native' 'cabal build'
 
 > Note: `scripts/benchmark-comparison.sh` mis-quotes commands passed to hyperfine and currently fails; prefer the direct invocations above until it's fixed.
 
-## Not Re-Measured for 0.7.5
+## Not Re-Measured for 0.7.6
 
-The following were measured at 0.5.0 but **have not been re-run** for 0.7.5, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, dependency-resolution/solver scaling, and memory usage. Contributions welcome.
+The following were measured at 0.5.0 but **have not been re-run** for 0.7.6, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, dependency-resolution/solver scaling, and memory usage. Contributions welcome.
 
 ## Historical Results (cold build)
 
 | Version | Date | hx `--native` | cabal | Speedup | Source |
 |---------|------|---------------|-------|---------|--------|
-| 0.7.5 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
+| 0.7.6 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
 | 0.5.0 | 2026-02-02 | 0.48 s | 2.68 s | 5.6× | unverified (not reproduced) |
 
 ## Contributing Benchmarks

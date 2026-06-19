@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-06-19
+
+### Performance
+- **No-op native rebuilds are ~24× faster.** `hx build --native` spent ~74 ms spawning `ghc`/`ghc-pkg` (toolchain + package-database resolution) on every build, even when nothing had changed. A subprocess-free up-to-date check now short-circuits no-op builds before any resolution, and an mtime+size fast path avoids re-hashing unchanged sources. Measured: 78.6 ms → 3.3 ms, making incremental rebuilds ~5.4× faster than cabal (previously slower). ([#5])
+
+[#5]: https://github.com/arcanist-sh/hx/issues/5
+
 ## [0.7.5] - 2026-06-18
 
 ### Fixed
@@ -282,7 +289,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/arcanist-sh/hx/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/arcanist-sh/hx/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/arcanist-sh/hx/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/arcanist-sh/hx/compare/v0.7.2...v0.7.3
