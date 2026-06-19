@@ -95,6 +95,10 @@ kind = "bin"        # or "lib"
 ghc = "9.8.2"
 ```
 
+## Claude Code skill
+
+A ready-to-use [Agent Skill](https://docs.anthropic.com/en/docs/claude-code/skills) lives at [`.claude/skills/hx/SKILL.md`](.claude/skills/hx/SKILL.md) — copy it into your own `.claude/skills/` (or use this repo's) and Claude will load it automatically when working in an hx project.
+
 ## Learn more
 
 - Documentation: https://docs.arcanist.sh/hx/docs/
