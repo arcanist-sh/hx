@@ -23,6 +23,7 @@ mod init;
 mod lint;
 mod lock;
 mod lsp;
+mod mcp;
 mod new;
 mod nix;
 mod plugins;
@@ -267,6 +268,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
             }
         },
         Some(Commands::Lsp { tcp }) => lsp::run(tcp, &output).await,
+        Some(Commands::Mcp) => mcp::run().await,
         Some(Commands::Plugins { command }) => match command {
             PluginsCommands::List => plugins::list(&output).await,
             PluginsCommands::Status => plugins::status(&output).await,

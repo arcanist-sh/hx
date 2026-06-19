@@ -241,13 +241,18 @@ hx server start              # Start the persistent build server
 hx server status             # Show build server status
 ```
 
-### IDE Integration
+### IDE & Agent Integration
 
 ```bash
 hx ide setup                 # Generate hie.yaml for HLS
 hx ide status                # Check IDE configuration
 hx lsp                       # Start language server
+hx mcp                       # Start an MCP server for AI agents (JSON-RPC/stdio)
 ```
+
+`hx mcp` exposes build/test/run/lock/doctor/dependency tools over the
+[Model Context Protocol](https://modelcontextprotocol.io). See
+[AGENTS.md](AGENTS.md) for how to drive hx from an AI agent.
 
 ### Publishing
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`hx mcp` — an MCP (Model Context Protocol) server for AI agents.** Speaks JSON-RPC 2.0 over stdio and exposes tools for build, check, test, run, lock, sync, fmt, lint, doctor, and dependency management (each shelling out to `hx`). Point an MCP client at `hx mcp`.
+- **`AGENTS.md`** documenting how to drive hx from an AI agent (exit codes, the MCP server, common workflows), and an **`llms.txt`** project map served at `arcanist.sh/hx/llms.txt`.
+
 ## [0.7.7] - 2026-06-19
 
 ### Performance

@@ -549,6 +549,12 @@ pub enum Commands {
         tcp: Option<u16>,
     },
 
+    /// Run an MCP (Model Context Protocol) server exposing hx to AI agents
+    ///
+    /// Speaks JSON-RPC over stdio. Point an MCP client (Claude, etc.) at
+    /// `hx mcp` to give an agent tools for build, test, run, lock, and more.
+    Mcp,
+
     /// Manage plugins
     Plugins {
         #[command(subcommand)]
