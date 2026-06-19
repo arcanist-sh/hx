@@ -46,6 +46,8 @@ jobs:
         run: cargo build --release -p hx-cli
 
       - name: Real-world project builds
+        # The nightly run always covers the full template set; manual runs
+        # opt in via the `full` input.
         env:
-          REAL_WORLD_FULL: ${{ inputs.full && '1' || '0' }}
+          REAL_WORLD_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}
         run: HX="$PWD/target/release/hx" bash scripts/real-world-test.sh

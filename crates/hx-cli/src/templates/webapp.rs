@@ -54,6 +54,10 @@ common warnings
     ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates
                  -Wincomplete-uni-patterns -Wmissing-deriving-strategies
                  -Wpartial-fields -Wredundant-constraints
+    default-extensions:
+        DeriveAnyClass
+        DerivingStrategies
+        OverloadedStrings
 
 executable {{project_name}}
     import:           warnings
