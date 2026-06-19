@@ -2016,7 +2016,7 @@ mod tests {
         // Nothing changed -> up to date (taken via the mtime/size fast path).
         assert!(native_build_up_to_date(
             root,
-            &[src_dir.clone()],
+            std::slice::from_ref(&src_dir),
             &output_dir,
             "9.8.2",
             "flags"
@@ -2030,7 +2030,7 @@ mod tests {
         .unwrap();
         assert!(!native_build_up_to_date(
             root,
-            &[src_dir.clone()],
+            std::slice::from_ref(&src_dir),
             &output_dir,
             "9.8.2",
             "flags"
