@@ -8,13 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Cabal version-constraint parsing no longer mangles real Hackage `.cabal` files.** Two defects, both surfaced by the new daily-driver command coverage in the real-world job (via `hx outdated`):
-  - Wildcard constraints (`== 0.5.*`, `== 1.0.* || == 1.2.*`) were rejected and silently downgraded to *unconstrained*. They now desugar correctly to `>= A.B && < A.(B+1)`.
-  - Sibling fields at the same indentation as `build-depends` (e.g. `default-language:`, `hs-source-dirs:`) were being appended to the dependency list, producing nonsense like `>= 3 && < 4Hs-Source-Dirs: src`. The parser now follows Cabal's layout rule — a line continues the field only when indented strictly deeper — so fields no longer bleed together.
-  - Net effect: `hx outdated` on a real project goes from a flood of `Could not parse version constraint` warnings (and dropped constraints) to clean output.
+- **`hx lock` now produces a real lockfile for single-package projects (and `hx why` / `hx deps` work as a result).** Previously the native solver wrote `packages = []` for every `hx new`/`hx init` project — silently, so `build` still worked but `why`/`deps`/`outdated` read an empty lockfile. Several layered bugs, all found by the new daily-driver command coverage:
+  - **Dependency collection** only scanned workspace members, so single-package projects contributed no dependencies. It now reads the project's own `.cabal` too.
+  - **GHC-bundled packages** (rts, base, ghc-prim, template-haskell, …) were being resolved from Hackage, which failed (`package not found: rts`) or chased false cycles. They are now treated as toolchain-provided; reinstallable boot packages (containers, text, …) still resolve from Hackage.
+  - **Cycle detection** used a flat selection log as if it were a DFS path, so any diamond dependency was misreported as a cycle (`array -> text -> array`). Removed; real cycles are absorbed by the already-selected check.
+  - **Unresolvable transitive deps** from `.cabal` conditionals this parser doesn't evaluate (e.g. the `unbuildable` sentinel) now skip instead of aborting the whole lock.
+- **Cabal version-constraint parsing no longer mangles real Hackage `.cabal` files.** Surfaced via `hx outdated`/`hx lock`:
+  - Wildcard constraints (`== 0.5.*`, `== 1.0.* || == 1.2.*`) were rejected and silently downgraded to *unconstrained*. They now desugar to `>= A.B && < A.(B+1)`.
+  - Set-version notation (`base ^>= {4.14, 4.17}`) split on the comma *inside* the braces, producing a phantom dependency; it now parses as `^>=4.14 || ^>=4.17`.
+  - Parenthesised constraints (`base (>= 4.9 && < 5)`) parsed the name as `base (`; the name now stops at the parenthesis and grouping parens are handled.
+  - Sibling fields at the same indentation as `build-depends` (`default-language:`, `hs-source-dirs:`) were appended to the dependency list (`>= 3 && < 4Hs-Source-Dirs: src`). The parser now follows Cabal's layout rule — a line continues the field only when indented strictly deeper.
+  - Net effect: `hx lock`/`hx outdated` on a real project go from a flood of `Could not parse version constraint` warnings (and dropped constraints) to clean output.
 
 ### Added
-- The real-world build job now exercises the daily-driver commands (`check`, `add`, `lock`, `sync`, `tree`, `outdated`, `publish --dry-run`, plus `fmt`/`lint` when the tools are present) against a scaffolded project with real Hackage dependencies.
+- The real-world build job now exercises the daily-driver commands (`check`, `add`, `lock`, `sync`, `tree`, `outdated`, `why`, `deps`, `info`, `rm`, `clean`, `publish --dry-run`, plus `fmt`/`lint` when present) against a scaffolded project with real Hackage dependencies — asserting clean output *and* that the lockfile is actually populated and `rm` removes the dependency.
+- A protocol-level e2e test for `hx mcp` (drives the real binary over stdio).
 
 ## [0.7.10] - 2026-06-19
 

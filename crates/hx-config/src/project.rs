@@ -142,6 +142,24 @@ impl Project {
                 .collect()
         }
     }
+
+    /// Paths to every `.cabal` file that contributes dependencies to this
+    /// project: each workspace member's file, or — for a single-package
+    /// project (no `cabal.project`) — the project's own `.cabal` file.
+    ///
+    /// Callers that only scanned `workspace_packages` silently collected zero
+    /// dependencies for single-package projects (the common case), producing an
+    /// empty lockfile. Use this so both layouts are covered.
+    pub fn cabal_files(&self) -> Vec<PathBuf> {
+        if self.workspace_packages.is_empty() {
+            self.cabal_file.clone().into_iter().collect()
+        } else {
+            self.workspace_packages
+                .iter()
+                .map(|p| p.cabal_file.clone())
+                .collect()
+        }
+    }
 }
 
 /// Find the project root by searching upward for hx.toml.

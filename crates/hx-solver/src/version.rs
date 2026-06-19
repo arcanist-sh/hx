@@ -219,38 +219,51 @@ pub fn parse_constraint(s: &str) -> Result<VersionConstraint, ConstraintParseErr
 fn parse_single_constraint(s: &str) -> Result<VersionConstraint, ConstraintParseError> {
     let s = s.trim();
 
-    // Try each operator
-    if let Some(rest) = s.strip_prefix("^>=") {
-        let version = rest.trim().parse()?;
-        return Ok(VersionConstraint::Caret(version));
-    }
-    if let Some(rest) = s.strip_prefix(">=") {
-        let version = rest.trim().parse()?;
-        return Ok(VersionConstraint::GreaterThanOrEqual(version));
-    }
-    if let Some(rest) = s.strip_prefix("<=") {
-        let version = rest.trim().parse()?;
-        return Ok(VersionConstraint::LessThanOrEqual(version));
-    }
-    if let Some(rest) = s.strip_prefix("==") {
+    // Operators longest-first so `^>=`/`>=`/`<=` win over `>`/`<`.
+    type OpCtor = fn(Version) -> VersionConstraint;
+    let ops: [(&str, OpCtor); 6] = [
+        ("^>=", VersionConstraint::Caret),
+        (">=", VersionConstraint::GreaterThanOrEqual),
+        ("<=", VersionConstraint::LessThanOrEqual),
+        ("==", VersionConstraint::Exact),
+        (">", VersionConstraint::GreaterThan),
+        ("<", VersionConstraint::LessThan),
+    ];
+
+    for (op, ctor) in ops {
+        let Some(rest) = s.strip_prefix(op) else {
+            continue;
+        };
         let rest = rest.trim();
-        // Cabal wildcard: `== A.B.*` desugars to `>= A.B && < A.(B+1)`.
-        if let Some(prefix) = rest.strip_suffix(".*") {
+
+        // Cabal wildcard (== only): `== A.B.*` => `>= A.B && < A.(B+1)`.
+        if op == "==" && let Some(prefix) = rest.strip_suffix(".*") {
             let lower: Version = prefix.trim().parse()?;
             let upper = wildcard_upper_bound(&lower);
             return Ok(VersionConstraint::GreaterThanOrEqual(lower)
                 .and(VersionConstraint::LessThan(upper)));
         }
-        let version = rest.parse()?;
-        return Ok(VersionConstraint::Exact(version));
-    }
-    if let Some(rest) = s.strip_prefix('>') {
-        let version = rest.trim().parse()?;
-        return Ok(VersionConstraint::GreaterThan(version));
-    }
-    if let Some(rest) = s.strip_prefix('<') {
-        let version = rest.trim().parse()?;
-        return Ok(VersionConstraint::LessThan(version));
+
+        // Cabal set notation: `op {v1, v2, ...}` => `op v1 || op v2 || ...`
+        // (e.g. `base ^>= {4.14, 4.17}`). A missing closing brace is tolerated.
+        if let Some(inner) = rest.strip_prefix('{') {
+            let inner = inner.strip_suffix('}').unwrap_or(inner);
+            let mut acc: Option<VersionConstraint> = None;
+            for part in inner.split(',') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                let c = ctor(part.parse()?);
+                acc = Some(match acc {
+                    Some(a) => a.or(c),
+                    None => c,
+                });
+            }
+            return acc.ok_or_else(|| ConstraintParseError::InvalidFormat(s.to_string()));
+        }
+
+        return Ok(ctor(rest.parse()?));
     }
 
     // No operator - might be just a version (exact match) or invalid
@@ -376,6 +389,21 @@ mod tests {
         let c = parse_constraint("== 1.24.*").unwrap();
         assert!(c.matches(&"1.24.0".parse().unwrap()));
         assert!(!c.matches(&"1.25".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_constraint_set_notation() {
+        // `^>= {4.14, 4.17}` desugars to `^>=4.14 || ^>=4.17`.
+        let c = parse_constraint("^>= {4.14, 4.17}").unwrap();
+        assert!(c.matches(&"4.14.0".parse().unwrap()));
+        assert!(c.matches(&"4.17.2".parse().unwrap()));
+        // Between the two caret ranges (>=4.15 but not ^4.14 or ^4.17): excluded.
+        assert!(!c.matches(&"4.15.0".parse().unwrap()));
+        // A missing closing brace is tolerated.
+        let c2 = parse_constraint("== {1.0, 2.0").unwrap();
+        assert!(c2.matches(&"1.0".parse().unwrap()));
+        assert!(c2.matches(&"2.0".parse().unwrap()));
+        assert!(!c2.matches(&"1.5".parse().unwrap()));
     }
 
     #[test]

@@ -678,17 +678,31 @@ fn parse_field(line: &str) -> Option<(&str, &str)> {
 fn parse_build_depends(value: &str) -> Vec<Dependency> {
     let mut deps = Vec::new();
 
-    // Split by comma, handling multi-line values
-    for part in value.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
+    // Split on commas, but not commas inside brackets/braces/parens — Cabal's
+    // set-version notation puts commas inside braces, e.g.
+    // `base ^>= {4.14, 4.17}` is ONE dependency, not two.
+    let mut depth: i32 = 0;
+    let mut start = 0;
+    let push = |seg: &str, out: &mut Vec<Dependency>| {
+        let seg = seg.trim();
+        if !seg.is_empty()
+            && let Some(dep) = parse_single_dependency(seg)
+        {
+            out.push(dep);
         }
-
-        if let Some(dep) = parse_single_dependency(part) {
-            deps.push(dep);
+    };
+    for (i, c) in value.char_indices() {
+        match c {
+            '{' | '(' | '[' => depth += 1,
+            '}' | ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                push(&value[start..i], &mut deps);
+                start = i + 1;
+            }
+            _ => {}
         }
     }
+    push(&value[start..], &mut deps);
 
     deps
 }
@@ -700,11 +714,15 @@ fn parse_single_dependency(s: &str) -> Option<Dependency> {
         return None;
     }
 
-    // Find where the package name ends and constraint begins
-    // Package names can contain hyphens but not spaces or operators
-    let constraint_start = s.find(['>', '<', '=', '^']).unwrap_or(s.len());
+    // The package name runs until the first whitespace, version operator, or
+    // parenthesis. Names may contain letters, digits, '-', '.', and ':' (for
+    // the `package:sublibrary` form) but none of those terminators — so e.g.
+    // `base (>= 4.9 && < 5)` yields the name `base`, not `base (`.
+    let name_end = s
+        .find(|c: char| c.is_whitespace() || matches!(c, '>' | '<' | '=' | '^' | '(' | ')'))
+        .unwrap_or(s.len());
 
-    let name = s[..constraint_start].trim();
+    let name = s[..name_end].trim();
     if name.is_empty() {
         return None;
     }
@@ -718,14 +736,24 @@ fn parse_single_dependency(s: &str) -> Option<Dependency> {
         (name, None)
     };
 
-    let constraint_str = s[constraint_start..].trim();
+    // Cabal permits parenthesised constraints, e.g. `base (>= 4.9 && < 5)`.
+    // Parentheses are only grouping; with our `||`-then-`&&` precedence the
+    // common forms parse correctly once the parens are removed.
+    let constraint_str: String = s[name_end..].chars().filter(|c| !matches!(c, '(' | ')')).collect();
+    let constraint_str = constraint_str.trim();
     let constraint = if constraint_str.is_empty() {
         VersionConstraint::Any
     } else {
         match parse_constraint(constraint_str) {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!(
+                // Logged at debug, not warn: parsing the full Hackage index
+                // means encountering exotic/malformed metadata in packages the
+                // user may not even depend on (brace-layout dependency lists,
+                // dash-separated or "infinity" versions, …). Treating these as
+                // unconstrained is the graceful fallback and not actionable for
+                // the user, so it must not spam `hx lock`/`hx outdated`.
+                tracing::debug!(
                     "Could not parse version constraint '{}' for package '{}' ({}); treating as unconstrained",
                     constraint_str,
                     package_name,
@@ -798,6 +826,36 @@ library
         assert_eq!(base.name, "base");
         // Parses cleanly as a range, not a bled-together unconstrained mess.
         assert!(matches!(base.constraint, VersionConstraint::And(_, _)));
+    }
+
+    #[test]
+    fn test_build_depends_parenthesised_and_set_constraints() {
+        // Parenthesised constraint and Cabal set-version notation (with its
+        // comma *inside* the braces) must each parse as a single dependency.
+        let content = r#"
+name:    pkg
+version: 1.0.0
+
+library
+  build-depends: base (>= 4.9 && < 5)
+               , containers ^>= {0.6, 0.7}
+  default-language: Haskell2010
+"#;
+
+        let cabal = parse_cabal(content);
+        // Exactly two deps — the comma inside `{0.6, 0.7}` must NOT split.
+        assert_eq!(cabal.library_deps.len(), 2);
+
+        let base = cabal.library_deps.iter().find(|d| d.name == "base").unwrap();
+        assert_eq!(base.name, "base"); // not "base ("
+        assert!(matches!(base.constraint, VersionConstraint::And(_, _)));
+
+        let containers = cabal
+            .library_deps
+            .iter()
+            .find(|d| d.name == "containers")
+            .unwrap();
+        assert!(matches!(containers.constraint, VersionConstraint::Or(_, _)));
     }
 
     #[test]

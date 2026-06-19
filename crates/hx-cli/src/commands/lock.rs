@@ -255,9 +255,12 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         .map(|s| s.to_string())
         .collect();
 
-    for pkg in &project.workspace_packages {
-        let content = std::fs::read_to_string(&pkg.cabal_file)
-            .with_context(|| format!("Failed to read {}", pkg.cabal_file.display()))?;
+    // Scan every project `.cabal` file. `cabal_files()` covers both workspace
+    // members and single-package projects; iterating `workspace_packages`
+    // directly skipped single-package projects entirely (empty lockfile).
+    for cabal_file in project.cabal_files() {
+        let content = std::fs::read_to_string(&cabal_file)
+            .with_context(|| format!("Failed to read {}", cabal_file.display()))?;
         let cabal = parse_cabal(&content);
         for dep in cabal.all_dependencies() {
             // Skip workspace packages

@@ -41,6 +41,40 @@ pub enum ResolveError {
     Exhausted { attempts: usize },
 }
 
+/// Packages that ship with GHC and cannot be reinstalled from Hackage — the
+/// runtime system and the wired-in / compiler-internal libraries. cabal never
+/// solves these from Hackage; their versions are fixed by the toolchain.
+///
+/// The resolver treats a dependency on them as toolchain-provided: if a version
+/// was seeded into `ResolverConfig.installed` (from `ghc-pkg`), the constraint
+/// is checked against it; otherwise the requirement is skipped rather than
+/// failing with "package not found" (e.g. `rts` has no Hackage entry) or
+/// chasing false cycles through them (e.g. `ghc-prim -> deepseq -> ghc-prim`).
+///
+/// Deliberately excludes reinstallable boot packages (containers, text,
+/// bytestring, mtl, transformers, …): those resolve from Hackage so projects
+/// can use newer versions than GHC bundles.
+pub fn is_ghc_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "base"
+            | "ghc"
+            | "ghc-bignum"
+            | "ghc-boot"
+            | "ghc-boot-th"
+            | "ghc-experimental"
+            | "ghc-heap"
+            | "ghc-internal"
+            | "ghc-prim"
+            | "ghci"
+            | "integer-gmp"
+            | "libiserv"
+            | "rts"
+            | "system-cxx-std-lib"
+            | "template-haskell"
+    )
+}
+
 /// Configuration for the resolver.
 #[derive(Debug, Clone)]
 pub struct ResolverConfig {
@@ -168,12 +202,36 @@ impl<'a> Resolver<'a> {
                 continue;
             }
 
+            // GHC-bundled, non-reinstallable packages that weren't seeded with
+            // a concrete version: treat as toolchain-provided and skip, rather
+            // than failing to find them on Hackage or cycling through them.
+            if is_ghc_builtin(&req.package) {
+                trace!("Skipping GHC-bundled package: {}", req.package);
+                continue;
+            }
+
             // Find matching versions
-            let package = self.index.get_package(&req.package).ok_or_else(|| {
-                ResolveError::PackageNotFound {
-                    name: req.package.clone(),
+            let package = match self.index.get_package(&req.package) {
+                Some(p) => p,
+                None => {
+                    // A project's own (root) dependency that isn't on Hackage is
+                    // a real error — most likely a typo.
+                    if req.parent.is_none() {
+                        return Err(ResolveError::PackageNotFound {
+                            name: req.package.clone(),
+                        });
+                    }
+                    // Transitive deps can come from `.cabal` conditionals/flags
+                    // this parser doesn't evaluate — e.g. the `unbuildable`
+                    // sentinel used in an `else` branch to disable a component.
+                    // Skip rather than aborting the whole resolution.
+                    debug!(
+                        "Skipping unresolvable transitive dependency '{}' (from {:?})",
+                        req.package, req.parent
+                    );
+                    continue;
                 }
-            })?;
+            };
 
             let mut candidates = package.matching_versions(&req.constraint);
 
@@ -209,16 +267,17 @@ impl<'a> Resolver<'a> {
 
             debug!("Selected {} {}", req.package, version);
 
-            // Add dependencies of the selected version
+            // Add dependencies of the selected version. Cycles in package
+            // metadata are absorbed naturally: a dependency that is already
+            // selected hits the "already selected" branch above and is skipped,
+            // so there is no infinite loop to guard against, and `max_attempts`
+            // bounds pathological cases. (The previous explicit check compared
+            // against a flat *selection log* as if it were a DFS path, so any
+            // diamond — e.g. `deepseq` depending on both `array` and `text`,
+            // with `text` also depending on `array` — was flagged as a false
+            // cycle.)
             if let Some(pv) = package.get_version(&version) {
                 for dep in &pv.dependencies {
-                    // Check for cycles
-                    if state.is_in_path(&dep.name) {
-                        let mut cycle = state.current_path();
-                        cycle.push(dep.name.clone());
-                        return Err(ResolveError::CycleDetected(cycle));
-                    }
-
                     state.add_requirement(
                         dep.name.clone(),
                         dep.constraint.clone(),
@@ -316,8 +375,6 @@ struct ResolverState {
     attempts: usize,
     /// Maximum attempts allowed
     max_attempts: usize,
-    /// Current resolution path (for cycle detection)
-    path: Vec<String>,
 }
 
 impl ResolverState {
@@ -329,7 +386,6 @@ impl ResolverState {
             depth: 0,
             attempts: 0,
             max_attempts,
-            path: Vec::new(),
         }
     }
 
@@ -353,7 +409,6 @@ impl ResolverState {
 
     fn make_choice(&mut self, package: &str, version: Version, alternatives: Vec<Version>) {
         self.selected.insert(package.to_string(), version.clone());
-        self.path.push(package.to_string());
         self.depth += 1;
 
         if !alternatives.is_empty() {
@@ -365,14 +420,6 @@ impl ResolverState {
                 parent: None,
             });
         }
-    }
-
-    fn is_in_path(&self, package: &str) -> bool {
-        self.path.contains(&package.to_string())
-    }
-
-    fn current_path(&self) -> Vec<String> {
-        self.path.clone()
     }
 
     fn to_install_plan(&self, index: &PackageIndex) -> InstallPlan {
@@ -469,7 +516,9 @@ mod tests {
         let plan = resolver.resolve("text", &VersionConstraint::Any).unwrap();
 
         assert!(plan.get_version("text").is_some());
-        assert!(plan.get_version("base").is_some());
+        // `base` is a GHC-bundled package: provided by the toolchain, not
+        // resolved into the install plan.
+        assert!(plan.get_version("base").is_none());
     }
 
     #[test]
@@ -497,7 +546,8 @@ mod tests {
 
         assert!(plan.get_version("aeson").is_some());
         assert!(plan.get_version("text").is_some());
-        assert!(plan.get_version("base").is_some());
+        // `base` is toolchain-provided and intentionally absent from the plan.
+        assert!(plan.get_version("base").is_none());
     }
 
     #[test]
@@ -507,6 +557,31 @@ mod tests {
 
         let result = resolver.resolve("nonexistent", &VersionConstraint::Any);
         assert!(matches!(result, Err(ResolveError::PackageNotFound { .. })));
+    }
+
+    #[test]
+    fn test_resolve_diamond_is_not_a_false_cycle() {
+        // A diamond (top -> {left, right}; left -> shared; right -> shared)
+        // must resolve, not be misreported as a cycle. Regression for the old
+        // detector that treated the flat selection log as a DFS path.
+        let mut index = PackageIndex::new();
+        index.add_package_version(PackageVersion::new("shared", "1.0".parse().unwrap()));
+        let mut left = PackageVersion::new("left", "1.0".parse().unwrap());
+        left.add_dependency(Dependency::new("shared"));
+        index.add_package_version(left);
+        let mut right = PackageVersion::new("right", "1.0".parse().unwrap());
+        right.add_dependency(Dependency::new("shared"));
+        index.add_package_version(right);
+        let mut top = PackageVersion::new("top", "1.0".parse().unwrap());
+        top.add_dependency(Dependency::new("left"));
+        top.add_dependency(Dependency::new("right"));
+        index.add_package_version(top);
+
+        let resolver = Resolver::new(&index);
+        let plan = resolver.resolve("top", &VersionConstraint::Any).unwrap();
+        assert!(plan.get_version("shared").is_some());
+        assert!(plan.get_version("left").is_some());
+        assert!(plan.get_version("right").is_some());
     }
 
     #[test]

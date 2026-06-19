@@ -139,9 +139,27 @@ if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
   run_clean "cmd: add"          bash -c "cd '$CMDS' && '$HX' add containers"
   run       "cmd: build (+dep)" bash -c "cd '$CMDS' && '$HX' build"
   run_clean "cmd: lock"         bash -c "cd '$CMDS' && '$HX' lock"
+
+  # The original empty-lockfile bug exited 0 with no warnings, so run_clean
+  # alone would not catch it: assert the lockfile actually recorded packages.
+  echo "::group::cmd: lock populated"
+  if grep -q 'name = ' "$CMDS/hx.lock" 2>/dev/null; then
+    echo "PASS: cmd: lock recorded resolved packages"
+    PASS=$((PASS + 1))
+    RESULTS+=("PASS  cmd: lock populated")
+  else
+    echo "FAIL: cmd: lock (hx.lock recorded no packages — empty resolution)"
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL  cmd: lock empty")
+  fi
+  echo "::endgroup::"
+
   run_clean "cmd: sync"         bash -c "cd '$CMDS' && '$HX' sync"
   run_clean "cmd: tree"         bash -c "cd '$CMDS' && '$HX' tree"
   run_clean "cmd: outdated"     bash -c "cd '$CMDS' && '$HX' outdated"
+  # why/deps read the lockfile; they only work once it is populated.
+  run_clean "cmd: why"          bash -c "cd '$CMDS' && '$HX' why containers"
+  run_clean "cmd: deps list"    bash -c "cd '$CMDS' && '$HX' deps list"
   run       "cmd: publish-dry"  bash -c "cd '$CMDS' && '$HX' publish --dry-run"
   run_clean "cmd: info"         bash -c "cd '$CMDS' && '$HX' info containers"
 
