@@ -24,6 +24,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 PASS=0
 FAIL=0
+SKIP=0
 declare -a RESULTS=()
 
 # run <label> <command...>
@@ -47,6 +48,11 @@ run() {
 echo "hx under test: $("$HX" --version 2>/dev/null || echo unknown)"
 "$HX" doctor || true   # informational; never fatal
 
+# Detect whether the BHC backend is available. BHC-backed templates (server,
+# numeric) are skipped — not failed — when BHC is not installed.
+BHC_OK=0
+if "$HX" doctor 2>&1 | grep -qE 'bhc: [0-9]'; then BHC_OK=1; fi
+
 # Project names are prefixed to avoid colliding with real Hackage package
 # names (e.g. a project literally named "base" conflicts with GHC's base).
 
@@ -67,6 +73,13 @@ if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
     name="hxrw-${tmpl}"
     proj="$WORK/$name"
     run "${tmpl}: new"   bash -c "cd '$WORK' && '$HX' new ${tmpl} ${name}"
+    # BHC-backed templates need the BHC compiler; skip when it isn't installed.
+    if grep -q 'backend = "bhc"' "$proj/hx.toml" 2>/dev/null && [ "$BHC_OK" != "1" ]; then
+      echo "SKIP: ${tmpl}: build (requires the BHC backend, not installed)"
+      SKIP=$((SKIP + 1))
+      RESULTS+=("SKIP  ${tmpl}: requires BHC")
+      continue
+    fi
     run "${tmpl}: build" bash -c "cd '$proj' && '$HX' build"
     # Libraries have no executable; only run binaries.
     if [ "$tmpl" != "library" ]; then
@@ -80,7 +93,7 @@ echo
 echo "==================== real-world results ===================="
 printf '  %s\n' "${RESULTS[@]}"
 echo "  ---"
-echo "  PASS=${PASS}  FAIL=${FAIL}"
+echo "  PASS=${PASS}  FAIL=${FAIL}  SKIP=${SKIP}"
 echo "============================================================"
 
 [ "$FAIL" -eq 0 ]

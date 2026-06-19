@@ -55,6 +55,7 @@ common warnings
                  -Wincomplete-uni-patterns -Wmissing-deriving-strategies
                  -Wpartial-fields -Wredundant-constraints
     default-extensions:
+        DataKinds
         DeriveAnyClass
         DerivingStrategies
         OverloadedStrings
@@ -196,6 +197,7 @@ module Server
     ) where
 
 import Servant
+import Data.Text (pack)
 import Api (API, api)
 import Types (Greeting(..))
 
@@ -214,7 +216,7 @@ healthHandler = pure "OK"
 -- | Hello handler
 helloHandler :: String -> Handler Greeting
 helloHandler name = pure $ Greeting
-    { greetingMessage = "Hello, " <> name <> "!"
+    { greetingMessage = "Hello, " <> pack name <> "!"
     }
 "#;
 

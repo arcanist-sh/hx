@@ -230,6 +230,7 @@ module Server
     ) where
 
 import Servant
+import Data.Text (pack)
 import Network.Wai (Middleware)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Api (API, api)
@@ -253,7 +254,7 @@ healthHandler = pure $ HealthStatus
 -- | Hello handler
 helloHandler :: String -> Handler Greeting
 helloHandler name = pure $ Greeting
-    { greetingMessage = "Hello, " <> name <> "!"
+    { greetingMessage = "Hello, " <> pack name <> "!"
     }
 "#;
 
