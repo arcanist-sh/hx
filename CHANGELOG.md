@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-06-19
+
 ### Fixed
 - **`hx new cli` and `hx new library` now compile.** Both templates were generated with code that failed to build: a `String`/`Text` mismatch in the CLI greeting (missing `OverloadedStrings`, bogus `toText = id`) and `deriving stock (...)` without the `DerivingStrategies` extension. Surfaced by the new real-world build job.
 - **No more "Unable to create steel home directory" warning** on minimal machines: the plugin runtime now ensures the platform data directory exists before initializing Steel.
+
+### Added
+- **Real-world build CI** (`real-world.yml`, nightly + on-demand): drives `init`/`new` → build → test → run against projects with real Hackage dependencies, so broken templates and toolchain regressions are caught automatically.
 
 ## [0.7.8] - 2026-06-19
 
@@ -307,7 +312,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.8...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.9...HEAD
+[0.7.9]: https://github.com/arcanist-sh/hx/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/arcanist-sh/hx/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/arcanist-sh/hx/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/arcanist-sh/hx/compare/v0.7.5...v0.7.6
