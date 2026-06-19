@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-06-19
+
 ### Fixed
 - **`hx new webapp` (and the `server` template) now compile.** The Servant API needed `DataKinds`, the JSON model needed `DerivingStrategies`/`DeriveAnyClass`, and the handler passed a `String` where `Text` was expected (now `pack`ed). Enabled the extensions via `default-extensions` and fixed the conversion. Found by the widened real-world build job.
 
 ### Changed
-- The real-world build job skips BHC-backed templates (`server`, `numeric`) with a clear note when the BHC compiler isn't installed, instead of reporting a failure.
+- The real-world build job now covers the full template set (webapp, server, numeric) on its nightly run, and skips BHC-backed templates (`server`, `numeric`) with a clear note when the BHC compiler isn't installed, instead of reporting a failure.
 
 ## [0.7.9] - 2026-06-19
 
@@ -318,7 +320,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.9...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.10...HEAD
+[0.7.10]: https://github.com/arcanist-sh/hx/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/arcanist-sh/hx/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/arcanist-sh/hx/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/arcanist-sh/hx/compare/v0.7.6...v0.7.7
