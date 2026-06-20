@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-06-20
+
 ### Fixed
 - **`hx lock` now produces a real lockfile for single-package projects (and `hx why` / `hx deps` work as a result).** Previously the native solver wrote `packages = []` for every `hx new`/`hx init` project — silently, so `build` still worked but `why`/`deps`/`outdated` read an empty lockfile. Several layered bugs, all found by the new daily-driver command coverage:
   - **Dependency collection** only scanned workspace members, so single-package projects contributed no dependencies. It now reads the project's own `.cabal` too.
@@ -337,7 +339,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.10...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.11...HEAD
+[0.7.11]: https://github.com/arcanist-sh/hx/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/arcanist-sh/hx/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/arcanist-sh/hx/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/arcanist-sh/hx/compare/v0.7.7...v0.7.8
