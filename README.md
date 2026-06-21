@@ -124,7 +124,8 @@ hx new template <url> <name> # Create from git template
 ### Building
 
 ```bash
-hx build                     # Build the project
+hx build                     # Build the project (all packages in a workspace)
+hx build --package mylib     # Build a single workspace member
 hx build --release           # Build with optimizations
 hx build --native            # Use native GHC build (no cabal)
 hx build -j4                 # Parallel build with 4 jobs
@@ -132,13 +133,18 @@ hx check                     # Fast type-check
 hx clean                     # Clean build artifacts
 ```
 
+> **Workspaces** — For a `cabal.project` with several local packages, `hx build`
+> and `hx test` build and test every member. Use `--package <name>` to target a
+> single member.
+
 ### Running & Testing
 
 ```bash
 hx run                       # Build and run the executable
 hx run -- arg1 arg2          # Pass arguments to the program
 hx repl                      # Start an interactive GHCi session
-hx test                      # Run tests
+hx test                      # Run tests (all packages in a workspace)
+hx test --package mylib      # Test a single workspace member
 hx test --pattern "Unit"     # Filter tests by pattern
 hx bench                     # Run benchmarks
 ```
@@ -231,6 +237,7 @@ hx toolchain list --installed # List installed versions only
 
 hx toolchain install 9.8.2   # Install GHC version
 hx toolchain install --set   # Install and set as active
+hx toolchain install --bhc <version> # Install the BHC toolchain
 hx toolchain remove 9.6.4    # Remove a GHC version
 
 hx toolchain use 9.8.2       # Switch GHC version
@@ -253,7 +260,10 @@ hx mcp                       # Start an MCP server for AI agents (JSON-RPC/stdio
 
 `hx mcp` exposes build/test/run/lock/doctor/dependency tools over the
 [Model Context Protocol](https://modelcontextprotocol.io). See
-[AGENTS.md](AGENTS.md) for how to drive hx from an AI agent.
+[AGENTS.md](AGENTS.md) for how to drive hx from an AI agent, the Claude skill at
+[`.claude/skills/hx/SKILL.md`](.claude/skills/hx/SKILL.md) for slash-command
+workflows, and the [`llms.txt`](https://arcanist.sh/hx/llms.txt) project map
+(served at `arcanist.sh/hx/llms.txt`) for a compact, agent-friendly overview.
 
 ### Publishing
 
@@ -279,6 +289,7 @@ hx dist install-script       # Generate install script
 ```bash
 hx doctor                    # Diagnose setup issues
 hx script file.hs            # Run single-file script
+hx import --from cabal       # Import a Cabal project (cabal.project or bare .cabal)
 hx import --from stack       # Import from stack.yaml
 hx nix flake                 # Generate flake.nix
 hx nix shell                 # Generate shell.nix
@@ -286,6 +297,12 @@ hx completions install       # Auto-install completions for your shell
 hx completions generate bash # Generate completions to stdout
 hx upgrade                   # Upgrade hx to latest version
 ```
+
+`hx import --from cabal` works with a full `cabal.project` or just a bare
+`.cabal` file — in the latter case the directory is adopted as a single-package
+project. `hx import --from stack` adopts an existing Stack project. Running a
+project command outside an hx project but inside a Cabal or Stack project
+reports "project not found" and suggests `hx import` to adopt it.
 
 ### Cache Management
 
@@ -409,6 +426,15 @@ hash = "sha256:..."
 name = "text"
 version = "2.1.1"
 ```
+
+The native solver evaluates `.cabal` conditionals (`os`, `arch`, `impl(ghc)`,
+and `flag`) and excludes dependencies of disabled components (`buildable: False`),
+so platform- and compiler-specific packages never leak into the lockfile.
+Single-package projects (including bare `.cabal` adoptions) get a real lockfile
+too, so `hx why`, `hx deps`, and `hx outdated` work there as well.
+
+Packages with a custom `Setup.hs` (`build-type: Custom`) build correctly via
+delegation to Cabal.
 
 ## Environment Variables
 
