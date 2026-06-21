@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.16] - 2026-06-21
+
 ### Fixed
 - **`hx build` and `hx test` now work in a multi-package workspace.** A `cabal.project` with several local packages has no package in the root directory, so hx's untargeted `cabal build` / `cabal test` failed with `Cabal-7134: No targets given`. hx now builds and tests every member via the `all` target unless a specific `--package` is requested. Verified by adopting a real 6-package workspace (the `prettyprinter` repo) — all members build and the test suites pass — and `build-type: Custom` packages (custom `Setup.hs`) already build correctly through the cabal delegation.
 
@@ -379,7 +381,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.15...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.16...HEAD
+[0.7.16]: https://github.com/arcanist-sh/hx/compare/v0.7.15...v0.7.16
 [0.7.15]: https://github.com/arcanist-sh/hx/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/arcanist-sh/hx/compare/v0.7.13...v0.7.14
 [0.7.13]: https://github.com/arcanist-sh/hx/compare/v0.7.12...v0.7.13
