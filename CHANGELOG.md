@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-21
+
+A milestone release consolidating the correctness work of the 0.7.11–0.7.16
+series. No new code beyond 0.7.16 — 0.8.0 marks the point at which hx adopts,
+locks, and builds real Haskell projects of every common shape, and is honest
+when it cannot. Highlights from the series:
+
+- **Adopt existing projects.** `hx import --from cabal` works on a bare `.cabal`
+  with no `cabal.project` (single-package), and `hx import --from stack` on Stack
+  projects; "project not found" now suggests the adoption command (0.7.13).
+- **Lockfiles that mean something.** Single-package projects get a real, populated
+  lockfile so `hx why`/`hx deps`/`hx outdated` work (0.7.11); the native solver
+  evaluates `.cabal` conditionals (`os`/`arch`/`impl(ghc)`/`flag`) and excludes
+  disabled-component (`buildable: False`) dependencies, so platform/compiler-specific
+  packages no longer leak (0.7.14–0.7.15); the constraint parser handles wildcards,
+  set-version, and parenthesised forms (0.7.11).
+- **Every project shape builds.** Multi-package workspaces build/test all members
+  via the `all` target (`--package` to narrow), and `build-type: Custom` packages
+  build through cabal delegation (0.7.16).
+- **BHC, driven correctly.** The BHC backend uses the shipped compiler's real CLI,
+  wires `LIBRARY_PATH`, and reports failure from output since BHC can exit zero on
+  errors; `hx toolchain install --bhc` fetches and verifies real releases (0.7.12).
+
+See the 0.7.11–0.7.16 entries below for full detail.
+
 ## [0.7.16] - 2026-06-21
 
 ### Fixed
@@ -381,7 +406,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.16...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/arcanist-sh/hx/compare/v0.7.16...v0.8.0
 [0.7.16]: https://github.com/arcanist-sh/hx/compare/v0.7.15...v0.7.16
 [0.7.15]: https://github.com/arcanist-sh/hx/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/arcanist-sh/hx/compare/v0.7.13...v0.7.14
