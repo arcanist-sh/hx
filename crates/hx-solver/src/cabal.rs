@@ -576,21 +576,36 @@ pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
     // the field starts so a later `else` can't retroactively change it.
     let mut build_depends_active = true;
     let mut cond_stack: Vec<CondFrame> = Vec::new();
+    // Per-component state. A component's `build-depends` are buffered and only
+    // committed if the component is `buildable` — a disabled component (e.g.
+    // `if flag(x) buildable: True else buildable: False`) contributes nothing.
+    let mut pending_deps: Vec<Dependency> = Vec::new();
+    let mut current_buildable = true;
 
-    // Flush the buffered build-depends into the current section (only when its
-    // branch was active).
+    // Parse the buffered build-depends field into the component's pending list
+    // (only when its conditional branch was taken).
     macro_rules! flush_deps {
         () => {
             if in_build_depends && !build_depends_buffer.is_empty() && build_depends_active {
-                let deps = parse_build_depends(&build_depends_buffer);
-                match current_section {
-                    Section::Library => result.library_deps.extend(deps),
-                    Section::Executable(_) => result.executable_deps.extend(deps),
-                    _ => {}
-                }
+                pending_deps.extend(parse_build_depends(&build_depends_buffer));
             }
             in_build_depends = false;
             build_depends_buffer.clear();
+        };
+    }
+
+    // Commit the current component's pending dependencies — but only if it is
+    // buildable. Either way the buffer is cleared for the next component.
+    macro_rules! commit_component {
+        () => {
+            if current_buildable {
+                match current_section {
+                    Section::Library => result.library_deps.append(&mut pending_deps),
+                    Section::Executable(_) => result.executable_deps.append(&mut pending_deps),
+                    _ => pending_deps.clear(),
+                }
+            }
+            pending_deps.clear();
         };
     }
 
@@ -668,9 +683,11 @@ pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
         }
 
         // Section headers reset to the new stanza (conditionals already popped
-        // by the indent check above).
+        // by the indent check above). Commit the previous component first.
         if let Some(section) = parse_section_header(trimmed) {
+            commit_component!();
             current_section = section;
+            current_buildable = true;
             continue;
         }
 
@@ -686,19 +703,26 @@ pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
             continue;
         }
 
-        // A new build-depends field inside a library/executable.
+        // Fields inside a library/executable component.
         if matches!(current_section, Section::Library | Section::Executable(_))
             && let Some((key, value)) = parse_field(line)
-            && key.to_lowercase() == "build-depends"
         {
-            in_build_depends = true;
-            build_depends_indent = ind;
-            build_depends_active = frame_active(&cond_stack);
-            build_depends_buffer = value.to_string();
+            let key = key.to_lowercase();
+            if key == "build-depends" {
+                in_build_depends = true;
+                build_depends_indent = ind;
+                build_depends_active = frame_active(&cond_stack);
+                build_depends_buffer = value.to_string();
+            } else if key == "buildable" && frame_active(&cond_stack) {
+                // `buildable: False` (possibly via the active branch of a
+                // conditional) disables the whole component.
+                current_buildable = value.trim().eq_ignore_ascii_case("true");
+            }
         }
     }
 
     flush_deps!();
+    commit_component!();
     let _ = in_build_depends; // final flush clears it; value intentionally unused
     result
 }
@@ -930,6 +954,65 @@ library
         assert!(deps.contains(&"transformers".to_string())); // unconditional
         assert!(!deps.contains(&"Win32".to_string())); // os(windows) inactive on osx
         assert!(!deps.contains(&"semigroups".to_string())); // !impl(ghc>=8) false on 9.8
+    }
+
+    #[test]
+    fn test_buildable_false_component_excluded() {
+        // The pretty-simple pattern: an executable disabled via
+        // `if flag(x) buildable: True else buildable: False` with unconditional
+        // build-depends. When the flag is off, none of its deps should appear.
+        let content = r#"
+name: p
+version: 1.0
+
+flag buildexample
+  default: False
+
+library
+  build-depends: base, text
+
+executable example
+  if flag(buildexample)
+    buildable: True
+  else
+    buildable: False
+  build-depends: base, aeson, bytestring
+"#;
+        let ctx = CabalContext {
+            ghc_version: "9.8.2".parse().unwrap(),
+            os: "osx".to_string(),
+            arch: "aarch64".to_string(),
+        };
+        let cabal = parse_cabal_ctx(content, &ctx);
+        let all = names(&cabal.all_dependencies());
+        assert!(all.contains(&"text".to_string())); // from the library
+        assert!(!all.contains(&"aeson".to_string())); // disabled executable
+        assert!(!all.contains(&"bytestring".to_string()));
+    }
+
+    #[test]
+    fn test_buildable_true_via_flag_included() {
+        let content = r#"
+name: p
+version: 1.0
+
+flag buildexe
+  default: True
+
+executable cli
+  if flag(buildexe)
+    buildable: True
+  else
+    buildable: False
+  build-depends: base, optparse-applicative
+"#;
+        let ctx = CabalContext {
+            ghc_version: "9.8.2".parse().unwrap(),
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+        };
+        let deps = names(&parse_cabal_ctx(content, &ctx).executable_deps);
+        assert!(deps.contains(&"optparse-applicative".to_string()));
     }
 
     #[test]

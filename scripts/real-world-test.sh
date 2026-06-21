@@ -229,6 +229,35 @@ if [ "${REAL_WORLD_FULL:-0}" = "1" ] && command -v cabal >/dev/null 2>&1; then
     echo "SKIP: adopt (could not fetch optparse-applicative from Hackage)"
     SKIP=$((SKIP + 1)); RESULTS+=("SKIP  adopt: fetch failed")
   fi
+
+  # --- Scenario: adopt a multi-component package ---------------------------
+  # pretty-simple has a library, several executables, a test-suite and a
+  # benchmark, with flags that gate whole components via `buildable:`. It
+  # stresses component handling and conditional/flag evaluation together.
+  MC="$WORK/mc"
+  mkdir -p "$MC"
+  if ( cd "$MC" && cabal get pretty-simple-4.1.2.0 >/dev/null 2>&1 ); then
+    mcpkg="$MC/pretty-simple-4.1.2.0"
+    run       "multi: import" bash -c "cd '$mcpkg' && '$HX' import --from cabal"
+    run_clean "multi: lock"   bash -c "cd '$mcpkg' && '$HX' lock"
+
+    # `buildexample` defaults off, disabling the JSON example via
+    # `buildable: False`; its `aeson` dependency must not enter the lockfile.
+    echo "::group::multi: disabled-component dep excluded"
+    if grep -qi 'name = "aeson"' "$mcpkg/hx.lock" 2>/dev/null; then
+      echo "FAIL: multi: aeson leaked from a buildable:False component"
+      FAIL=$((FAIL + 1)); RESULTS+=("FAIL  multi: buildable leak")
+    else
+      echo "PASS: multi: disabled-component deps excluded"
+      PASS=$((PASS + 1)); RESULTS+=("PASS  multi: no buildable leak")
+    fi
+    echo "::endgroup::"
+
+    run       "multi: build"  bash -c "cd '$mcpkg' && '$HX' build"
+  else
+    echo "SKIP: multi (could not fetch pretty-simple from Hackage)"
+    SKIP=$((SKIP + 1)); RESULTS+=("SKIP  multi: fetch failed")
+  fi
 fi
 
 # --- Summary ---------------------------------------------------------------
