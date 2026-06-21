@@ -559,8 +559,13 @@ fn frame_active(stack: &[CondFrame]) -> bool {
 pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
     let mut result = CabalFile::default();
     // Package-local flag values, resolved up front so `flag(name)` conditions
-    // can be evaluated. Unknown flags fall back to `true` inside `eval`.
-    let flags = parse_flag_defaults(content);
+    // can be evaluated. Unknown flags fall back to `true` inside `eval`. Most
+    // packages declare no flags, so skip the extra pass when none are present.
+    let flags = if content.contains("flag") {
+        parse_flag_defaults(content)
+    } else {
+        HashMap::new()
+    };
     let flag_lookup = |name: &str| {
         flags
             .get(&name.to_ascii_lowercase())
@@ -629,10 +634,12 @@ pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
         // The line is not a continuation: flush the pending field.
         flush_deps!();
 
-        let lower = trimmed.to_ascii_lowercase();
-        let is_else = lower == "else";
-        let is_elif = lower.starts_with("elif ") || lower.starts_with("elif(");
-        let is_if = lower.starts_with("if ") || lower.starts_with("if(");
+        // Case-insensitive keyword detection without allocating a lowercased
+        // copy of every line (this runs for every line of every package in the
+        // index, so the allocation is a real cost).
+        let is_else = trimmed.eq_ignore_ascii_case("else");
+        let is_elif = ci_starts_with(trimmed, "elif ") || ci_starts_with(trimmed, "elif(");
+        let is_if = ci_starts_with(trimmed, "if ") || ci_starts_with(trimmed, "if(");
 
         // Close conditional branches whose body has ended. An `else`/`elif`
         // continues the chain at the same indent, so it must not pop its own if.
@@ -806,6 +813,11 @@ fn parse_section_header(line: &str) -> Option<Section> {
 /// Leading-whitespace width of a line, used for Cabal's layout rule.
 fn indent_width(line: &str) -> usize {
     line.chars().take_while(|c| *c == ' ' || *c == '\t').count()
+}
+
+/// ASCII-case-insensitive prefix test that does not allocate.
+fn ci_starts_with(s: &str, prefix: &str) -> bool {
+    s.len() >= prefix.len() && s.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
 }
 
 fn parse_field(line: &str) -> Option<(&str, &str)> {
