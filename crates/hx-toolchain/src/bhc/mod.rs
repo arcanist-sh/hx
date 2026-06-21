@@ -88,11 +88,11 @@ impl std::fmt::Display for BhcVersion {
     }
 }
 
-/// Known BHC versions with their download URLs.
-pub const KNOWN_BHC_VERSIONS: &[&str] = &["0.1.0", "0.2.0"];
+/// Known BHC versions published at `arcanist-sh/bhc`.
+pub const KNOWN_BHC_VERSIONS: &[&str] = &["0.2.0", "0.2.1", "0.2.2", "0.2.3"];
 
 /// Recommended BHC version.
-pub const RECOMMENDED_BHC_VERSION: &str = "0.2.0";
+pub const RECOMMENDED_BHC_VERSION: &str = "0.2.3";
 
 /// Check if a version string is a known BHC version.
 pub fn is_known_version(version: &str) -> bool {
@@ -194,11 +194,7 @@ pub fn list_installed() -> Vec<InstalledBhc> {
                 .filter(|e| e.path().is_dir())
                 .filter_map(|e| {
                     let version = e.file_name().to_string_lossy().to_string();
-                    let bhc_exe = if cfg!(windows) {
-                        e.path().join("bin").join("bhc.exe")
-                    } else {
-                        e.path().join("bin").join("bhc")
-                    };
+                    let bhc_exe = bhc_binary_in(&e.path());
 
                     if bhc_exe.exists() && is_valid_version(&version) {
                         Some(InstalledBhc {
@@ -216,11 +212,14 @@ pub fn list_installed() -> Vec<InstalledBhc> {
 }
 
 /// Download URL for a BHC version and platform.
+///
+/// BHC releases live at `arcanist-sh/bhc`; each release tags `v<version>` and
+/// attaches per-platform archives named `bhc-<platform>.tar.gz` (the version is
+/// not repeated in the asset filename).
 pub fn bhc_download_url(version: &str, platform: &str) -> String {
-    // Example URL pattern - would be replaced with actual BHC release URLs
     format!(
-        "https://github.com/bhc-lang/bhc/releases/download/v{}/bhc-{}-{}.tar.gz",
-        version, version, platform
+        "https://github.com/arcanist-sh/bhc/releases/download/v{}/bhc-{}.tar.gz",
+        version, platform
     )
 }
 
@@ -254,11 +253,7 @@ pub fn current_platform() -> String {
 /// Set the active BHC version.
 pub async fn set_active(version: &str) -> Result<()> {
     let install_path = version_install_path(version);
-    let bhc_exe = if cfg!(windows) {
-        install_path.join("bin").join("bhc.exe")
-    } else {
-        install_path.join("bin").join("bhc")
-    };
+    let bhc_exe = bhc_binary_in(&install_path);
 
     if !bhc_exe.exists() {
         return Err(BhcError::NotFound);
@@ -267,24 +262,37 @@ pub async fn set_active(version: &str) -> Result<()> {
     let bin_dir = bhc_install_dir().join("bin");
     std::fs::create_dir_all(&bin_dir)?;
 
-    // Create symlink to the version's bin directory
+    // Symlink ~/.bhc/bin/bhc to the active version's binary. BHC locates its
+    // runtime archives as a sibling `lib/` of the *invoked* path (it does not
+    // resolve the symlink on macOS), so we must place a `lib/` symlink next to
+    // the binary symlink as well — otherwise the activated `bhc` runs in a
+    // degraded mode that cannot find its standard library.
     let link_path = if cfg!(windows) {
         bin_dir.join("bhc.exe")
     } else {
         bin_dir.join("bhc")
     };
+    let lib_link = bin_dir.join("lib");
+    let lib_target = install_path.join("lib");
 
-    // Remove existing link if any
+    // Remove existing links if any.
     let _ = std::fs::remove_file(&link_path);
+    let _ = std::fs::remove_file(&lib_link);
 
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&bhc_exe, &link_path)?;
+        if lib_target.is_dir() {
+            std::os::unix::fs::symlink(&lib_target, &lib_link)?;
+        }
     }
 
     #[cfg(windows)]
     {
         std::os::windows::fs::symlink_file(&bhc_exe, &link_path)?;
+        if lib_target.is_dir() {
+            let _ = std::os::windows::fs::symlink_dir(&lib_target, &lib_link);
+        }
     }
 
     info!("Set BHC {} as active", version);
@@ -361,11 +369,7 @@ pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult
 
     // Check if already installed
     if !options.force && install_path.exists() {
-        let bhc_exe = if cfg!(windows) {
-            install_path.join("bin").join("bhc.exe")
-        } else {
-            install_path.join("bin").join("bhc")
-        };
+        let bhc_exe = bhc_binary_in(&install_path);
 
         if bhc_exe.exists() {
             info!("BHC {} is already installed", options.version);
@@ -392,9 +396,10 @@ pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult
     fs::create_dir_all(&downloads_dir).map_err(BhcError::Io)?;
     fs::create_dir_all(&install_path).map_err(BhcError::Io)?;
 
-    // Download the archive
+    // Download the archive. The asset filename matches the release (no version
+    // in the name) so it lines up with the published SHA256SUMS manifest.
     let platform = current_platform();
-    let archive_name = format!("bhc-{}-{}.tar.gz", options.version, platform);
+    let archive_name = format!("bhc-{}.tar.gz", platform);
     let archive_path = downloads_dir.join(&archive_name);
     let url = bhc_download_url(&options.version, &platform);
 
@@ -406,11 +411,7 @@ pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult
     // Verify installation
     verify_bhc_installation(&install_path, &options.version).await?;
 
-    let bhc_exe = if cfg!(windows) {
-        install_path.join("bin").join("bhc.exe")
-    } else {
-        install_path.join("bin").join("bhc")
-    };
+    let bhc_exe = bhc_binary_in(&install_path);
 
     let installed = InstalledBhc {
         version: options.version.clone(),
@@ -560,12 +561,17 @@ fn extract_bhc_archive(archive_path: &Path, dest_dir: &Path, version: &str) -> R
         dest_dir.display()
     );
 
+    // First pass: determine whether every entry sits under a single top-level
+    // directory (older layout, e.g. "bhc-0.2.0-aarch64-darwin/…"). If so, strip
+    // it; the current release tarballs place `bhc` and `lib/` at the top level
+    // with no wrapper, and stripping unconditionally would drop the binary.
+    let strip_prefix = archive_has_single_root(archive_path)?;
+
     let file = File::open(archive_path).map_err(BhcError::Io)?;
     let reader = BufReader::new(file);
     let decoder = GzDecoder::new(reader);
     let mut archive = Archive::new(decoder);
 
-    // Extract with strip_components behavior - extract contents directly
     for entry in archive
         .entries()
         .map_err(|e| BhcError::Install(e.to_string()))?
@@ -573,8 +579,11 @@ fn extract_bhc_archive(archive_path: &Path, dest_dir: &Path, version: &str) -> R
         let mut entry = entry.map_err(|e| BhcError::Install(e.to_string()))?;
         let path = entry.path().map_err(|e| BhcError::Install(e.to_string()))?;
 
-        // Strip the first component (e.g., "bhc-0.2.0-aarch64-darwin/")
-        let stripped: PathBuf = path.components().skip(1).collect();
+        let stripped: PathBuf = if strip_prefix {
+            path.components().skip(1).collect()
+        } else {
+            path.to_path_buf()
+        };
         if stripped.as_os_str().is_empty() {
             continue;
         }
@@ -603,17 +612,62 @@ fn extract_bhc_archive(archive_path: &Path, dest_dir: &Path, version: &str) -> R
         })?;
     }
 
+    // Keep BHC's native flat layout (`<install>/bhc` + `<install>/lib/`): the
+    // compiler locates its runtime libraries as a *sibling* `lib/` of the
+    // binary, so the executable must NOT be moved into a `bin/` subdirectory.
     spinner.finish_success(format!("Extracted BHC {}", version));
     Ok(())
 }
 
+/// Resolve the BHC executable within an install directory.
+///
+/// Release tarballs place the binary at `<dir>/bhc` (flat, with a sibling
+/// `lib/`). Older/managed installs may use `<dir>/bin/bhc`; both are accepted,
+/// flat first.
+pub fn bhc_binary_in(dir: &Path) -> PathBuf {
+    let exe = if cfg!(windows) { "bhc.exe" } else { "bhc" };
+    let flat = dir.join(exe);
+    if flat.exists() {
+        return flat;
+    }
+    let in_bin = dir.join("bin").join(exe);
+    if in_bin.exists() {
+        return in_bin;
+    }
+    flat
+}
+
+/// Whether every entry in the archive lives under one common top-level
+/// directory (so that directory should be stripped on extraction).
+fn archive_has_single_root(archive_path: &Path) -> Result<bool> {
+    use flate2::read::GzDecoder;
+
+    let file = File::open(archive_path).map_err(BhcError::Io)?;
+    let decoder = GzDecoder::new(BufReader::new(file));
+    let mut archive = Archive::new(decoder);
+
+    let mut root: Option<std::ffi::OsString> = None;
+    for entry in archive
+        .entries()
+        .map_err(|e| BhcError::Install(e.to_string()))?
+    {
+        let entry = entry.map_err(|e| BhcError::Install(e.to_string()))?;
+        let path = entry.path().map_err(|e| BhcError::Install(e.to_string()))?;
+        match path.components().next() {
+            Some(std::path::Component::Normal(first)) => match &root {
+                Some(r) if r != first => return Ok(false),
+                Some(_) => {}
+                None => root = Some(first.to_os_string()),
+            },
+            _ => return Ok(false),
+        }
+    }
+    Ok(root.is_some())
+}
+
 /// Verify BHC installation by running bhc --version.
 async fn verify_bhc_installation(install_dir: &Path, expected_version: &str) -> Result<()> {
-    let bhc_path = if cfg!(windows) {
-        install_dir.join("bin").join("bhc.exe")
-    } else {
-        install_dir.join("bin").join("bhc")
-    };
+    let bhc_path = bhc_binary_in(install_dir);
 
     if !bhc_path.exists() {
         return Err(BhcError::Install(format!(
@@ -675,8 +729,19 @@ mod tests {
 
     #[test]
     fn test_known_versions() {
-        assert!(is_known_version("0.1.0"));
+        assert!(is_known_version("0.2.3"));
+        assert!(is_known_version("0.2.0"));
+        assert!(!is_known_version("0.1.0"));
         assert!(!is_known_version("99.99.99"));
+    }
+
+    #[test]
+    fn test_download_url_format() {
+        // arcanist-sh/bhc; version in the tag, NOT in the asset filename.
+        assert_eq!(
+            bhc_download_url("0.2.3", "x86_64-linux"),
+            "https://github.com/arcanist-sh/bhc/releases/download/v0.2.3/bhc-x86_64-linux.tar.gz"
+        );
     }
 
     #[test]

@@ -27,14 +27,32 @@ pub fn sums_url_for(download_url: &str) -> Option<String> {
         .map(|(dir, _)| format!("{dir}/SHA256SUMS"))
 }
 
+/// Candidate manifest URLs in the same directory as `download_url`. Different
+/// projects name the manifest differently (`SHA256SUMS` on downloads.haskell.org,
+/// `SHA256SUMS.txt` on arcanist-sh/bhc releases).
+fn sums_urls_for(download_url: &str) -> Vec<String> {
+    let Some((dir, _)) = download_url.rsplit_once('/') else {
+        return Vec::new();
+    };
+    ["SHA256SUMS", "SHA256SUMS.txt"]
+        .iter()
+        .map(|name| format!("{dir}/{name}"))
+        .collect()
+}
+
 /// Parse a checksum manifest line: `<hex>  <filename>` (binary-mode `*` and
 /// `./` prefixes tolerated). Returns the digest if the line matches `file_name`.
+///
+/// The manifest entry is matched on its basename, so a path-prefixed entry
+/// (e.g. `bhc-aarch64-darwin/bhc-aarch64-darwin.tar.gz`) still matches the bare
+/// `file_name`.
 fn digest_for_line(line: &str, file_name: &str) -> Option<String> {
     let mut parts = line.split_whitespace();
     let hash = parts.next()?;
     let name = parts.next().unwrap_or(file_name);
     let name = name.trim_start_matches('*').trim_start_matches("./");
-    if name == file_name && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let name_base = name.rsplit('/').next().unwrap_or(name);
+    if name_base == file_name && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         Some(hash.to_ascii_lowercase())
     } else {
         None
@@ -70,11 +88,12 @@ pub async fn fetch_expected_sha256(
     download_url: &str,
     file_name: &str,
 ) -> Result<Option<String>> {
-    if let Some(sums_url) = sums_url_for(download_url)
-        && let Some(body) = fetch_manifest(client, &sums_url).await?
-        && let Some(digest) = body.lines().find_map(|l| digest_for_line(l, file_name))
-    {
-        return Ok(Some(digest));
+    for sums_url in sums_urls_for(download_url) {
+        if let Some(body) = fetch_manifest(client, &sums_url).await?
+            && let Some(digest) = body.lines().find_map(|l| digest_for_line(l, file_name))
+        {
+            return Ok(Some(digest));
+        }
     }
 
     let sidecar_url = format!("{download_url}.sha256");

@@ -27,6 +27,7 @@ hx-solver.workspace = true
 hx-cache.workspace = true
 hx-core.workspace = true
 directories.workspace = true
+which.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

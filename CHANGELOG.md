@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The BHC backend now drives BHC correctly end to end.** `hx build` against a `bhc`-backed project was generating a command line the shipped BHC (0.2.3) rejects. Fixed across the board, validated against a real BHC toolchain:
+  - **Invocation form.** hx invoked `bhc build --profile=… --tensor-fusion --emit-kernel-report`, but BHC's `build` subcommand is a stub and those flags don't exist. hx now enumerates the project's `.hs` sources and invokes the working top-level form — `bhc --profile <p> -O <n> -I <dir> <files…> -o <out>` — with global options preceding the files. `--tensor-fusion` is dropped (it is implied by `--profile numeric`) and the kernel report uses BHC's actual `--kernel-report`.
+  - **Runtime linking.** BHC references `-lbhc_rts` without adding a library search path, so hx now sets `LIBRARY_PATH` to BHC's `lib/` directory (discovered next to the binary); previously every link failed with `library 'bhc_rts' not found`.
+  - **Honest failure reporting.** BHC 0.2.3 frequently exits 0 while printing compile/link errors; `hx build` now also inspects the output, so a failed BHC build reports failure (non-zero exit) instead of a false success.
+- **`hx toolchain install --bhc` works against the real BHC releases.** The download pointed at a non-existent repo (`bhc-lang/bhc`) with a versioned filename. It now fetches `bhc-<platform>.tar.gz` from `arcanist-sh/bhc`, verifies it against the release `SHA256SUMS.txt` (manifest matched on basename), preserves BHC's flat `bhc` + sibling `lib/` layout on extraction, and activates a version by symlinking both the binary and its `lib/` so the runtime is found. Known versions updated through 0.2.3.
+
+### Added
+- **BHC pipeline smoke test** (`scripts/bhc-smoke.sh`) and a `bhc-pipeline` CI job (in `real-world.yml`) that installs a real BHC toolchain and builds + runs a BHC project through hx, asserting both a successful build and that a broken build is reported as a failure. The `server`/`numeric` templates remain gated in the main matrix — BHC 0.2.3 cannot yet compile their source (polymorphic numerics, Servant).
+
 ## [0.7.11] - 2026-06-20
 
 ### Fixed

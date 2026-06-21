@@ -183,17 +183,14 @@ impl BhcCompilerConfig {
     pub fn bhc_flags(&self) -> Vec<String> {
         let mut flags = Vec::new();
 
-        // Profile flag
+        // Profile flag (global option; must precede any subcommand/files).
         flags.push(format!("--profile={}", self.profile.as_str()));
 
-        // Tensor fusion
-        if self.tensor_fusion {
-            flags.push("--tensor-fusion".to_string());
-        }
-
-        // Kernel report
+        // Kernel report. BHC 0.2.3 spells this `--kernel-report` (there is no
+        // `--emit-kernel-report`, and no `--tensor-fusion` flag at all — tensor
+        // optimisation is implied by `--profile numeric`).
         if self.emit_kernel_report {
-            flags.push("--emit-kernel-report".to_string());
+            flags.push("--kernel-report".to_string());
         }
 
         // Package databases
@@ -360,8 +357,10 @@ mod tests {
         let flags = config.bhc_flags();
 
         assert!(flags.contains(&"--profile=server".to_string()));
-        assert!(flags.contains(&"--tensor-fusion".to_string()));
-        assert!(flags.contains(&"--emit-kernel-report".to_string()));
+        // BHC 0.2.3 has no `--tensor-fusion`; kernel report is `--kernel-report`.
+        assert!(!flags.iter().any(|f| f == "--tensor-fusion"));
+        assert!(flags.contains(&"--kernel-report".to_string()));
+        assert!(!flags.iter().any(|f| f == "--emit-kernel-report"));
         assert!(flags.contains(&"--package-db".to_string()));
         assert!(flags.contains(&"/tmp/test/package.db".to_string()));
         assert!(flags.contains(&"--package".to_string()));

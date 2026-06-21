@@ -51,3 +51,46 @@ jobs:
         env:
           REAL_WORLD_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}
         run: HX="$PWD/target/release/hx" bash scripts/real-world-test.sh
+
+  bhc:
+    name: bhc-pipeline (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build hx
+        run: cargo build --release -p hx-cli
+
+      - name: Install BHC
+        # Download the published Linux toolchain directly and verify it against
+        # the release SHA256SUMS manifest. BHC ships `bhc` + a sibling `lib/`;
+        # adding the extraction dir to PATH keeps that layout, which the compiler
+        # needs to locate its runtime libraries.
+        env:
+          BHC_VERSION: "0.2.3"
+        run: |
+          set -euo pipefail
+          base="https://github.com/arcanist-sh/bhc/releases/download/v${BHC_VERSION}"
+          asset="bhc-x86_64-linux.tar.gz"
+          curl -fsSL "$base/$asset" -o /tmp/bhc.tar.gz
+          curl -fsSL "$base/SHA256SUMS.txt" -o /tmp/bhc.sums
+          expected="$(grep "$asset" /tmp/bhc.sums | awk '{print $1}' | head -1)"
+          actual="$(sha256sum /tmp/bhc.tar.gz | awk '{print $1}')"
+          if [ "$expected" != "$actual" ]; then
+            echo "BHC checksum mismatch: expected $expected, got $actual" >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/bhc"
+          tar xzf /tmp/bhc.tar.gz -C "$HOME/bhc"
+          echo "$HOME/bhc" >> "$GITHUB_PATH"
+
+      - name: BHC pipeline smoke
+        run: HX="$PWD/target/release/hx" bash scripts/bhc-smoke.sh
