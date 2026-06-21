@@ -170,7 +170,12 @@ pub async fn run(
         release,
         jobs,
         target,
-        package: package.clone(),
+        // A workspace has no package in the root directory, so `cabal build`
+        // with no target fails (Cabal-7134). Build every member with the `all`
+        // target unless a specific package was requested.
+        package: package
+            .clone()
+            .or_else(|| project.is_workspace().then(|| "all".to_string())),
         verbose: output.is_verbose(),
         fingerprint: lock_fingerprint.clone(),
         ghc_version: ghc_version.clone(),
@@ -349,11 +354,18 @@ pub async fn test(
 
     let build_dir = project.cabal_build_dir();
 
+    // A workspace has no package in the root, so an untargeted `cabal test`
+    // fails. Default to the `all` target (every test suite) unless a specific
+    // package was requested.
+    let test_package = package
+        .clone()
+        .or_else(|| project.is_workspace().then(|| "all".to_string()));
+
     match cabal_build::test(
         &project.root,
         &build_dir,
         pattern.as_deref(),
-        package.as_deref(),
+        test_package.as_deref(),
         target.as_deref(),
         &toolchain_bin_dirs,
         output,

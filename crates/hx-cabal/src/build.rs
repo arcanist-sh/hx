@@ -174,9 +174,14 @@ pub async fn test(
         args.push(format!("--target={}", t));
     }
 
-    // Add package filter for workspace tests
+    // Add package filter for workspace tests. `all` is a project-wide target
+    // (every test suite), not a package, so it must not get the `:test` suffix.
     if let Some(pkg) = package {
-        args.push(format!("{}:test", pkg));
+        if pkg == "all" {
+            args.push("all".to_string());
+        } else {
+            args.push(format!("{}:test", pkg));
+        }
     }
 
     if let Some(p) = pattern {

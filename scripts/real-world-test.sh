@@ -258,6 +258,52 @@ if [ "${REAL_WORLD_FULL:-0}" = "1" ] && command -v cabal >/dev/null 2>&1; then
     echo "SKIP: multi (could not fetch pretty-simple from Hackage)"
     SKIP=$((SKIP + 1)); RESULTS+=("SKIP  multi: fetch failed")
   fi
+
+  # --- Scenario: a multi-package workspace --------------------------------
+  # A cabal.project with two local packages (a library and an app that depends
+  # on it). There is no package in the root directory, so build/test must use
+  # the `all` target — an untargeted cabal invocation fails with Cabal-7134.
+  WS="$WORK/workspace"
+  mkdir -p "$WS/wslib/src" "$WS/wsapp/app"
+  cat >"$WS/cabal.project" <<'EOF'
+packages: wslib wsapp
+EOF
+  cat >"$WS/wslib/wslib.cabal" <<'EOF'
+cabal-version: 3.0
+name: wslib
+version: 0.1.0.0
+build-type: Simple
+library
+  exposed-modules: WsLib
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010
+EOF
+  printf 'module WsLib (hello) where\nhello :: String\nhello = "from wslib"\n' >"$WS/wslib/src/WsLib.hs"
+  cat >"$WS/wsapp/wsapp.cabal" <<'EOF'
+cabal-version: 3.0
+name: wsapp
+version: 0.1.0.0
+build-type: Simple
+executable wsapp
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends: base, wslib
+  default-language: Haskell2010
+test-suite wsapp-test
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs: app
+  build-depends: base, wslib
+  default-language: Haskell2010
+EOF
+  printf 'module Main where\nimport WsLib (hello)\nmain :: IO ()\nmain = putStrLn hello\n' >"$WS/wsapp/app/Main.hs"
+  printf 'module Main where\nimport WsLib (hello)\nmain :: IO ()\nmain = if null hello then error "fail" else putStrLn "ok"\n' >"$WS/wsapp/app/Test.hs"
+
+  run       "workspace: import" bash -c "cd '$WS' && '$HX' import --from cabal"
+  run_clean "workspace: lock"   bash -c "cd '$WS' && '$HX' lock"
+  run       "workspace: build"  bash -c "cd '$WS' && '$HX' build"
+  run       "workspace: test"   bash -c "cd '$WS' && '$HX' test"
 fi
 
 # --- Summary ---------------------------------------------------------------
