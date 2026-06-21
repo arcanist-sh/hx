@@ -29,8 +29,9 @@ pub enum CacheError {
     Stale,
 }
 
-/// Current cache format version.
-const CACHE_VERSION: u32 = 1;
+/// Current cache format version. Bumped to 2 when the index began evaluating
+/// `.cabal` conditionals, which makes the parsed deps context-dependent.
+const CACHE_VERSION: u32 = 2;
 
 /// Header for cached files to track version and source.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -41,6 +42,10 @@ struct CacheHeader {
     created_at: u64,
     /// SHA256 of the source file (for staleness check)
     source_hash: Option<String>,
+    /// Build context (GHC version, OS, arch) the index was parsed for. The
+    /// parsed dependency set depends on it, so a cache built for a different
+    /// context must not be reused.
+    context_key: Option<String>,
 }
 
 /// Get the default cache directory for hx-solver.
@@ -65,7 +70,10 @@ pub fn resolution_cache_dir() -> Option<PathBuf> {
 /// - The cache file exists
 /// - The cache version matches
 /// - The source tar.gz hasn't been modified since the cache was created
-pub fn load_cached_index(source_path: &Path) -> Result<PackageIndex, CacheError> {
+pub fn load_cached_index(
+    source_path: &Path,
+    context_key: &str,
+) -> Result<PackageIndex, CacheError> {
     let cache_path = index_cache_path().ok_or_else(|| {
         CacheError::ReadError(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -102,6 +110,16 @@ pub fn load_cached_index(source_path: &Path) -> Result<PackageIndex, CacheError>
         return Err(CacheError::VersionMismatch);
     }
 
+    // The cached deps were evaluated for a specific build context; a different
+    // GHC/platform would yield a different dependency set.
+    if header.context_key.as_deref() != Some(context_key) {
+        debug!(
+            "Index cache context mismatch: expected {:?}, found {:?}",
+            context_key, header.context_key
+        );
+        return Err(CacheError::VersionMismatch);
+    }
+
     // Read the index
     let index: PackageIndex = bincode::deserialize_from(&mut reader)?;
 
@@ -114,8 +132,13 @@ pub fn load_cached_index(source_path: &Path) -> Result<PackageIndex, CacheError>
     Ok(index)
 }
 
-/// Save a package index to the cache.
-pub fn save_index_cache(index: &PackageIndex, source_path: &Path) -> Result<(), CacheError> {
+/// Save a package index to the cache, tagged with the build context it was
+/// parsed for.
+pub fn save_index_cache(
+    index: &PackageIndex,
+    source_path: &Path,
+    context_key: &str,
+) -> Result<(), CacheError> {
     let cache_path = index_cache_path().ok_or_else(|| {
         CacheError::ReadError(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -142,6 +165,7 @@ pub fn save_index_cache(index: &PackageIndex, source_path: &Path) -> Result<(), 
         version: CACHE_VERSION,
         created_at: now,
         source_hash: Some(hash_file(source_path).unwrap_or_default()),
+        context_key: Some(context_key.to_string()),
     };
 
     // Write header
@@ -241,6 +265,9 @@ pub fn save_resolution_cache(fingerprint: &str, plan: &InstallPlan) -> Result<()
         version: CACHE_VERSION,
         created_at: now,
         source_hash: None,
+        // Resolution caches are keyed by the dependency fingerprint in the
+        // filename, not by build context.
+        context_key: None,
     };
 
     // Write header

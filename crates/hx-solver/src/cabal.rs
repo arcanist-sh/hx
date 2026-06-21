@@ -3,9 +3,11 @@
 //! This module parses .cabal files to extract both dependencies and full build
 //! configuration needed for native compilation.
 
+use crate::condition::{CabalContext, parse_condition};
 use crate::package::Dependency;
 use crate::version::{VersionConstraint, parse_constraint};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Parsed information from a .cabal file (minimal, for dependency resolution).
 #[derive(Debug, Clone, Default)]
@@ -522,46 +524,157 @@ fn parse_ghc_options(value: &str) -> Vec<String> {
     options
 }
 
-/// Parse a .cabal file and extract dependencies (original minimal parser).
+/// Parse a `.cabal` file and extract dependencies, evaluating conditionals for
+/// the host platform and a recent GHC.
+///
+/// This is the back-compatible entry point. Real dependency resolution should
+/// use [`parse_cabal_ctx`] with the project's actual GHC version so that
+/// `if impl(ghc …)` branches are evaluated correctly.
 pub fn parse_cabal(content: &str) -> CabalFile {
+    let ctx = CabalContext::host("9.99.0".parse().unwrap_or_else(|_| {
+        crate::version::Version::new(vec![9, 99])
+    }));
+    parse_cabal_ctx(content, &ctx)
+}
+
+/// One `if` / `elif` / `else` branch on the conditional stack.
+struct CondFrame {
+    /// Indentation (columns) of the `if`/`elif`/`else` keyword.
+    indent: usize,
+    /// Whether this branch is active, cumulative with all enclosing branches.
+    active: bool,
+    /// Whether any branch in this `if`/`elif`/`else` chain has been taken yet.
+    any_taken: bool,
+}
+
+/// Whether dependencies collected at the current point are active, given the
+/// conditional stack. The top frame's `active` already folds in its ancestors.
+fn frame_active(stack: &[CondFrame]) -> bool {
+    stack.last().map(|f| f.active).unwrap_or(true)
+}
+
+/// Parse a `.cabal` file, evaluating `if`/`elif`/`else` conditions against the
+/// given build context so that only the applicable branch contributes
+/// dependencies.
+pub fn parse_cabal_ctx(content: &str, ctx: &CabalContext) -> CabalFile {
     let mut result = CabalFile::default();
-    let lines = content.lines();
+    // Package-local flag values, resolved up front so `flag(name)` conditions
+    // can be evaluated. Unknown flags fall back to `true` inside `eval`.
+    let flags = parse_flag_defaults(content);
+    let flag_lookup = |name: &str| {
+        flags
+            .get(&name.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(true)
+    };
+
     let mut current_section = Section::TopLevel;
     let mut in_build_depends = false;
     let mut build_depends_buffer = String::new();
-    // Indentation (in leading-whitespace columns) of the active `build-depends`
-    // field. Cabal's layout rule: a line continues the field only when indented
-    // strictly deeper than the field; a line at the same-or-lesser indent starts
-    // a new field. Using `starts_with(' ')` instead glues sibling fields (e.g.
-    // `default-language:`) onto the dependency list.
     let mut build_depends_indent = 0;
+    // Whether the active build-depends field is in a taken branch. Captured when
+    // the field starts so a later `else` can't retroactively change it.
+    let mut build_depends_active = true;
+    let mut cond_stack: Vec<CondFrame> = Vec::new();
 
-    for line in lines {
-        let trimmed = line.trim();
-
-        // Skip comments and empty lines
-        if trimmed.starts_with("--") || trimmed.is_empty() {
-            continue;
-        }
-
-        // Check for section headers
-        if let Some(section) = parse_section_header(trimmed) {
-            // Process any buffered build-depends before switching sections
-            if in_build_depends && !build_depends_buffer.is_empty() {
+    // Flush the buffered build-depends into the current section (only when its
+    // branch was active).
+    macro_rules! flush_deps {
+        () => {
+            if in_build_depends && !build_depends_buffer.is_empty() && build_depends_active {
                 let deps = parse_build_depends(&build_depends_buffer);
                 match current_section {
                     Section::Library => result.library_deps.extend(deps),
                     Section::Executable(_) => result.executable_deps.extend(deps),
                     _ => {}
                 }
-                build_depends_buffer.clear();
             }
             in_build_depends = false;
+            build_depends_buffer.clear();
+        };
+    }
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("--") || trimmed.is_empty() {
+            continue;
+        }
+        let ind = indent_width(line);
+
+        // A line indented deeper than the active build-depends field continues
+        // it (handled before any conditional/section logic).
+        if in_build_depends && ind > build_depends_indent {
+            if !build_depends_buffer.is_empty() {
+                build_depends_buffer.push(' ');
+            }
+            build_depends_buffer.push_str(trimmed);
+            continue;
+        }
+
+        // The line is not a continuation: flush the pending field.
+        flush_deps!();
+
+        let lower = trimmed.to_ascii_lowercase();
+        let is_else = lower == "else";
+        let is_elif = lower.starts_with("elif ") || lower.starts_with("elif(");
+        let is_if = lower.starts_with("if ") || lower.starts_with("if(");
+
+        // Close conditional branches whose body has ended. An `else`/`elif`
+        // continues the chain at the same indent, so it must not pop its own if.
+        while let Some(top) = cond_stack.last() {
+            if top.indent >= ind {
+                if (is_else || is_elif) && top.indent == ind {
+                    break;
+                }
+                cond_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        // `if <cond>` — open a new conditional branch.
+        if is_if {
+            let cond_str = trimmed[2..].trim();
+            let val = parse_condition(cond_str)
+                .map(|c| c.eval(ctx, &flag_lookup))
+                .unwrap_or(true);
+            let parent = frame_active(&cond_stack);
+            cond_stack.push(CondFrame {
+                indent: ind,
+                active: parent && val,
+                any_taken: val,
+            });
+            continue;
+        }
+        // `elif <cond>` / `else` — alternate branch of the current chain.
+        if (is_elif || is_else) && cond_stack.last().map(|f| f.indent) == Some(ind) {
+            // Parent activity is the branch enclosing this chain.
+            let parent = cond_stack
+                .len()
+                .checked_sub(2)
+                .map(|i| cond_stack[i].active)
+                .unwrap_or(true);
+            let val = if is_else {
+                true
+            } else {
+                parse_condition(trimmed[4..].trim())
+                    .map(|c| c.eval(ctx, &flag_lookup))
+                    .unwrap_or(true)
+            };
+            let top = cond_stack.last_mut().unwrap();
+            top.active = parent && !top.any_taken && val;
+            top.any_taken |= val;
+            continue;
+        }
+
+        // Section headers reset to the new stanza (conditionals already popped
+        // by the indent check above).
+        if let Some(section) = parse_section_header(trimmed) {
             current_section = section;
             continue;
         }
 
-        // Parse top-level fields
+        // Top-level fields.
         if matches!(current_section, Section::TopLevel) {
             if let Some((key, value)) = parse_field(line) {
                 match key.to_lowercase().as_str() {
@@ -573,55 +686,59 @@ pub fn parse_cabal(content: &str) -> CabalFile {
             continue;
         }
 
-        // Parse build-depends in library/executable sections
-        if matches!(current_section, Section::Library | Section::Executable(_)) {
-            // A line indented deeper than the active build-depends field
-            // continues it; anything else terminates it (and may begin a new
-            // field). Detect new fields by indentation first so a sibling field
-            // never bleeds into the dependency buffer.
-            if in_build_depends && indent_width(line) > build_depends_indent {
-                if !build_depends_buffer.is_empty() {
-                    build_depends_buffer.push(' ');
-                }
-                build_depends_buffer.push_str(trimmed);
-                continue;
-            }
-
-            // Not a continuation: flush any pending build-depends before this
-            // line is interpreted as a new field.
-            if in_build_depends {
-                let deps = parse_build_depends(&build_depends_buffer);
-                match current_section {
-                    Section::Library => result.library_deps.extend(deps),
-                    Section::Executable(_) => result.executable_deps.extend(deps),
-                    _ => {}
-                }
-                build_depends_buffer.clear();
-                in_build_depends = false;
-            }
-
-            // A new build-depends field starts here.
-            if let Some((key, value)) = parse_field(line)
-                && key.to_lowercase() == "build-depends"
-            {
-                in_build_depends = true;
-                build_depends_indent = indent_width(line);
-                build_depends_buffer = value.to_string();
-            }
+        // A new build-depends field inside a library/executable.
+        if matches!(current_section, Section::Library | Section::Executable(_))
+            && let Some((key, value)) = parse_field(line)
+            && key.to_lowercase() == "build-depends"
+        {
+            in_build_depends = true;
+            build_depends_indent = ind;
+            build_depends_active = frame_active(&cond_stack);
+            build_depends_buffer = value.to_string();
         }
     }
 
-    // Process any remaining build-depends
-    if in_build_depends && !build_depends_buffer.is_empty() {
-        let deps = parse_build_depends(&build_depends_buffer);
-        match current_section {
-            Section::Library => result.library_deps.extend(deps),
-            Section::Executable(_) => result.executable_deps.extend(deps),
-            _ => {}
-        }
-    }
-
+    flush_deps!();
+    let _ = in_build_depends; // final flush clears it; value intentionally unused
     result
+}
+
+/// Pre-scan a `.cabal` file for `flag` stanzas and their default values.
+///
+/// Cabal flags default to `True` unless a `default: False` line says otherwise.
+/// Names are lower-cased (flag names are case-insensitive).
+fn parse_flag_defaults(content: &str) -> HashMap<String, bool> {
+    let mut flags = HashMap::new();
+    let mut current: Option<String> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+
+        if let Some(rest) = lower.strip_prefix("flag ") {
+            let name = rest.trim().to_string();
+            flags.insert(name.clone(), true); // default on unless overridden
+            current = Some(name);
+            continue;
+        }
+        // Any other section header at column 0 ends the flag stanza.
+        if indent_width(line) == 0 && parse_section_header(trimmed).is_some() {
+            current = None;
+            continue;
+        }
+        if let Some(name) = &current
+            && let Some((key, value)) = parse_field(line)
+            && key.eq_ignore_ascii_case("default")
+        {
+            let on = !value.trim().eq_ignore_ascii_case("false");
+            flags.insert(name.clone(), on);
+        }
+    }
+
+    flags
 }
 
 #[derive(Debug, Clone)]
@@ -774,6 +891,69 @@ fn parse_single_dependency(s: &str) -> Option<Dependency> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn names(deps: &[Dependency]) -> Vec<String> {
+        deps.iter().map(|d| d.name.clone()).collect()
+    }
+
+    #[test]
+    fn test_conditional_build_depends_evaluated() {
+        // The optparse-applicative shape: a Windows-only dep, a legacy-GHC dep,
+        // and a flag-guarded dep. On macOS + GHC 9.8 with the flag on, only
+        // `base`, `process`, and the always-on `transformers` should survive.
+        let content = r#"
+name: optparse-applicative
+version: 0.18.1.0
+
+flag process
+  default: True
+
+library
+  build-depends: base >= 4.5 && < 5
+  if flag(process)
+    build-depends: process >= 1.0 && < 1.7
+  if !impl(ghc >= 8)
+    build-depends: semigroups >= 0.10
+  if os(windows)
+    build-depends: Win32
+  build-depends: transformers
+"#;
+        let ctx = CabalContext {
+            ghc_version: "9.8.2".parse().unwrap(),
+            os: "osx".to_string(),
+            arch: "aarch64".to_string(),
+        };
+        let cabal = parse_cabal_ctx(content, &ctx);
+        let deps = names(&cabal.library_deps);
+        assert!(deps.contains(&"base".to_string()));
+        assert!(deps.contains(&"process".to_string())); // flag default True
+        assert!(deps.contains(&"transformers".to_string())); // unconditional
+        assert!(!deps.contains(&"Win32".to_string())); // os(windows) inactive on osx
+        assert!(!deps.contains(&"semigroups".to_string())); // !impl(ghc>=8) false on 9.8
+    }
+
+    #[test]
+    fn test_conditional_windows_branch_active() {
+        let content = r#"
+name: p
+version: 1.0
+
+library
+  build-depends: base
+  if os(windows)
+    build-depends: Win32
+  else
+    build-depends: unix
+"#;
+        let win = CabalContext {
+            ghc_version: "9.8.2".parse().unwrap(),
+            os: "windows".to_string(),
+            arch: "x86_64".to_string(),
+        };
+        let deps = names(&parse_cabal_ctx(content, &win).library_deps);
+        assert!(deps.contains(&"Win32".to_string()));
+        assert!(!deps.contains(&"unix".to_string())); // else branch inactive on windows
+    }
 
     #[test]
     fn test_parse_simple_cabal() {

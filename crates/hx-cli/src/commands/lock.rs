@@ -6,9 +6,10 @@ use hx_config::{LOCKFILE_FILENAME, MANIFEST_FILENAME, Manifest, Project, find_pr
 use hx_lock::{LockedPackage, Lockfile, WorkspacePackageInfo, parse_freeze_file};
 use hx_plugins::HookEvent;
 use hx_solver::{
-    Dependency, IndexOptions, MirrorOptions, Resolver, ResolverConfig, SnapshotId, best_index_path,
-    compute_deps_fingerprint, index_is_current, load_cached_index, load_cached_resolution,
-    load_index, load_snapshot, parse_cabal, save_index_cache, save_resolution_cache, update_index,
+    CabalContext, Dependency, IndexOptions, MirrorOptions, Resolver, ResolverConfig, SnapshotId,
+    best_index_path, compute_deps_fingerprint, index_is_current, load_cached_index,
+    load_cached_resolution, load_index, load_snapshot, parse_cabal_ctx, save_index_cache,
+    save_resolution_cache, update_index,
 };
 use hx_toolchain::Toolchain;
 use hx_ui::{Output, Spinner};
@@ -245,6 +246,30 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         output.status("Locking", project.name());
     }
 
+    // Build the context for evaluating `.cabal` conditionals: the GHC version
+    // we're locking for (manifest pin, else detected, else a sensible default)
+    // plus the host platform. This keeps platform/compiler-specific deps
+    // (e.g. `Win32` on Windows, `semigroups` on old GHC) out of the lockfile.
+    let cabal_ctx = {
+        let ghc: hx_solver::Version = match project
+            .manifest
+            .toolchain
+            .ghc
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+        {
+            Some(v) => v,
+            None => Toolchain::detect()
+                .await
+                .ghc
+                .status
+                .version()
+                .and_then(|v| v.to_string().parse().ok())
+                .unwrap_or_else(|| "9.8.2".parse().expect("valid default GHC version")),
+        };
+        CabalContext::host(ghc)
+    };
+
     // Collect dependencies from project .cabal files first
     // (so we can check the resolution cache before loading the index)
     let spinner = Spinner::new("Collecting project dependencies...");
@@ -261,7 +286,7 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
     for cabal_file in project.cabal_files() {
         let content = std::fs::read_to_string(&cabal_file)
             .with_context(|| format!("Failed to read {}", cabal_file.display()))?;
-        let cabal = parse_cabal(&content);
+        let cabal = parse_cabal_ctx(&content, &cabal_ctx);
         for dep in cabal.all_dependencies() {
             // Skip workspace packages
             if !workspace_names.contains(&dep.name) && !all_deps.iter().any(|d| d.name == dep.name)
@@ -387,9 +412,16 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
             "Hackage index not found. Run `hx index update` or `cabal update` to download the package index.",
         )?;
 
-        // Try to load cached index, fall back to parsing the tar.gz
+        // Try to load cached index, fall back to parsing the tar.gz. The index
+        // is parsed with the build context so conditionals resolve correctly;
+        // the cache is keyed by that context.
+        let index_options = IndexOptions {
+            context: Some(cabal_ctx.clone()),
+            ..IndexOptions::default()
+        };
+        let context_key = cabal_ctx.cache_key();
         let spinner = Spinner::new("Loading package index...");
-        let index = match load_cached_index(&index_path) {
+        let index = match load_cached_index(&index_path, &context_key) {
             Ok(cached_index) => {
                 spinner.finish_success(format!(
                     "Loaded {} packages from cache",
@@ -399,11 +431,11 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
             }
             Err(_) => {
                 // Parse from source and cache
-                let index = load_index(&index_path, &IndexOptions::default())
+                let index = load_index(&index_path, &index_options)
                     .context("Failed to load Hackage index")?;
 
                 // Save to cache for next time
-                if let Err(e) = save_index_cache(&index, &index_path) {
+                if let Err(e) = save_index_cache(&index, &index_path, &context_key) {
                     output.warn(&format!("Failed to cache index: {}", e));
                 }
 

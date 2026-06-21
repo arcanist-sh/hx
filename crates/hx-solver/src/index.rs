@@ -3,7 +3,7 @@
 //! This module reads the Hackage 01-index.tar.gz file and builds
 //! a PackageIndex for dependency resolution.
 
-use crate::cabal::parse_cabal;
+use crate::cabal::parse_cabal_ctx;
 use crate::package::{PackageIndex, PackageVersion};
 use crate::version::Version;
 use flate2::read::GzDecoder;
@@ -40,6 +40,9 @@ pub struct IndexOptions {
     pub skip_errors: bool,
     /// Show progress bar during loading
     pub show_progress: bool,
+    /// Build context for evaluating `.cabal` conditionals. `None` uses the host
+    /// platform with a permissive GHC version (suitable for metadata browsing).
+    pub context: Option<crate::condition::CabalContext>,
 }
 
 impl Default for IndexOptions {
@@ -49,7 +52,27 @@ impl Default for IndexOptions {
             filter_packages: Vec::new(),
             skip_errors: true,
             show_progress: false,
+            context: None,
         }
+    }
+}
+
+impl IndexOptions {
+    /// The effective build context (host platform + a permissive GHC when none
+    /// is configured).
+    pub fn effective_context(&self) -> crate::condition::CabalContext {
+        self.context.clone().unwrap_or_else(|| {
+            crate::condition::CabalContext::host(
+                "9.99.0"
+                    .parse()
+                    .unwrap_or_else(|_| crate::version::Version::new(vec![9, 99])),
+            )
+        })
+    }
+
+    /// A stable key identifying the build context, for cache validation.
+    pub fn context_key(&self) -> String {
+        self.effective_context().cache_key()
     }
 }
 
@@ -79,6 +102,9 @@ pub fn load_index(path: &Path, options: &IndexOptions) -> Result<PackageIndex, I
 fn load_from_tar<R: Read>(reader: R, options: &IndexOptions) -> Result<PackageIndex, IndexError> {
     let mut archive = Archive::new(reader);
     let mut index = PackageIndex::new();
+    // Evaluate each package's `.cabal` conditionals against this context, so
+    // platform/compiler-specific dependencies don't leak into the graph.
+    let ctx = options.effective_context();
 
     // Track the latest revision for each package-version
     let mut revisions: HashMap<(String, String), (u32, String)> = HashMap::new();
@@ -207,7 +233,7 @@ fn load_from_tar<R: Read>(reader: R, options: &IndexOptions) -> Result<PackageIn
             }
         };
 
-        let cabal = parse_cabal(&content);
+        let cabal = parse_cabal_ctx(&content, &ctx);
 
         let mut pv = PackageVersion::new(&package_name, version);
         pv.revision = revision;

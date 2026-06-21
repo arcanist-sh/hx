@@ -210,6 +210,19 @@ if [ "${REAL_WORLD_FULL:-0}" = "1" ] && command -v cabal >/dev/null 2>&1; then
     # No cabal.project on purpose — exercises bare-.cabal adoption.
     run       "adopt: import"  bash -c "cd '$pkg' && '$HX' import --from cabal"
     run_clean "adopt: lock"    bash -c "cd '$pkg' && '$HX' lock"
+
+    # Conditional evaluation: a non-Windows lockfile must NOT contain the
+    # Windows-only `Win32` (pulled in by `process`'s `if os(windows)` branch).
+    echo "::group::adopt: no Win32 leak"
+    if grep -qi 'name = "Win32"' "$pkg/hx.lock" 2>/dev/null; then
+      echo "FAIL: adopt: Win32 leaked into the lockfile on a non-Windows host"
+      FAIL=$((FAIL + 1)); RESULTS+=("FAIL  adopt: Win32 leak")
+    else
+      echo "PASS: adopt: no Windows-only deps in the lockfile"
+      PASS=$((PASS + 1)); RESULTS+=("PASS  adopt: no Win32 leak")
+    fi
+    echo "::endgroup::"
+
     run       "adopt: build"   bash -c "cd '$pkg' && '$HX' build"
     run       "adopt: test"    bash -c "cd '$pkg' && '$HX' test"
   else

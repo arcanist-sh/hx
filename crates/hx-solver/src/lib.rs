@@ -30,6 +30,7 @@
 pub mod bhc_platform;
 pub mod cabal;
 pub mod cache;
+pub mod condition;
 pub mod extract;
 pub mod fetch;
 pub mod index;
@@ -43,8 +44,9 @@ pub mod version;
 
 pub use cabal::{
     BuildType, CabalFile, CustomSetupConfig, ExecutableConfig, LibraryConfig, PackageBuildInfo,
-    parse_cabal, parse_cabal_full,
+    parse_cabal, parse_cabal_ctx, parse_cabal_full,
 };
+pub use condition::{CabalContext, Condition, parse_condition};
 pub use cache::{
     CacheError, clear_index_cache, clear_resolution_cache, compute_deps_fingerprint,
     load_cached_index, load_cached_resolution, save_index_cache, save_resolution_cache,

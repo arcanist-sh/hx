@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The native solver now evaluates `.cabal` conditionals, so platform- and compiler-specific dependencies no longer leak into the lockfile.** Previously every `if`/`elif`/`else` branch was collected unconditionally — adopting `optparse-applicative` on macOS + GHC 9.8 put `Win32` (Windows-only, via `process`'s `if os(windows)`) and `semigroups` (`if !impl(ghc >= 8)`) into the lockfile, neither of which applies. The parser now understands `if`/`elif`/`else` nesting and evaluates `os(…)`, `arch(…)`, `impl(ghc …)`, and `flag(…)` (using the package's own flag defaults) against the target GHC and host platform. For that project the lockfile drops from 36 packages to 22, and the build and test suite still pass. The Hackage index cache is keyed by build context so a different GHC/platform reparses correctly rather than reusing a mismatched graph.
+
 ## [0.7.13] - 2026-06-21
 
 ### Fixed
