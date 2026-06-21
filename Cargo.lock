@@ -1290,7 +1290,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hx-bhc"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "async-trait",
  "directories",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "hx-cabal"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "async-trait",
  "dirs",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "hx-cache"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "directories",
  "hx-core",
@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "hx-cli"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "hx-compiler"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "async-trait",
  "hx-ui",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "hx-config"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "hx-cache",
  "hx-core",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "hx-core"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anyhow",
  "regex-lite",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "hx-doctor"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "hx-config",
  "hx-core",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "hx-lock"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "chrono",
  "hx-core",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "hx-ls"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anyhow",
  "dashmap 6.2.1",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "hx-plugins"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "chrono",
  "directories",
@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "hx-solver"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "bincode",
  "chrono",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "hx-telemetry"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "chrono",
  "hx-core",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "hx-toolchain"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "atty",
  "chrono",
@@ -1576,7 +1576,7 @@ dependencies = [
 
 [[package]]
 name = "hx-ui"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "console 0.15.11",
  "hx-core",
@@ -1586,7 +1586,7 @@ dependencies = [
 
 [[package]]
 name = "hx-warnings"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anstream 0.6.21",
  "owo-colors",

@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.11"
+version = "0.7.12"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT"
@@ -84,21 +84,21 @@ hex = "0.4"
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 
 # Workspace crates
-hx-core = { version = "0.7.11", path = "crates/hx-core" }
-hx-config = { version = "0.7.11", path = "crates/hx-config" }
-hx-lock = { version = "0.7.11", path = "crates/hx-lock" }
-hx-toolchain = { version = "0.7.11", path = "crates/hx-toolchain" }
-hx-cabal = { version = "0.7.11", path = "crates/hx-cabal" }
-hx-cache = { version = "0.7.11", path = "crates/hx-cache" }
-hx-doctor = { version = "0.7.11", path = "crates/hx-doctor" }
-hx-ui = { version = "0.7.11", path = "crates/hx-ui" }
-hx-telemetry = { version = "0.7.11", path = "crates/hx-telemetry" }
-hx-warnings = { version = "0.7.11", path = "crates/hx-warnings" }
-hx-solver = { version = "0.7.11", path = "crates/hx-solver" }
-hx-ls = { version = "0.7.11", path = "crates/hx-lsp" }
-hx-plugins = { version = "0.7.11", path = "crates/hx-plugins" }
-hx-compiler = { version = "0.7.11", path = "crates/hx-compiler" }
-hx-bhc = { version = "0.7.11", path = "crates/hx-bhc" }
+hx-core = { version = "0.7.12", path = "crates/hx-core" }
+hx-config = { version = "0.7.12", path = "crates/hx-config" }
+hx-lock = { version = "0.7.12", path = "crates/hx-lock" }
+hx-toolchain = { version = "0.7.12", path = "crates/hx-toolchain" }
+hx-cabal = { version = "0.7.12", path = "crates/hx-cabal" }
+hx-cache = { version = "0.7.12", path = "crates/hx-cache" }
+hx-doctor = { version = "0.7.12", path = "crates/hx-doctor" }
+hx-ui = { version = "0.7.12", path = "crates/hx-ui" }
+hx-telemetry = { version = "0.7.12", path = "crates/hx-telemetry" }
+hx-warnings = { version = "0.7.12", path = "crates/hx-warnings" }
+hx-solver = { version = "0.7.12", path = "crates/hx-solver" }
+hx-ls = { version = "0.7.12", path = "crates/hx-lsp" }
+hx-plugins = { version = "0.7.12", path = "crates/hx-plugins" }
+hx-compiler = { version = "0.7.12", path = "crates/hx-compiler" }
+hx-bhc = { version = "0.7.12", path = "crates/hx-bhc" }
 
 # Async trait
 async-trait = "0.1"

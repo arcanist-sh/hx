@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-06-21
+
 ### Fixed
 - **The BHC backend now drives BHC correctly end to end.** `hx build` against a `bhc`-backed project was generating a command line the shipped BHC (0.2.3) rejects. Fixed across the board, validated against a real BHC toolchain:
   - **Invocation form.** hx invoked `bhc build --profile=… --tensor-fusion --emit-kernel-report`, but BHC's `build` subcommand is a stub and those flags don't exist. hx now enumerates the project's `.hs` sources and invokes the working top-level form — `bhc --profile <p> -O <n> -I <dir> <files…> -o <out>` — with global options preceding the files. `--tensor-fusion` is dropped (it is implied by `--profile numeric`) and the kernel report uses BHC's actual `--kernel-report`.
@@ -349,7 +351,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.11...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.12...HEAD
+[0.7.12]: https://github.com/arcanist-sh/hx/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/arcanist-sh/hx/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/arcanist-sh/hx/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/arcanist-sh/hx/compare/v0.7.8...v0.7.9
