@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-21
+
+### Performance
+- **Faster cold dependency resolution.** Conditional evaluation (0.7.14) had added ~32% to the first `hx lock` after the Hackage index changes, because the parser allocated a lowercased copy of every line across the full ~90 MB index and ran a flag pre-scan on every package. The cold index parse drops from ~5.5 s back to ~4.9 s (a non-allocating case-insensitive keyword check, plus skipping the flag scan when a package declares no flags). Behavior is unchanged; a warm lock remains ~37 ms.
+
 ## [0.8.0] - 2026-06-21
 
 A milestone release consolidating the correctness work of the 0.7.11–0.7.16
@@ -406,7 +411,8 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/arcanist-sh/hx/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/arcanist-sh/hx/compare/v0.7.16...v0.8.0
 [0.7.16]: https://github.com/arcanist-sh/hx/compare/v0.7.15...v0.7.16
 [0.7.15]: https://github.com/arcanist-sh/hx/compare/v0.7.14...v0.7.15
