@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-06-21
+
 ### Fixed
 - **Adopting an existing Cabal project no longer requires a `cabal.project`.** `hx import --from cabal` now treats a lone `.cabal` file as a single-package project and generates `hx.toml` from it — the common layout for single-package libraries. Previously it failed with `cabal.project not found`, even though `lock`/`build` work fine without one.
 - **"project not found" now tells you how to adopt.** Running `hx build` (or any project command) in an existing Cabal or Stack project that has no `hx.toml` previously dead-ended with a bare `project not found`. It now detects the project and suggests the adoption command — `hx import --from cabal` or `hx import --from stack` — alongside `hx init`. Structured hx errors are also rendered with their fixes generally, instead of falling through to a bare debug line.
@@ -358,7 +360,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.12...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.13...HEAD
+[0.7.13]: https://github.com/arcanist-sh/hx/compare/v0.7.12...v0.7.13
 [0.7.12]: https://github.com/arcanist-sh/hx/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/arcanist-sh/hx/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/arcanist-sh/hx/compare/v0.7.9...v0.7.10
