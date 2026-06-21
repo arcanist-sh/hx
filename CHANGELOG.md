@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-06-21
+
 ### Fixed
 - **Dependencies of disabled components (`buildable: False`) no longer enter the lockfile.** Many packages gate an executable or test-suite with `if flag(x) buildable: True else buildable: False` while declaring its `build-depends` unconditionally. The solver now tracks each component's effective `buildable` state and drops its dependencies when it is disabled. Adopting `pretty-simple` (whose example/JSON executables default off) drops the lockfile from 57 packages to 23 — `aeson`, pulled in only by the disabled JSON example, is gone — and the build still succeeds.
 
@@ -371,7 +373,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.14...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.7.15...HEAD
+[0.7.15]: https://github.com/arcanist-sh/hx/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/arcanist-sh/hx/compare/v0.7.13...v0.7.14
 [0.7.13]: https://github.com/arcanist-sh/hx/compare/v0.7.12...v0.7.13
 [0.7.12]: https://github.com/arcanist-sh/hx/compare/v0.7.11...v0.7.12
