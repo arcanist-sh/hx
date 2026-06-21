@@ -196,6 +196,28 @@ if [ "${REAL_WORLD_QUICK:-0}" != "1" ]; then
   fi
 fi
 
+# --- Scenario: adopt a real published library ------------------------------
+# The truest "ready to adopt" signal: take a real package off Hackage (one we
+# did NOT generate), adopt it with `hx import`, and lock + build + test it. The
+# package ships only a bare `.cabal` (no cabal.project), which is the common
+# single-package layout. Heavier, so it runs only in FULL mode and when cabal
+# is available to fetch the source.
+if [ "${REAL_WORLD_FULL:-0}" = "1" ] && command -v cabal >/dev/null 2>&1; then
+  ADOPT="$WORK/adopt"
+  mkdir -p "$ADOPT"
+  if ( cd "$ADOPT" && cabal get optparse-applicative-0.18.1.0 >/dev/null 2>&1 ); then
+    pkg="$ADOPT/optparse-applicative-0.18.1.0"
+    # No cabal.project on purpose — exercises bare-.cabal adoption.
+    run       "adopt: import"  bash -c "cd '$pkg' && '$HX' import --from cabal"
+    run_clean "adopt: lock"    bash -c "cd '$pkg' && '$HX' lock"
+    run       "adopt: build"   bash -c "cd '$pkg' && '$HX' build"
+    run       "adopt: test"    bash -c "cd '$pkg' && '$HX' test"
+  else
+    echo "SKIP: adopt (could not fetch optparse-applicative from Hackage)"
+    SKIP=$((SKIP + 1)); RESULTS+=("SKIP  adopt: fetch failed")
+  fi
+fi
+
 # --- Summary ---------------------------------------------------------------
 echo
 echo "==================== real-world results ===================="

@@ -150,21 +150,31 @@ fn normalize_package_path(path: &str) -> String {
 
 /// Import from cabal.project.
 async fn import_from_cabal(path: Option<String>, output: &Output) -> Result<i32> {
+    let explicit_path = path.is_some();
     let cabal_project = path.unwrap_or_else(|| "cabal.project".to_string());
     let cabal_path = Path::new(&cabal_project);
 
-    if !cabal_path.exists() {
+    // A `cabal.project` carries workspace members, a compiler pin, and
+    // constraints. Most single-package libraries ship only a `.cabal` file with
+    // no `cabal.project` — that is still a project we can adopt. In that case we
+    // take the package name from the `.cabal` and leave the rest at defaults.
+    let cabal_config = if cabal_path.exists() {
+        output.status("Importing", &format!("from {}", cabal_project));
+        let content = fs::read_to_string(cabal_path)
+            .with_context(|| format!("Failed to read {}", cabal_project))?;
+        parse_cabal_project(&content)
+    } else if explicit_path {
+        // The user named a file that does not exist — that is a real error.
         output.error(&format!("{} not found", cabal_project));
         return Ok(1);
-    }
-
-    output.status("Importing", &format!("from {}", cabal_project));
-
-    let content = fs::read_to_string(cabal_path)
-        .with_context(|| format!("Failed to read {}", cabal_project))?;
-
-    // Parse cabal.project
-    let cabal_config = parse_cabal_project(&content);
+    } else if find_cabal_package_name()?.is_some() {
+        output.status("Importing", "from .cabal (single-package project)");
+        CabalProjectConfig::default()
+    } else {
+        output.error("no cabal.project or .cabal file found in this directory");
+        output.info("Run `hx import --from cabal` from a directory containing a Cabal project");
+        return Ok(1);
+    };
 
     // Find the package name from .cabal file
     let package_name = find_cabal_package_name()?;

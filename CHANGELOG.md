@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Adopting an existing Cabal project no longer requires a `cabal.project`.** `hx import --from cabal` now treats a lone `.cabal` file as a single-package project and generates `hx.toml` from it — the common layout for single-package libraries. Previously it failed with `cabal.project not found`, even though `lock`/`build` work fine without one.
+- **"project not found" now tells you how to adopt.** Running `hx build` (or any project command) in an existing Cabal or Stack project that has no `hx.toml` previously dead-ended with a bare `project not found`. It now detects the project and suggests the adoption command — `hx import --from cabal` or `hx import --from stack` — alongside `hx init`. Structured hx errors are also rendered with their fixes generally, instead of falling through to a bare debug line.
+
+### Added
+- The real-world build job now includes an end-to-end adoption scenario: it fetches a real published library from Hackage (`optparse-applicative`), adopts it with `hx import`, and locks, builds, and tests it — validating hx against a project it did not generate.
+
 ## [0.7.12] - 2026-06-21
 
 ### Fixed

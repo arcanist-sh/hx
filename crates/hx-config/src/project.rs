@@ -179,6 +179,9 @@ pub fn find_project_root(start: impl AsRef<Path>) -> Result<PathBuf, Error> {
 
     let mut current = start.as_path();
     let mut searched = Vec::new();
+    // Remember an existing Cabal/Stack project found during the upward search,
+    // so a "not found" error can point the user at adoption instead of dead-ending.
+    let mut adoptable: Option<&'static str> = None;
 
     loop {
         debug!("Checking for project root at: {}", current.display());
@@ -190,11 +193,14 @@ pub fn find_project_root(start: impl AsRef<Path>) -> Result<PathBuf, Error> {
             return Ok(current.to_path_buf());
         }
 
-        // Also check for .cabal file as a fallback
-        if find_cabal_file(current).is_some() {
-            debug!("Found .cabal file at {} (no hx.toml)", current.display());
-            // Return this directory but note there's no hx.toml
-            // The caller can decide whether to create one
+        // No hx.toml here — but note an existing Cabal/Stack project so we can
+        // suggest adopting it. The first (deepest) one wins.
+        if adoptable.is_none() {
+            if current.join("stack.yaml").exists() {
+                adoptable = Some("stack");
+            } else if current.join("cabal.project").exists() || find_cabal_file(current).is_some() {
+                adoptable = Some("cabal");
+            }
         }
 
         match current.parent() {
@@ -203,13 +209,23 @@ pub fn find_project_root(start: impl AsRef<Path>) -> Result<PathBuf, Error> {
         }
     }
 
-    Err(Error::ProjectNotFound {
-        searched,
-        fixes: vec![
+    // Lead with an adoption command when there is a project to adopt.
+    let fixes = match adoptable {
+        Some("stack") => vec![
+            Fix::with_command("Adopt this Stack project", "hx import --from stack"),
+            Fix::with_command("Or start a fresh project", "hx init"),
+        ],
+        Some(_) => vec![
+            Fix::with_command("Adopt this Cabal project", "hx import --from cabal"),
+            Fix::with_command("Or start a fresh project", "hx init"),
+        ],
+        None => vec![
             Fix::with_command("Create a new project", "hx init"),
             Fix::new("Run from within a project directory containing hx.toml"),
         ],
-    })
+    };
+
+    Err(Error::ProjectNotFound { searched, fixes })
 }
 
 /// Find a .cabal file in the given directory.
@@ -389,5 +405,40 @@ name = "test"
         let dir = tempdir().unwrap();
         let result = find_project_root(dir.path());
         assert!(result.is_err());
+    }
+
+    /// Helper: collect the fix commands from a ProjectNotFound error.
+    fn fix_commands(err: &Error) -> Vec<String> {
+        err.fixes()
+            .iter()
+            .filter_map(|f| f.command.clone())
+            .collect()
+    }
+
+    #[test]
+    fn test_not_found_suggests_cabal_adoption() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("mylib.cabal"), "name: mylib\n").unwrap();
+        let err = find_project_root(dir.path()).unwrap_err();
+        let cmds = fix_commands(&err);
+        assert!(cmds.iter().any(|c| c == "hx import --from cabal"));
+        assert!(cmds.iter().any(|c| c == "hx init"));
+    }
+
+    #[test]
+    fn test_not_found_suggests_stack_adoption() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("stack.yaml"), "resolver: lts-22.0\n").unwrap();
+        let err = find_project_root(dir.path()).unwrap_err();
+        assert!(fix_commands(&err).iter().any(|c| c == "hx import --from stack"));
+    }
+
+    #[test]
+    fn test_not_found_no_project_suggests_init_only() {
+        let dir = tempdir().unwrap();
+        let err = find_project_root(dir.path()).unwrap_err();
+        let cmds = fix_commands(&err);
+        assert!(cmds.iter().any(|c| c == "hx init"));
+        assert!(!cmds.iter().any(|c| c.contains("import")));
     }
 }

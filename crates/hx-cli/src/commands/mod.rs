@@ -74,7 +74,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
 
     let policy = auto_install_policy(&cli.global);
 
-    match cli.command {
+    let result = match cli.command {
         Some(Commands::Init {
             path,
             lib,
@@ -357,5 +357,19 @@ pub async fn run(cli: Cli) -> Result<i32> {
             println!();
             Ok(0)
         }
+    };
+
+    // Render structured hx errors with their context and fix suggestions, rather
+    // than letting them fall through to anyhow's bare debug output. This is what
+    // surfaces, e.g., the "adopt this Cabal project" hint on `project not found`.
+    match result {
+        Err(e) => match e.downcast::<hx_core::error::Error>() {
+            Ok(hx_err) => {
+                output.print_error(&hx_err);
+                Ok(hx_err.code().exit_code())
+            }
+            Err(other) => Err(other),
+        },
+        ok => ok,
     }
 }

@@ -30,6 +30,22 @@ pub enum ErrorCode {
     LockError,
 }
 
+impl ErrorCode {
+    /// Process exit code for this error class, following hx's CLI conventions:
+    /// 1 general, 3 config, 4 toolchain, 5 build/test.
+    pub fn exit_code(self) -> i32 {
+        match self {
+            ErrorCode::ToolchainMissing
+            | ErrorCode::ToolchainMismatch
+            | ErrorCode::HlsMismatch
+            | ErrorCode::SystemDepMissing => 4,
+            ErrorCode::ConfigError | ErrorCode::LockError => 3,
+            ErrorCode::SolverFailure | ErrorCode::BuildFailure => 5,
+            ErrorCode::IoError | ErrorCode::CommandFailed => 1,
+        }
+    }
+}
+
 /// A fix suggestion for an error.
 #[derive(Debug, Clone)]
 pub struct Fix {
