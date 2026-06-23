@@ -23,8 +23,11 @@ pub struct PackageBuildConfig {
     pub build_dir: PathBuf,
     /// Installation directory (for final artifacts)
     pub install_dir: PathBuf,
-    /// Already-built dependencies (package IDs)
+    /// Already-built dependencies (package IDs), exposed via `-package-id`.
     pub dependency_ids: Vec<String>,
+    /// Pre-installed boot packages to expose by name via `-package <name>`
+    /// (GHC keeps boot packages like `containers`/`text` hidden by default).
+    pub expose_packages: Vec<String>,
     /// Number of parallel jobs
     pub jobs: usize,
     /// Optimization level (0, 1, or 2)
@@ -41,6 +44,7 @@ impl Default for PackageBuildConfig {
             build_dir: PathBuf::from(".hx/pkg-build"),
             install_dir: PathBuf::from(".hx/pkg-install"),
             dependency_ids: Vec::new(),
+            expose_packages: Vec::new(),
             jobs: num_cpus::get(),
             optimization: 1,
             verbose: false,
@@ -498,10 +502,16 @@ async fn compile_package_module(
         args.push(format!("-package-db={}", db.display()));
     }
 
-    // Add dependency packages
+    // Add dependency packages (built from source) by id.
     for dep_id in &config.dependency_ids {
         args.push("-package-id".to_string());
         args.push(dep_id.clone());
+    }
+
+    // Expose pre-installed boot packages by name (GHC hides them by default).
+    for pkg in &config.expose_packages {
+        args.push("-package".to_string());
+        args.push(pkg.clone());
     }
 
     // Add extensions

@@ -37,6 +37,13 @@ async fn full_native_builds_one_real_dependency() {
         version: "0.2.5".parse().expect("version"),
         dependencies: vec!["base".to_string()],
     });
+    // A boot package the local project also uses, to exercise `-package <name>`
+    // exposure of pre-installed packages GHC hides by default.
+    plan.add(ResolvedPackage {
+        name: "containers".to_string(),
+        version: "0.6.8".parse().expect("version"),
+        dependencies: vec!["base".to_string()],
+    });
 
     // Fetch the dependency tarball(s) from Hackage.
     let fetched = fetch_packages(&plan, &FetchOptions::default())
@@ -65,10 +72,16 @@ async fn full_native_builds_one_real_dependency() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("src/Main.hs"),
-        "module Main where\n\
-         import Data.List.Split (splitOn)\n\
-         main :: IO ()\n\
-         main = putStrLn (unwords (splitOn \",\" \"a,b,c\"))\n",
+        [
+            "module Main where\n",
+            "import Data.List.Split (splitOn)\n",
+            "import qualified Data.Map as M\n",
+            "main :: IO ()\n",
+            "main = do\n",
+            "  putStrLn (unwords (splitOn \",\" \"a,b,c\"))\n",
+            "  print (M.size (M.fromList [(1::Int,'a'),(2,'b')]))\n",
+        ]
+        .concat(),
     )
     .unwrap();
 
@@ -115,6 +128,6 @@ async fn full_native_builds_one_real_dependency() {
         let out = std::process::Command::new(&exe).output().expect("run exe");
         let stdout = String::from_utf8_lossy(&out.stdout);
         eprintln!("exe output: {stdout:?}");
-        assert!(stdout.contains("a b c"), "unexpected output: {stdout:?}");
+        assert!(stdout.contains("a b c") && stdout.contains("2"), "unexpected output: {stdout:?}");
     }
 }

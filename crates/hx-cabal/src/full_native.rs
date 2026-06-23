@@ -76,6 +76,8 @@ pub struct FullNativeBuilder {
     cache_dir: PathBuf,
     /// Map of package name -> registered package ID
     built_packages: HashMap<String, String>,
+    /// Names of pre-installed boot packages in the plan, exposed by name.
+    preinstalled: HashSet<String>,
 }
 
 impl FullNativeBuilder {
@@ -88,6 +90,7 @@ impl FullNativeBuilder {
             package_db,
             cache_dir,
             built_packages: HashMap::new(),
+            preinstalled: HashSet::new(),
         })
     }
 
@@ -135,8 +138,8 @@ impl FullNativeBuilder {
                     // `unknown package`. We therefore do NOT add them to
                     // `built_packages` (which feeds `-package-id`); GHC auto-
                     // exposes base and friends. (Non-auto-exposed boot packages
-                    // such as `containers`/`text` need `-package <name>` — a
-                    // follow-up.)
+                    // such as `containers`/`text` are exposed by name below.
+                    self.preinstalled.insert(unit.name.clone());
                 }
                 BuildStyle::Cached => {
                     // Check if we have a cached version
@@ -189,10 +192,15 @@ impl FullNativeBuilder {
                 self.package_db.db_path().to_string_lossy().to_string(),
             ];
 
-            // Add package-id flags for all built dependencies
+            // Add package-id flags for all built dependencies.
             for pkg_id in self.built_packages.values() {
                 extra_flags.push("-package-id".to_string());
                 extra_flags.push(pkg_id.clone());
+            }
+            // Expose pre-installed boot packages (containers, text, …) by name.
+            for pkg in &self.preinstalled {
+                extra_flags.push("-package".to_string());
+                extra_flags.push(pkg.clone());
             }
 
             let native_options = NativeBuildOptions {
@@ -292,11 +300,18 @@ impl FullNativeBuilder {
                 .await;
         }
 
-        // Collect dependency package IDs
+        // Built-from-source dependencies are exposed by id; pre-installed boot
+        // packages this unit depends on are exposed by name.
         let dep_ids: Vec<String> = unit
             .depends
             .iter()
             .filter_map(|dep| self.built_packages.get(dep).cloned())
+            .collect();
+        let expose_packages: Vec<String> = unit
+            .depends
+            .iter()
+            .filter(|dep| self.preinstalled.contains(*dep))
+            .cloned()
             .collect();
 
         // Configure the build
@@ -309,6 +324,7 @@ impl FullNativeBuilder {
                 .join(format!("ghc-{}", self.ghc.version))
                 .join("lib"),
             dependency_ids: dep_ids,
+            expose_packages,
             jobs: options.jobs,
             optimization: options.optimization,
             verbose: options.verbose,
