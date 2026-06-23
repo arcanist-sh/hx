@@ -101,6 +101,7 @@ impl FullNativeBuilder {
         build_plan: &BuildPlan,
         fetched_packages: &[FetchResult],
         options: &FullNativeBuildOptions,
+        local_options: &NativeBuildOptions,
         output: &Output,
     ) -> Result<FullNativeBuildResult> {
         let start = Instant::now();
@@ -203,13 +204,13 @@ impl FullNativeBuilder {
                 extra_flags.push(pkg.clone());
             }
 
-            let native_options = NativeBuildOptions {
-                jobs: options.jobs,
-                optimization: options.optimization,
-                verbose: options.verbose,
-                extra_flags,
-                ..Default::default()
-            };
+            // Start from the caller's options (which carry the project's source
+            // dirs, main module, and output paths) and add the dependency flags.
+            let mut native_options = local_options.clone();
+            native_options.jobs = options.jobs;
+            native_options.optimization = options.optimization;
+            native_options.verbose = options.verbose;
+            native_options.extra_flags.extend(extra_flags);
 
             let builder = NativeBuilder::new(self.ghc.clone());
 

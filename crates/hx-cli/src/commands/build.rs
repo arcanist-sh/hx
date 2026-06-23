@@ -6,10 +6,16 @@ use hx_cabal::native::{
     GhcConfig, NativeBuildOptions, NativeBuilder, compute_flags_hash, native_build_up_to_date,
     packages_from_lockfile,
 };
+use hx_cabal::{FullNativeBuildOptions, FullNativeBuilder, pre_installed_packages};
 use hx_cache::{BuildState, StoreIndex, compute_source_fingerprint, save_source_fingerprint};
 use hx_config::{CompilerBackend, Project, find_project_root};
 use hx_lock::Lockfile;
 use hx_plugins::HookEvent;
+use hx_solver::{
+    CabalContext, Dependency, FetchOptions, PlanOptions, compute_deps_fingerprint,
+    default_package_cache_dir, fetch_packages, generate_build_plan, load_cached_resolution,
+    parse_cabal_ctx,
+};
 use hx_toolchain::{AutoInstallPolicy, Toolchain, ensure_toolchain};
 use hx_ui::Output;
 use std::path::PathBuf;
@@ -81,9 +87,26 @@ pub async fn run(
         _ => project.name(),
     };
 
-    // Use native build if requested
+    // Use native build if requested.
     if native {
-        return run_native_build(&project, release, jobs, target, &toolchain, output).await;
+        // For a project with external dependencies, build them from source
+        // (native dependency build). If that is not viable — no lockfile yet, or
+        // a dependency that cannot be built natively — fall through to the cabal
+        // build so the user always gets a correct result.
+        if project_has_external_deps(&project) {
+            match run_full_native_build(&project, release, jobs, &toolchain, output).await {
+                Ok(Some(code)) => return Ok(code),
+                Ok(None) => {
+                    output.info("Falling back to cabal build");
+                }
+                Err(e) => {
+                    output.error(&format!("Native build failed: {e:#}"));
+                    return Ok(5);
+                }
+            }
+        } else {
+            return run_native_build(&project, release, jobs, target, &toolchain, output).await;
+        }
     }
 
     // Get GHC version early for plugin context
@@ -556,6 +579,207 @@ async fn run_native_build(
             output.print_error(&e);
             Ok(5)
         }
+    }
+}
+
+/// Build the `.cabal` evaluation context (target GHC + host) the same way the
+/// lock command does, so the dependency fingerprint matches the cached plan.
+fn build_cabal_context(project: &Project, toolchain: &Toolchain) -> CabalContext {
+    let ghc = project
+        .manifest
+        .toolchain
+        .ghc
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .or_else(|| {
+            toolchain
+                .ghc
+                .status
+                .version()
+                .and_then(|v| v.to_string().parse().ok())
+        })
+        .unwrap_or_else(|| "9.8.2".parse().expect("valid default GHC version"));
+    CabalContext::host(ghc)
+}
+
+/// Collect the project's external dependencies (skipping workspace members),
+/// matching the lock command's collection so fingerprints line up.
+fn collect_project_deps(project: &Project, ctx: &CabalContext) -> Vec<Dependency> {
+    let workspace: Vec<String> = project
+        .package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut deps: Vec<Dependency> = Vec::new();
+    for cabal_file in project.cabal_files() {
+        if let Ok(content) = std::fs::read_to_string(&cabal_file) {
+            for dep in parse_cabal_ctx(&content, ctx).all_dependencies() {
+                if !workspace.contains(&dep.name) && !deps.iter().any(|d| d.name == dep.name) {
+                    deps.push(dep);
+                }
+            }
+        }
+    }
+    deps
+}
+
+/// Whether the project declares any dependency that must be fetched and built
+/// (i.e. not a GHC-provided boot package and not a workspace member).
+fn project_has_external_deps(project: &Project) -> bool {
+    let ctx = CabalContext::host("9.8.2".parse().expect("valid default GHC version"));
+    collect_project_deps(project, &ctx)
+        .iter()
+        .any(|d| !pre_installed_packages().contains(d.name.as_str()))
+}
+
+/// Build a project and its external dependencies natively from source, reusing
+/// the lockfile's resolution.
+///
+/// Returns `Ok(Some(code))` when the native build handled the request, or
+/// `Ok(None)` when it is not viable (no cached resolution, or a dependency that
+/// cannot be built natively) and the caller should fall back to cabal.
+async fn run_full_native_build(
+    project: &Project,
+    release: bool,
+    jobs: Option<usize>,
+    toolchain: &Toolchain,
+    output: &Output,
+) -> Result<Option<i32>> {
+    output.warn("Native dependency builds are experimental");
+
+    // Stackage-snapshot projects resolve differently; defer to cabal for now.
+    if project.manifest.stackage.snapshot.is_some() {
+        return Ok(None);
+    }
+
+    let ctx = build_cabal_context(project, toolchain);
+    let all_deps = collect_project_deps(project, &ctx);
+
+    // Reuse the lockfile's cached resolution, keyed by the dependency fingerprint.
+    let pairs: Vec<(String, String)> = all_deps
+        .iter()
+        .map(|d| (d.name.clone(), d.constraint.to_string()))
+        .collect();
+    let fingerprint = compute_deps_fingerprint(&pairs);
+    let plan = match load_cached_resolution(&fingerprint) {
+        Ok(p) => p,
+        Err(_) => {
+            output.info("Native build: no cached resolution — run `hx lock` first");
+            return Ok(None);
+        }
+    };
+
+    // Fetch dependency sources from Hackage.
+    let fetched = match fetch_packages(&plan, &FetchOptions::default()).await {
+        Ok(f) => f,
+        Err(e) => {
+            output.warn(&format!("Could not fetch dependencies: {e}"));
+            return Ok(None);
+        }
+    };
+
+    // Topologically ordered build plan.
+    let ghc_version = toolchain
+        .ghc
+        .status
+        .version()
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+    let plan_opts = PlanOptions {
+        compiler_id: format!("ghc-{ghc_version}"),
+        platform: format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
+        pre_installed: pre_installed_packages()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        cached_hashes: Default::default(),
+    };
+    let build_plan = match generate_build_plan(&plan, &plan_opts) {
+        Ok(b) => b,
+        Err(e) => {
+            output.warn(&format!("Could not plan the dependency build: {e}"));
+            return Ok(None);
+        }
+    };
+
+    // Resolve GHC and the package store.
+    let ghc_path = toolchain
+        .ghc
+        .status
+        .path()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("ghc"));
+    let ghc_config = GhcConfig::detect_with_path(&ghc_path)
+        .await
+        .unwrap_or_else(|_| GhcConfig {
+            ghc_path,
+            version: ghc_version.clone(),
+            package_dbs: vec![],
+            packages: vec![],
+            resolved_packages: vec![],
+        });
+    let cache_dir =
+        default_package_cache_dir().unwrap_or_else(|| project.root.join(".hx").join("native-store"));
+
+    let mut builder = FullNativeBuilder::new(ghc_config, cache_dir).await?;
+    let opts = FullNativeBuildOptions {
+        jobs: jobs.unwrap_or(4),
+        optimization: if release {
+            2
+        } else {
+            project.manifest.build.optimization
+        },
+        verbose: output.is_verbose(),
+        force: false,
+        profiling: false,
+        // Fall back to cabal if any dependency cannot be built natively, rather
+        // than silently producing a partial build.
+        skip_unsupported: false,
+    };
+
+    // The local project's own build options (source dirs, main module, output
+    // paths). build_project adds the dependency package flags on top of these.
+    let build_config = &project.manifest.build;
+    let local_options = NativeBuildOptions {
+        src_dirs: build_config.src_dirs.iter().map(PathBuf::from).collect(),
+        output_dir: project.root.join(".hx").join("native-build"),
+        optimization: opts.optimization,
+        warnings: build_config.warnings,
+        werror: build_config.werror,
+        extra_flags: build_config.ghc_flags.clone(),
+        jobs: opts.jobs,
+        verbose: output.is_verbose(),
+        main_module: Some("Main".to_string()),
+        output_exe: Some(project.root.join(".hx").join("native-build").join(project.name())),
+        output_lib: None,
+        native_linking: true,
+        target: None,
+    };
+
+    output.status(
+        "Building",
+        &format!("{} (native, with dependencies)", project.name()),
+    );
+
+    let result = builder
+        .build_project(&project.root, &build_plan, &fetched, &opts, &local_options, output)
+        .await?;
+
+    let project_ok = result
+        .project_result
+        .as_ref()
+        .map(|r| r.success)
+        .unwrap_or(false);
+
+    if result.success && project_ok {
+        output.status(
+            "Finished",
+            &format!("native build ({} dependencies built)", result.packages_built),
+        );
+        Ok(Some(0))
+    } else {
+        output.info("Native dependency build incomplete; using cabal instead");
+        Ok(None)
     }
 }
 

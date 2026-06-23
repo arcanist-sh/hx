@@ -96,8 +96,16 @@ async fn full_native_builds_one_real_dependency() {
         verbose: true,
         ..Default::default()
     };
+    let local_options = hx_cabal::native::NativeBuildOptions {
+        src_dirs: vec![PathBuf::from("src")],
+        output_dir: root.join(".hx/native-build"),
+        main_module: Some("Main".to_string()),
+        output_exe: Some(root.join(".hx/native-build/app")),
+        native_linking: true,
+        ..Default::default()
+    };
     let result = builder
-        .build_project(root, &build_plan, &fetched, &opts, &output)
+        .build_project(root, &build_plan, &fetched, &opts, &local_options, &output)
         .await
         .expect("build_project call");
 

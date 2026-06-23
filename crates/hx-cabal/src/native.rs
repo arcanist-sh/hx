@@ -1277,6 +1277,13 @@ impl NativeBuilder {
             args.push(pkg.clone());
         }
 
+        // Pass through caller-supplied flags (e.g. the native package store's
+        // `-package-db` and the `-package-id`/`-package` flags for dependencies),
+        // so the linker can resolve symbols from packages built from source.
+        for flag in &options.extra_flags {
+            args.push(flag.clone());
+        }
+
         // Add library paths from resolved packages (for native linking)
         if options.native_linking {
             let lib_paths = self.ghc.library_paths();
