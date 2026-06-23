@@ -569,6 +569,10 @@ pub struct GhcConfig {
     pub packages: Vec<String>,
     /// Resolved package information (populated by resolve_packages)
     pub resolved_packages: Vec<PackageInfo>,
+    /// Include directories for the RTS (where `HsFFI.h` etc. live), needed when
+    /// compiling a package's C sources. Detected from `ghc-pkg field rts`.
+    #[serde(default)]
+    pub rts_include_dirs: Vec<PathBuf>,
 }
 
 impl Default for GhcConfig {
@@ -579,6 +583,7 @@ impl Default for GhcConfig {
             package_dbs: Vec::new(),
             packages: Vec::new(),
             resolved_packages: Vec::new(),
+            rts_include_dirs: Vec::new(),
         }
     }
 }
@@ -607,6 +612,7 @@ impl GhcConfig {
 
         // Auto-detect package databases
         let package_dbs = detect_package_dbs(&version).await;
+        let rts_include_dirs = detect_rts_include_dirs().await;
 
         Ok(Self {
             ghc_path: ghc_path.to_path_buf(),
@@ -614,6 +620,7 @@ impl GhcConfig {
             package_dbs,
             packages: Vec::new(),
             resolved_packages: Vec::new(),
+            rts_include_dirs,
         })
     }
 
@@ -632,7 +639,8 @@ impl GhcConfig {
                 format!("{}|{}", ghc_path.display(), version).as_bytes()
             )
         );
-        let cache_file = cache_dir.join(format!("ghc-config-{key}.json"));
+        // `v2`: schema bump so caches predating `rts_include_dirs` are ignored.
+        let cache_file = cache_dir.join(format!("ghc-config-v2-{key}.json"));
 
         if let Ok(bytes) = std::fs::read(&cache_file)
             && let Ok(config) = serde_json::from_slice::<GhcConfig>(&bytes)
@@ -649,6 +657,7 @@ impl GhcConfig {
                 package_dbs: vec![],
                 packages: vec![],
                 resolved_packages: vec![],
+                rts_include_dirs: vec![],
             },
         };
 
@@ -726,6 +735,28 @@ impl GhcConfig {
 }
 
 /// Detect available GHC package databases.
+/// Detect the RTS include directories (where `HsFFI.h` and friends live) by
+/// asking `ghc-pkg` for the `rts` package's `include-dirs`. A package's C
+/// sources `#include <HsFFI.h>`, so these must be on the C compiler's include
+/// path; cabal adds them automatically, and the native builder must too.
+async fn detect_rts_include_dirs() -> Vec<PathBuf> {
+    let runner = CommandRunner::new();
+    let mut dirs = Vec::new();
+    if let Ok(output) = runner
+        .run("ghc-pkg", ["field", "rts", "include-dirs", "--simple-output"])
+        .await
+        && output.success()
+    {
+        for token in output.stdout.split_whitespace() {
+            let path = PathBuf::from(token);
+            if path.exists() {
+                dirs.push(path);
+            }
+        }
+    }
+    dirs
+}
+
 async fn detect_package_dbs(ghc_version: &str) -> Vec<PathBuf> {
     let mut dbs = Vec::new();
 
@@ -1867,6 +1898,22 @@ impl Default for CCompileOptions {
     }
 }
 
+/// Whether a C-compiler flag targets an architecture other than the host and
+/// would therefore be rejected by clang. x86 SIMD flags (`-msse*`, `-mavx*`,
+/// `-mmmx`, `-m3dnow`) are commonly guarded behind cabal `arch(x86_64)`
+/// conditionals; on aarch64 they must be dropped.
+fn is_incompatible_arch_flag(flag: &str) -> bool {
+    if cfg!(target_arch = "x86_64") || cfg!(target_arch = "x86") {
+        return false;
+    }
+    let f = flag.trim();
+    f.starts_with("-msse")
+        || f.starts_with("-mavx")
+        || f == "-mmmx"
+        || f.starts_with("-m3dnow")
+        || f == "-mfpmath=sse"
+}
+
 /// Compile C source files.
 ///
 /// Takes a list of C source files and compiles them to object files.
@@ -1959,8 +2006,18 @@ pub async fn compile_c_sources(
             args.push(format!("-D{}", def));
         }
 
-        // Add extra flags
-        args.extend(options.extra_flags.clone());
+        // Add extra flags, dropping architecture-specific flags that do not
+        // apply to the host. Packages guard flags like `-msse2` behind cabal
+        // `arch(x86_64)` conditionals; our flat cabal parser does not evaluate
+        // those conditionals, so an x86 SIMD flag would otherwise reach clang on
+        // arm64 and fail the compile with "unsupported argument".
+        args.extend(
+            options
+                .extra_flags
+                .iter()
+                .filter(|f| !is_incompatible_arch_flag(f))
+                .cloned(),
+        );
 
         // Add source file
         let source_path = if source.is_absolute() {

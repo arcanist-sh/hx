@@ -331,9 +331,19 @@ impl FullNativeBuilder {
             .cloned()
             .collect();
 
+        // The compiler needs the native store's package db on its search path so
+        // that `-package-id` flags for previously source-built dependencies (e.g.
+        // vector depending on primitive) resolve. Without it GHC reports "cannot
+        // satisfy -package-id". The global db alone only covers boot packages.
+        let mut dep_ghc = self.ghc.clone();
+        let store_db = self.package_db.db_path().to_path_buf();
+        if !dep_ghc.package_dbs.contains(&store_db) {
+            dep_ghc.package_dbs.push(store_db);
+        }
+
         // Configure the build
         let build_config = PackageBuildConfig {
-            ghc: self.ghc.clone(),
+            ghc: dep_ghc,
             cc: None, // Auto-detect C compiler when needed
             build_dir: self.cache_dir.join("builds").join(&pkg_key),
             install_dir: self

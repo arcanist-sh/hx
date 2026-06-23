@@ -171,12 +171,17 @@ pub async fn build_package(
 
         let c_output_dir = o_dir.join("cbits");
 
+        // The package's own include dirs, plus GHC's RTS include dirs so that
+        // C sources can `#include <HsFFI.h>`.
+        let mut include_dirs: Vec<PathBuf> = lib_config
+            .include_dirs
+            .iter()
+            .map(|s| package.source_dir.join(s))
+            .collect();
+        include_dirs.extend(config.ghc.rts_include_dirs.iter().cloned());
+
         let c_options = CCompileOptions {
-            include_dirs: lib_config
-                .include_dirs
-                .iter()
-                .map(|s| package.source_dir.join(s))
-                .collect(),
+            include_dirs,
             defines: Vec::new(),
             optimization: config.optimization.to_string(),
             extra_flags: lib_config.cc_options.clone(),
@@ -303,11 +308,28 @@ pub async fn build_package(
     let extra_src_dirs: Vec<PathBuf> = generated_dir.iter().cloned().collect();
     let mut graph_dirs = src_dirs.clone();
     graph_dirs.extend(extra_src_dirs.iter().cloned());
+    // The graph gives a correct compile ORDER, but scanning a package whose
+    // `hs-source-dirs` is `.` also sweeps in `test/`, `benchmarks/`, `Setup.hs`,
+    // etc. Restrict the order to the library's declared modules so stray
+    // non-library modules (e.g. `test.Main`) are not compiled as part of the lib.
+    let declared = collect_modules(lib_config);
+    let declared_set: std::collections::HashSet<&str> =
+        declared.iter().map(|s| s.as_str()).collect();
     let modules = match hx_solver::build_module_graph(&graph_dirs)
         .and_then(|g| g.topological_order())
     {
-        Ok(order) if !order.is_empty() => order,
-        _ => collect_modules(lib_config),
+        Ok(order) if !order.is_empty() => {
+            if declared_set.is_empty() {
+                order
+            } else {
+                let filtered: Vec<String> = order
+                    .into_iter()
+                    .filter(|m| declared_set.contains(m.as_str()))
+                    .collect();
+                if filtered.is_empty() { declared } else { filtered }
+            }
+        }
+        _ => declared,
     };
     let module_count = modules.len();
 
