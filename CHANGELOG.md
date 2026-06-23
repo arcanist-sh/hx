@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-23
+
+### Added
+- **`hx build --native` builds external dependencies from source.** Previously the
+  native build path only worked for base-only projects; any external Hackage
+  dependency fell back to cabal. It now fetches a project's dependencies, compiles
+  them from source, registers them in a native package store, and links the local
+  project against them — without cabal. Transitive source chains work too
+  (validated on `primitive → vector-stream → vector`). The feature is experimental
+  and always falls back to cabal when a dependency cannot be built natively, so the
+  result is never partial or incorrect.
+
+### Performance
+- **GHC configuration detection is cached on disk.** Each native build re-ran
+  `ghc`/`ghc-pkg` introspection (~150 ms) whose result is fixed for a given GHC
+  install. It is now memoised in the native store (keyed by GHC path and version),
+  dropping detection to ~1 ms. A steady-state native rebuild of a project with an
+  external dependency now edges out the equivalent cabal rebuild (~0.36 s vs
+  ~0.38 s) instead of trailing it. The base-only native speedup is unchanged.
+
+### Fixed
+- **Conditional `c-sources` parsing.** The flat `.cabal` parser folded conditional
+  lines (`if os(windows)`, `else`, `{`, `}`) into the preceding field, polluting
+  list fields like `c-sources` with tokens such as `if` and `!os(solaris)` that were
+  then passed to the C compiler as bogus source files. Conditional and brace lines
+  are now treated as field terminators.
+- **Native dependency builds:** compile modules in topological order; expose boot
+  packages by name rather than a fabricated `-package-id`; stamp dependency
+  interfaces with `-this-unit-id`; pass the native store package db and dependency
+  ids to the link step; make `ghc-pkg register` idempotent and reuse already-built
+  dependency archives; add GHC's RTS include dirs so C sources can `#include
+  <HsFFI.h>`; drop architecture-incompatible C flags (e.g. `-msse2` on arm64);
+  restrict a dependency's compiled modules to its declared library modules so stray
+  `test/` or `benchmarks/` modules are not built; and put the native store db on the
+  dependency compile path so packages that depend on other source-built packages
+  resolve.
+
 ## [0.8.1] - 2026-06-21
 
 ### Performance
