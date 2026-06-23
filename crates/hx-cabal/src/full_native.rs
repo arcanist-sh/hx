@@ -240,6 +240,22 @@ impl FullNativeBuilder {
     ) -> Result<()> {
         let pkg_key = format!("{}-{}", unit.name, unit.version);
 
+        // Fast path: if this exact package is already registered in the native
+        // store and its compiled archive is on disk, reuse it instead of
+        // recompiling from source on every build. We recover the full unit-id
+        // (name-version-<abihash>) from the install directory, which is what the
+        // local project needs for `-package-id` at link time.
+        if self
+            .package_db
+            .has_package(&unit.name, &unit.version.to_string())
+            && let Some(unit_id) = self.find_installed_unit_id(&unit.name, &unit.version.to_string())
+        {
+            debug!("Reusing already-built dependency: {}", unit_id);
+            result.packages_skipped += 1;
+            self.built_packages.insert(unit.name.clone(), unit_id);
+            return Ok(());
+        }
+
         output.status("Building", &format!("{} {}", unit.name, unit.version));
 
         // Get the tarball path
@@ -487,6 +503,33 @@ impl FullNativeBuilder {
     /// Check if a package is already built.
     pub fn is_built(&self, name: &str) -> bool {
         self.built_packages.contains_key(name)
+    }
+
+    /// Find the full unit-id (`name-version-<abihash>`) of an already-installed
+    /// dependency by locating its directory in the native store's `lib` and
+    /// confirming the compiled archive exists. Returns `None` if not present, so
+    /// callers fall back to rebuilding from source.
+    fn find_installed_unit_id(&self, name: &str, version: &str) -> Option<String> {
+        let lib_dir = self
+            .cache_dir
+            .join(format!("ghc-{}", self.ghc.version))
+            .join("lib");
+        let prefix = format!("{}-{}-", name, version);
+        let entries = std::fs::read_dir(&lib_dir).ok()?;
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let dir_name = file_name.to_string_lossy();
+            if dir_name.starts_with(&prefix) {
+                let archive = entry
+                    .path()
+                    .join("lib")
+                    .join(format!("libHS{}-{}.a", name, version));
+                if archive.exists() {
+                    return Some(dir_name.into_owned());
+                }
+            }
+        }
+        None
     }
 
     /// Get the package ID for a built package.

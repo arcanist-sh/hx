@@ -182,13 +182,26 @@ impl PackageDb {
             })?;
 
         if !output.status.success() {
-            return Err(Error::CommandFailed {
-                command: "ghc-pkg register".to_string(),
-                exit_code: output.status.code(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                fixes: vec![],
-            });
+            // ghc-pkg exits non-zero when a package with this unit-id is already
+            // registered, even with `--force`. Our unit-ids are content-derived
+            // and deterministic, so an existing registration of the same id is
+            // already correct — treat "already exists" as success (idempotent
+            // re-registration across repeated native builds). `--simple-output`
+            // in `load_registered` reports the bare name-version, not the full
+            // unit-id, so the early-return guard above cannot catch this.
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let already_registered = stderr.contains("already exist")
+                || stderr.contains("already installed");
+            if !already_registered {
+                return Err(Error::CommandFailed {
+                    command: "ghc-pkg register".to_string(),
+                    exit_code: output.status.code(),
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: stderr.to_string(),
+                    fixes: vec![],
+                });
+            }
+            debug!("Package {} already registered (ghc-pkg)", package_id);
         }
 
         // Update cache
