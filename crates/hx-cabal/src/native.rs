@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 // ============================================================================
 
 /// Information about an installed package from ghc-pkg.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct PackageInfo {
     /// Package name
     pub name: String,
@@ -557,7 +557,7 @@ pub fn compute_flags_hash(options: &NativeBuildOptions) -> String {
 // ============================================================================
 
 /// GHC compiler configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GhcConfig {
     /// Path to GHC executable (defaults to "ghc" on PATH)
     pub ghc_path: PathBuf,
@@ -615,6 +615,50 @@ impl GhcConfig {
             packages: Vec::new(),
             resolved_packages: Vec::new(),
         })
+    }
+
+    /// Like [`detect_with_path`](Self::detect_with_path) but memoised on disk.
+    ///
+    /// Detection spawns `ghc` and `ghc-pkg` subprocesses (~150ms on macOS) and
+    /// returns results that are fixed for a given GHC install, so we cache the
+    /// config under `cache_dir`, keyed by the GHC path and version. Subsequent
+    /// native builds read the cache (sub-millisecond) instead of re-detecting.
+    /// The cache is invalidated automatically when the GHC path or version
+    /// changes (both are part of the cache key).
+    pub async fn detect_with_path_cached(ghc_path: &Path, cache_dir: &Path, version: &str) -> Self {
+        let key = format!(
+            "{:x}",
+            <sha2::Sha256 as sha2::Digest>::digest(
+                format!("{}|{}", ghc_path.display(), version).as_bytes()
+            )
+        );
+        let cache_file = cache_dir.join(format!("ghc-config-{key}.json"));
+
+        if let Ok(bytes) = std::fs::read(&cache_file)
+            && let Ok(config) = serde_json::from_slice::<GhcConfig>(&bytes)
+        {
+            debug!("Loaded cached GHC config from {}", cache_file.display());
+            return config;
+        }
+
+        let config = match Self::detect_with_path(ghc_path).await {
+            Ok(c) => c,
+            Err(_) => GhcConfig {
+                ghc_path: ghc_path.to_path_buf(),
+                version: version.to_string(),
+                package_dbs: vec![],
+                packages: vec![],
+                resolved_packages: vec![],
+            },
+        };
+
+        // Best-effort persist; a cache miss is never fatal.
+        if let Ok(json) = serde_json::to_vec(&config) {
+            let _ = std::fs::create_dir_all(cache_dir);
+            let _ = std::fs::write(&cache_file, json);
+        }
+
+        config
     }
 
     /// Add a package database.

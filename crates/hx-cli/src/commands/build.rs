@@ -709,17 +709,12 @@ async fn run_full_native_build(
         .path()
         .cloned()
         .unwrap_or_else(|| PathBuf::from("ghc"));
-    let ghc_config = GhcConfig::detect_with_path(&ghc_path)
-        .await
-        .unwrap_or_else(|_| GhcConfig {
-            ghc_path,
-            version: ghc_version.clone(),
-            package_dbs: vec![],
-            packages: vec![],
-            resolved_packages: vec![],
-        });
     let cache_dir =
         default_package_cache_dir().unwrap_or_else(|| project.root.join(".hx").join("native-store"));
+    // Memoised on disk: GHC/ghc-pkg introspection is ~150ms of subprocess time
+    // and its result is fixed for a given GHC install.
+    let ghc_config =
+        GhcConfig::detect_with_path_cached(&ghc_path, &cache_dir, &ghc_version).await;
 
     let mut builder = FullNativeBuilder::new(ghc_config, cache_dir).await?;
     let opts = FullNativeBuildOptions {
