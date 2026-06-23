@@ -288,6 +288,24 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
             continue;
         }
 
+        // Conditional and brace lines (`if …`, `else`, `elif …`, `{`, `}`) are
+        // structural, not fields. Terminate the current field so any following
+        // indented `key: value` lines parse as their own fields, and never fold
+        // the conditional text into a field value — otherwise list fields like
+        // `c-sources` get polluted with tokens such as `if` or `!os(solaris)`,
+        // which are then passed to the C compiler as bogus source files.
+        if is_conditional_line(trimmed) {
+            flush_field(
+                &mut field_buffer,
+                &current_section,
+                &mut info,
+                &mut current_library,
+                &mut current_executable,
+                &mut current_custom_setup,
+            );
+            continue;
+        }
+
         // Check if this is a new field or continuation
         if let Some((key, value)) = parse_field(line) {
             // Flush previous field
@@ -334,6 +352,21 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
     }
 
     info
+}
+
+/// Whether a (trimmed) line is a cabal conditional or brace, rather than a
+/// field or continuation. Covers both layout styles: `if os(windows)` /
+/// `else` / `elif impl(ghc)` and the braced `if … {` / `} else {` / `}`.
+fn is_conditional_line(trimmed: &str) -> bool {
+    trimmed == "{"
+        || trimmed == "}"
+        || trimmed.starts_with("if ")
+        || trimmed.starts_with("if(")
+        || trimmed == "else"
+        || trimmed.starts_with("else ")
+        || trimmed.starts_with("else{")
+        || trimmed.starts_with("elif ")
+        || trimmed.starts_with("} else")
 }
 
 /// Buffer for accumulating multi-line field values.
