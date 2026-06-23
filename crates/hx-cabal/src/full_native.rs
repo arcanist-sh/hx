@@ -128,9 +128,15 @@ impl FullNativeBuilder {
                 BuildStyle::PreInstalled => {
                     debug!("Skipping pre-installed package: {}", unit.name);
                     result.packages_skipped += 1;
-                    // Track that this package is available
-                    self.built_packages
-                        .insert(unit.name.clone(), format!("{}-{}", unit.name, unit.version));
+                    // Pre-installed packages live in GHC's global package db and
+                    // are referenced by name (`-package <name>`), NOT by a
+                    // fabricated `name-version` id — GHC's real ids carry an ABI
+                    // hash, so passing `-package-id base-4.19.1.0` fails with
+                    // `unknown package`. We therefore do NOT add them to
+                    // `built_packages` (which feeds `-package-id`); GHC auto-
+                    // exposes base and friends. (Non-auto-exposed boot packages
+                    // such as `containers`/`text` need `-package <name>` — a
+                    // follow-up.)
                 }
                 BuildStyle::Cached => {
                     // Check if we have a cached version

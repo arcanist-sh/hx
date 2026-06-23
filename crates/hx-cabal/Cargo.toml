@@ -32,3 +32,5 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile.workspace = true
+which.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

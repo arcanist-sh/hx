@@ -292,8 +292,19 @@ pub async fn build_package(
         }
     }
 
-    // Get all modules to compile
-    let modules = collect_modules(lib_config);
+    // Get all modules to compile, in dependency (topological) order. A package's
+    // exposed module commonly imports its own internal modules (e.g. split's
+    // `Data.List.Split` imports `Data.List.Split.Internals`); compiling in cabal
+    // declaration order then fails because the sibling `.hi` does not exist yet.
+    let extra_src_dirs: Vec<PathBuf> = generated_dir.iter().cloned().collect();
+    let mut graph_dirs = src_dirs.clone();
+    graph_dirs.extend(extra_src_dirs.iter().cloned());
+    let modules = match hx_solver::build_module_graph(&graph_dirs)
+        .and_then(|g| g.topological_order())
+    {
+        Ok(order) if !order.is_empty() => order,
+        _ => collect_modules(lib_config),
+    };
     let module_count = modules.len();
 
     if config.verbose {
@@ -302,7 +313,6 @@ pub async fn build_package(
 
     // Compile each module
     let mut object_files = Vec::new();
-    let extra_src_dirs: Vec<PathBuf> = generated_dir.iter().cloned().collect();
 
     for module in &modules {
         let result = compile_package_module(
@@ -310,6 +320,7 @@ pub async fn build_package(
             package,
             lib_config,
             config,
+            &package_id,
             &hi_dir,
             &o_dir,
             &extra_src_dirs,
@@ -426,11 +437,13 @@ struct ModuleCompileResult {
 }
 
 /// Compile a single module in a package.
+#[allow(clippy::too_many_arguments)]
 async fn compile_package_module(
     module_name: &str,
     package: &ExtractedPackage,
     lib_config: &LibraryConfig,
     config: &PackageBuildConfig,
+    package_id: &str,
     hi_dir: &Path,
     o_dir: &Path,
     extra_src_dirs: &[PathBuf],
@@ -450,9 +463,15 @@ async fn compile_package_module(
         };
     };
 
-    // Build GHC args
+    // Build GHC args. `-this-unit-id` stamps the package's interface files with
+    // its real unit id; without it GHC stamps them as the default `main`
+    // package, and any module importing the registered package then fails with
+    // "requested module <pkg>:M differs from name found in the interface file
+    // main:M".
     let mut args: Vec<String> = vec![
         "-c".to_string(), // Compile only
+        "-this-unit-id".to_string(),
+        package_id.to_string(),
         format!("-hidir={}", hi_dir.display()),
         format!("-odir={}", o_dir.display()),
     ];
