@@ -536,11 +536,12 @@ async fn compile_package_module(
         args.push(pkg.clone());
     }
 
-    // Add extensions
+    // Add extensions. Only `default-extensions` are enabled for the whole
+    // component; `other-extensions` merely *declares* extensions that individual
+    // modules turn on via their own `{-# LANGUAGE #-}` pragmas, so enabling them
+    // globally is wrong — e.g. a declared `Safe` would force Safe Haskell on
+    // every module and break those importing unsafe internals (os-string).
     for ext in &lib_config.default_extensions {
-        args.push(format!("-X{}", ext));
-    }
-    for ext in &lib_config.other_extensions {
         args.push(format!("-X{}", ext));
     }
 
@@ -558,8 +559,18 @@ async fn compile_package_module(
     // Add CPP options
     args.extend(lib_config.cpp_options.clone());
 
-    // Add GHC options from cabal file
-    args.extend(lib_config.ghc_options.clone());
+    // Add GHC options from cabal file, but never treat warnings as errors when
+    // building a dependency from source. Packages enable `-Werror` (often behind
+    // a flag our flat parser does not evaluate); a dependency's warnings are not
+    // ours to fix, and cabal likewise does not `-Werror` dependencies. Dropping
+    // it keeps otherwise-fine packages (e.g. dlist) from failing to build.
+    args.extend(
+        lib_config
+            .ghc_options
+            .iter()
+            .filter(|o| *o != "-Werror" && !o.starts_with("-Werror="))
+            .cloned(),
+    );
 
     // Add optimization
     if config.optimization > 0 {

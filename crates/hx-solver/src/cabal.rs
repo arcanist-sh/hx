@@ -464,23 +464,30 @@ fn apply_top_level_field(info: &mut PackageBuildInfo, key: &str, value: &str) {
 }
 
 /// Apply a library section field to LibraryConfig.
+///
+/// Additive fields (modules, extensions, options, dirs, deps) accumulate across
+/// occurrences, because cabal conditionals — which this flat parser does not
+/// evaluate — commonly *add* to a list (`if impl(ghc >= 9.4) ghc-options: …`,
+/// or extra modules behind a flag). Overwriting would silently drop the base
+/// list. `c-sources` is the exception: it is typically `if os(windows) … else
+/// …`, i.e. mutually exclusive, so last-one-wins is the right behaviour there.
 fn apply_library_field(lib: &mut LibraryConfig, key: &str, value: &str) {
     match key {
-        "hs-source-dirs" => lib.hs_source_dirs = parse_list(value),
-        "exposed-modules" => lib.exposed_modules = parse_module_list(value),
-        "other-modules" => lib.other_modules = parse_module_list(value),
-        "build-depends" => lib.build_depends = parse_build_depends(value),
-        "default-extensions" => lib.default_extensions = parse_list(value),
-        "other-extensions" => lib.other_extensions = parse_list(value),
-        "ghc-options" => lib.ghc_options = parse_ghc_options(value),
-        "cpp-options" => lib.cpp_options = parse_ghc_options(value),
-        "cc-options" => lib.cc_options = parse_ghc_options(value),
+        "hs-source-dirs" => lib.hs_source_dirs.extend(parse_list(value)),
+        "exposed-modules" => lib.exposed_modules.extend(parse_module_list(value)),
+        "other-modules" => lib.other_modules.extend(parse_module_list(value)),
+        "build-depends" => lib.build_depends.extend(parse_build_depends(value)),
+        "default-extensions" => lib.default_extensions.extend(parse_list(value)),
+        "other-extensions" => lib.other_extensions.extend(parse_list(value)),
+        "ghc-options" => lib.ghc_options.extend(parse_ghc_options(value)),
+        "cpp-options" => lib.cpp_options.extend(parse_ghc_options(value)),
+        "cc-options" => lib.cc_options.extend(parse_ghc_options(value)),
         "c-sources" => lib.c_sources = parse_list(value),
-        "include-dirs" => lib.include_dirs = parse_list(value),
-        "includes" => lib.includes = parse_list(value),
-        "extra-libraries" => lib.extra_libraries = parse_list(value),
-        "extra-lib-dirs" => lib.extra_lib_dirs = parse_list(value),
-        "pkgconfig-depends" => lib.pkgconfig_depends = parse_list(value),
+        "include-dirs" => lib.include_dirs.extend(parse_list(value)),
+        "includes" => lib.includes.extend(parse_list(value)),
+        "extra-libraries" => lib.extra_libraries.extend(parse_list(value)),
+        "extra-lib-dirs" => lib.extra_lib_dirs.extend(parse_list(value)),
+        "pkgconfig-depends" => lib.pkgconfig_depends.extend(parse_list(value)),
         "build-tools" | "build-tool-depends" => lib.build_tools.extend(parse_list(value)),
         "default-language" => lib.default_language = Some(value.to_string()),
         _ => {}
