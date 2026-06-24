@@ -573,6 +573,10 @@ pub struct GhcConfig {
     /// compiling a package's C sources. Detected from `ghc-pkg field rts`.
     #[serde(default)]
     pub rts_include_dirs: Vec<PathBuf>,
+    /// Name → version of GHC's global (boot) packages, used to generate the
+    /// `cabal_macros.h` CPP version macros. Detected from `ghc-pkg list --global`.
+    #[serde(default)]
+    pub boot_packages: Vec<(String, String)>,
 }
 
 impl Default for GhcConfig {
@@ -584,6 +588,7 @@ impl Default for GhcConfig {
             packages: Vec::new(),
             resolved_packages: Vec::new(),
             rts_include_dirs: Vec::new(),
+            boot_packages: Vec::new(),
         }
     }
 }
@@ -613,6 +618,7 @@ impl GhcConfig {
         // Auto-detect package databases
         let package_dbs = detect_package_dbs(&version).await;
         let rts_include_dirs = detect_rts_include_dirs().await;
+        let boot_packages = detect_boot_packages().await;
 
         Ok(Self {
             ghc_path: ghc_path.to_path_buf(),
@@ -621,6 +627,7 @@ impl GhcConfig {
             packages: Vec::new(),
             resolved_packages: Vec::new(),
             rts_include_dirs,
+            boot_packages,
         })
     }
 
@@ -639,8 +646,8 @@ impl GhcConfig {
                 format!("{}|{}", ghc_path.display(), version).as_bytes()
             )
         );
-        // `v2`: schema bump so caches predating `rts_include_dirs` are ignored.
-        let cache_file = cache_dir.join(format!("ghc-config-v2-{key}.json"));
+        // `v3`: schema bump so caches predating `boot_packages` are ignored.
+        let cache_file = cache_dir.join(format!("ghc-config-v3-{key}.json"));
 
         if let Ok(bytes) = std::fs::read(&cache_file)
             && let Ok(config) = serde_json::from_slice::<GhcConfig>(&bytes)
@@ -658,6 +665,7 @@ impl GhcConfig {
                 packages: vec![],
                 resolved_packages: vec![],
                 rts_include_dirs: vec![],
+                boot_packages: vec![],
             },
         };
 
@@ -755,6 +763,42 @@ async fn detect_rts_include_dirs() -> Vec<PathBuf> {
         }
     }
     dirs
+}
+
+/// Detect GHC's global (boot) packages as name → version pairs, by parsing
+/// `ghc-pkg list --global --simple-output` (which prints `name-version` tokens).
+/// These feed the `cabal_macros.h` CPP version macros so packages using
+/// `#if MIN_VERSION_base(...)` and friends compile the correct branch.
+async fn detect_boot_packages() -> Vec<(String, String)> {
+    let runner = CommandRunner::new();
+    let mut pkgs = Vec::new();
+    if let Ok(output) = runner
+        .run("ghc-pkg", ["list", "--global", "--simple-output"])
+        .await
+        && output.success()
+    {
+        for token in output.stdout.split_whitespace() {
+            if let Some((name, version)) = split_name_version(token) {
+                pkgs.push((name, version));
+            }
+        }
+    }
+    pkgs
+}
+
+/// Split a `name-version` identifier (e.g. `bytestring-0.12.1.0`,
+/// `vector-stream-0.1.0.1`) into its name and version. The version is the last
+/// hyphen-separated segment that starts with a digit; everything before it is
+/// the name (which may itself contain hyphens).
+fn split_name_version(token: &str) -> Option<(String, String)> {
+    let idx = token.rfind('-')?;
+    let (name, version) = token.split_at(idx);
+    let version = &version[1..];
+    if !name.is_empty() && version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        Some((name.to_string(), version.to_string()))
+    } else {
+        None
+    }
 }
 
 async fn detect_package_dbs(ghc_version: &str) -> Vec<PathBuf> {

@@ -514,6 +514,7 @@ async fn run_native_build(
             packages: vec![],
             resolved_packages: vec![],
             rts_include_dirs: vec![],
+            boot_packages: vec![],
         },
     };
 

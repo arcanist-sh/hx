@@ -78,6 +78,9 @@ pub struct FullNativeBuilder {
     built_packages: HashMap<String, String>,
     /// Names of pre-installed boot packages in the plan, exposed by name.
     preinstalled: HashSet<String>,
+    /// Name → version of every package available to the build (plan packages
+    /// plus GHC boot packages), used to generate `cabal_macros.h`.
+    package_versions: Vec<(String, String)>,
 }
 
 impl FullNativeBuilder {
@@ -91,6 +94,7 @@ impl FullNativeBuilder {
             cache_dir,
             built_packages: HashMap::new(),
             preinstalled: HashSet::new(),
+            package_versions: Vec::new(),
         })
     }
 
@@ -117,6 +121,16 @@ impl FullNativeBuilder {
             errors: Vec::new(),
             warnings: Vec::new(),
         };
+
+        // Assemble the full name → version map (every plan package plus GHC's
+        // boot packages) once, so each dependency build can generate a complete
+        // cabal_macros.h. Boot packages come first; plan packages override them
+        // if a plan pins a different version.
+        self.package_versions = self.ghc.boot_packages.clone();
+        for unit in &build_plan.packages {
+            self.package_versions
+                .push((unit.name.clone(), unit.version.to_string()));
+        }
 
         output.status("Building", "dependencies from source");
 
@@ -355,6 +369,7 @@ impl FullNativeBuilder {
             jobs: options.jobs,
             optimization: options.optimization,
             verbose: options.verbose,
+            package_versions: self.package_versions.clone(),
         };
 
         // Build the package
