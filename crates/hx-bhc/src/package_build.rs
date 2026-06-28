@@ -274,6 +274,11 @@ pub async fn build_package(
         create_static_library(&lib_path, &object_files).await?;
     }
 
+    // Install compiled interfaces into the library directory. The registration
+    // file declares `import-dirs: <install>/lib`, so the `.bhi` files (built
+    // into `<build>/hi`) must be copied there for consumers to resolve imports.
+    install_interfaces(&hi_dir, &lib_install_dir)?;
+
     // Generate registration file
     let exposed_modules = &lib_config.exposed_modules;
     let reg_content = generate_registration_file(
@@ -313,6 +318,43 @@ pub async fn build_package(
         modules_compiled,
         warnings: all_warnings,
         errors: all_errors,
+    })
+}
+
+/// Copy compiled `.bhi` interface files from the build interface directory into
+/// the package's installed library directory, preserving the module-path layout
+/// (`hi/Data/List.bhi` -> `lib/Data/List.bhi`).
+///
+/// The registration file's `import-dirs` points at the library directory, so the
+/// interfaces must live there for consumers to resolve imports.
+fn install_interfaces(hi_dir: &Path, lib_dir: &Path) -> Result<(), BhcNativeError> {
+    fn copy_bhi(dir: &Path, base: &Path, lib: &Path) -> std::io::Result<()> {
+        if !dir.exists() {
+            return Ok(());
+        }
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                copy_bhi(&path, base, lib)?;
+            } else if path.extension().is_some_and(|e| e == "bhi") {
+                let rel = path.strip_prefix(base).unwrap_or(&path);
+                let dest = lib.join(rel);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&path, &dest)?;
+            }
+        }
+        Ok(())
+    }
+
+    copy_bhi(hi_dir, hi_dir, lib_dir).map_err(|e| BhcNativeError::Io {
+        message: format!(
+            "failed to install interface files from {} to {}",
+            hi_dir.display(),
+            lib_dir.display()
+        ),
+        source: e,
     })
 }
 
@@ -436,6 +478,127 @@ pub fn generate_registration_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End-to-end: build a local package with the real BHC backend into a
+    /// package database, then have `bhc check` resolve a consumer against it.
+    ///
+    /// Gated on the `BHC_PATH` environment variable (path to a `bhc` binary);
+    /// skipped when unset so CI without BHC stays green.
+    #[tokio::test]
+    async fn test_build_package_then_check_consumer() {
+        use hx_solver::cabal::parse_cabal_full;
+        use hx_solver::extract::ExtractedPackage;
+        use hx_solver::version::Version;
+        use std::str::FromStr;
+
+        let Ok(bhc_path) = std::env::var("BHC_PATH") else {
+            eprintln!("skipping: BHC_PATH not set");
+            return;
+        };
+        let bhc_path = PathBuf::from(bhc_path);
+
+        let root = tempfile::tempdir().unwrap();
+        let pkg_dir = root.path().join("mysplit");
+        let src_data = pkg_dir.join("src").join("Data");
+        std::fs::create_dir_all(&src_data).unwrap();
+
+        // A minimal library package depending only on builtins.
+        let cabal = "\
+name: mysplit
+version: 1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Data.Split
+  hs-source-dirs: src
+";
+        let cabal_path = pkg_dir.join("mysplit.cabal");
+        std::fs::write(&cabal_path, cabal).unwrap();
+        std::fs::write(
+            src_data.join("Split.hs"),
+            "module Data.Split (splitOnComma) where\n\
+             splitOnComma :: String -> [String]\n\
+             splitOnComma s = case break (== ',') s of\n  \
+               (a, []) -> [a]\n  \
+               (a, _ : rest) -> a : splitOnComma rest\n",
+        )
+        .unwrap();
+
+        let build_info = parse_cabal_full(cabal);
+        let extracted = ExtractedPackage {
+            name: "mysplit".to_string(),
+            version: Version::from_str("1.0.0").unwrap(),
+            source_dir: pkg_dir.clone(),
+            cabal_file: cabal_path,
+            build_info,
+        };
+
+        let bhc = BhcCompilerConfig {
+            bhc_path: bhc_path.clone(),
+            version: "2026.2.0".to_string(),
+            profile: hx_config::BhcProfile::default(),
+            package_dbs: Vec::new(),
+            packages: Vec::new(),
+            tensor_fusion: false,
+            emit_kernel_report: false,
+        };
+        let config = BhcPackageBuildConfig {
+            bhc,
+            build_dir: root.path().join("build"),
+            install_dir: root.path().join("install"),
+            dependency_ids: Vec::new(),
+            jobs: 1,
+            optimization: 0,
+            verbose: false,
+        };
+
+        let result = build_package(&extracted, &config, &Output::new())
+            .await
+            .expect("build_package should succeed");
+        assert!(
+            result.success,
+            "package build failed: {:?}",
+            result.errors
+        );
+
+        // The interface must be installed where the .conf's import-dirs points.
+        let install_lib = config.install_dir.join(&result.package_id).join("lib");
+        assert!(
+            install_lib.join("Data").join("Split.bhi").exists(),
+            "interface not installed into import-dirs ({})",
+            install_lib.display()
+        );
+
+        // The package DB directory holds the .conf registration file.
+        let db_dir = result.registration_file.parent().unwrap();
+
+        // A consumer whose dependency source is absent resolves via the DB.
+        let app = root.path().join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        let main_hs = app.join("Main.hs");
+        std::fs::write(
+            &main_hs,
+            "module Main (main) where\n\
+             import Data.Split (splitOnComma)\n\
+             main :: IO ()\n\
+             main = mapM_ putStrLn (splitOnComma \"a,b,c\")\n",
+        )
+        .unwrap();
+
+        let output = std::process::Command::new(&bhc_path)
+            .arg("check")
+            .arg(&main_hs)
+            .arg("--package-db")
+            .arg(db_dir)
+            .output()
+            .expect("failed to run bhc check");
+        assert!(
+            output.status.success(),
+            "bhc check failed against hx-built DB:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn test_compute_package_id() {
