@@ -3,6 +3,9 @@
 The futuristic half of hx. Point your project at the [BHC (Basel Haskell Compiler)](https://bhc.dev) backend and a BHC Platform snapshot — Stackage-like package sets, curated and verified to build together under BHC — and compile Haskell on a next-generation toolchain without leaving the workflow you already know.
 
 > **Using GHC?** See [STACKAGE.md](./STACKAGE.md) for Stackage snapshot support.
+>
+> **Building from source?** See [BHC_NATIVE_BUILD.md](./BHC_NATIVE_BUILD.md) for
+> how hx compiles dependencies into BHC package databases.
 
 ## Configuration
 
