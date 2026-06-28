@@ -54,6 +54,7 @@ pub enum BhcNativeError {
 ///
 /// Holds all the information needed to invoke BHC for compilation,
 /// including paths, profile, package databases, and feature flags.
+#[derive(Clone)]
 pub struct BhcCompilerConfig {
     /// Path to the BHC executable.
     pub bhc_path: PathBuf,
