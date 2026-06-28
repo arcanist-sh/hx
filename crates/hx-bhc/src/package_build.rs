@@ -274,6 +274,11 @@ pub async fn build_package(
         create_static_library(&lib_path, &object_files).await?;
     }
 
+    // Install compiled interfaces into the library directory. The registration
+    // file declares `import-dirs: <install>/lib`, so the `.bhi` files (built
+    // into `<build>/hi`) must be copied there for consumers to resolve imports.
+    install_interfaces(&hi_dir, &lib_install_dir)?;
+
     // Generate registration file
     let exposed_modules = &lib_config.exposed_modules;
     let reg_content = generate_registration_file(
@@ -313,6 +318,43 @@ pub async fn build_package(
         modules_compiled,
         warnings: all_warnings,
         errors: all_errors,
+    })
+}
+
+/// Copy compiled `.bhi` interface files from the build interface directory into
+/// the package's installed library directory, preserving the module-path layout
+/// (`hi/Data/List.bhi` -> `lib/Data/List.bhi`).
+///
+/// The registration file's `import-dirs` points at the library directory, so the
+/// interfaces must live there for consumers to resolve imports.
+fn install_interfaces(hi_dir: &Path, lib_dir: &Path) -> Result<(), BhcNativeError> {
+    fn copy_bhi(dir: &Path, base: &Path, lib: &Path) -> std::io::Result<()> {
+        if !dir.exists() {
+            return Ok(());
+        }
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                copy_bhi(&path, base, lib)?;
+            } else if path.extension().is_some_and(|e| e == "bhi") {
+                let rel = path.strip_prefix(base).unwrap_or(&path);
+                let dest = lib.join(rel);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&path, &dest)?;
+            }
+        }
+        Ok(())
+    }
+
+    copy_bhi(hi_dir, hi_dir, lib_dir).map_err(|e| BhcNativeError::Io {
+        message: format!(
+            "failed to install interface files from {} to {}",
+            hi_dir.display(),
+            lib_dir.display()
+        ),
+        source: e,
     })
 }
 
@@ -436,6 +478,295 @@ pub fn generate_registration_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End-to-end transitive build (milestone 3 core): build a two-level local
+    /// dependency chain (Data.Base <- Data.Mid) into a package database in
+    /// topological order, with each package compiled against the in-progress DB,
+    /// then `bhc check` a target that imports the top of the chain.
+    ///
+    /// This exercises the part of the full-native pipeline that does not need
+    /// Hackage: per-package `bhc -c` into a shared DB, registration, transitive
+    /// dependency resolution during compilation, and the consumer resolving the
+    /// whole `depends:` closure. Gated on `BHC_PATH`; skipped when unset.
+    #[tokio::test]
+    async fn test_transitive_dependency_build_and_check() {
+        use crate::package_db::BhcPackageDb;
+        use hx_solver::cabal::parse_cabal_full;
+        use hx_solver::extract::ExtractedPackage;
+        use hx_solver::version::Version;
+        use std::str::FromStr;
+
+        let Ok(bhc_path) = std::env::var("BHC_PATH") else {
+            eprintln!("skipping: BHC_PATH not set");
+            return;
+        };
+        let bhc_path = PathBuf::from(bhc_path);
+
+        let root = tempfile::tempdir().unwrap();
+        let cache_dir = root.path().join("cache");
+        let bhc_version = "2026.2.0";
+
+        // Lay out two dependency packages and a consumer.
+        let write = |rel: &str, content: &str| {
+            let p = root.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, content).unwrap();
+            p
+        };
+        write(
+            "libbase/base.cabal",
+            "name: libbase\nversion: 1.0.0\nbuild-type: Simple\n\nlibrary\n  exposed-modules: Data.Base\n  hs-source-dirs: src\n",
+        );
+        write(
+            "libbase/src/Data/Base.hs",
+            "module Data.Base (baseVal) where\nbaseVal :: Int\nbaseVal = 10\n",
+        );
+        write(
+            "libmid/mid.cabal",
+            "name: libmid\nversion: 1.0.0\nbuild-type: Simple\n\nlibrary\n  exposed-modules: Data.Mid\n  hs-source-dirs: src\n",
+        );
+        // Data.Mid imports Data.Base: compiling it REQUIRES resolving the
+        // already-built dependency through the package database.
+        write(
+            "libmid/src/Data/Mid.hs",
+            "module Data.Mid (midVal) where\nimport Data.Base (baseVal)\nmidVal :: Int\nmidVal = baseVal + 1\n",
+        );
+        let main_hs = write(
+            "app/Main.hs",
+            "module Main (main) where\nimport Data.Mid (midVal)\nmain :: IO ()\nmain = print midVal\n",
+        );
+
+        let mut db = BhcPackageDb::open(bhc_version, &cache_dir).await.unwrap();
+
+        // Build one package against the in-progress DB and register it; returns
+        // the package id. Mirrors BhcFullNativeBuilder::build_dependency.
+        async fn build_and_register(
+            db: &mut BhcPackageDb,
+            bhc_path: &std::path::Path,
+            bhc_version: &str,
+            cache_dir: &std::path::Path,
+            pkg_root: &std::path::Path,
+            cabal: &str,
+            dep_ids: Vec<String>,
+        ) -> String {
+            let build_info = parse_cabal_full(cabal);
+            let name = build_info.name.clone();
+            let extracted = ExtractedPackage {
+                name: name.clone(),
+                version: Version::from_str("1.0.0").unwrap(),
+                source_dir: pkg_root.to_path_buf(),
+                cabal_file: pkg_root.join(format!("{name}.cabal")),
+                build_info,
+            };
+            let config = BhcPackageBuildConfig {
+                bhc: BhcCompilerConfig {
+                    bhc_path: bhc_path.to_path_buf(),
+                    version: bhc_version.to_string(),
+                    profile: hx_config::BhcProfile::default(),
+                    // The live DB makes already-built deps resolvable.
+                    package_dbs: vec![db.db_path().to_path_buf()],
+                    packages: Vec::new(),
+                    tensor_fusion: false,
+                    emit_kernel_report: false,
+                },
+                build_dir: cache_dir.join("builds").join(&name),
+                install_dir: cache_dir.join(format!("bhc-{bhc_version}")).join("lib"),
+                dependency_ids: dep_ids,
+                jobs: 1,
+                optimization: 0,
+                verbose: false,
+            };
+            let result = build_package(&extracted, &config, &Output::new())
+                .await
+                .expect("build_package failed");
+            assert!(result.success, "{} build failed: {:?}", name, result.errors);
+            db.register(&result.registration_file).await.unwrap()
+        }
+
+        // Topological order: base first, then mid (which depends on base).
+        let base_cabal = std::fs::read_to_string(root.path().join("libbase/base.cabal")).unwrap();
+        let mid_cabal = std::fs::read_to_string(root.path().join("libmid/mid.cabal")).unwrap();
+        let base_id = build_and_register(
+            &mut db,
+            &bhc_path,
+            bhc_version,
+            &cache_dir,
+            &root.path().join("libbase"),
+            &base_cabal,
+            Vec::new(),
+        )
+        .await;
+        let mid_id = build_and_register(
+            &mut db,
+            &bhc_path,
+            bhc_version,
+            &cache_dir,
+            &root.path().join("libmid"),
+            &mid_cabal,
+            vec![base_id.clone()],
+        )
+        .await;
+
+        // The consumer imports Data.Mid; exposing libmid must transitively pull
+        // in libbase via the registered `depends:`.
+        let output = std::process::Command::new(&bhc_path)
+            .arg("check")
+            .arg(&main_hs)
+            .arg("--package-db")
+            .arg(db.db_path())
+            .arg("--package-id")
+            .arg(&mid_id)
+            .output()
+            .expect("failed to run bhc check");
+        assert!(
+            output.status.success(),
+            "consumer check against transitive DB failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// End-to-end: build a local package with the real BHC backend into a
+    /// package database, then have `bhc check` resolve a consumer against it.
+    ///
+    /// Gated on the `BHC_PATH` environment variable (path to a `bhc` binary);
+    /// skipped when unset so CI without BHC stays green.
+    #[tokio::test]
+    async fn test_build_package_then_check_consumer() {
+        use hx_solver::cabal::parse_cabal_full;
+        use hx_solver::extract::ExtractedPackage;
+        use hx_solver::version::Version;
+        use std::str::FromStr;
+
+        let Ok(bhc_path) = std::env::var("BHC_PATH") else {
+            eprintln!("skipping: BHC_PATH not set");
+            return;
+        };
+        let bhc_path = PathBuf::from(bhc_path);
+
+        let root = tempfile::tempdir().unwrap();
+        let pkg_dir = root.path().join("mysplit");
+        let src_data = pkg_dir.join("src").join("Data");
+        std::fs::create_dir_all(&src_data).unwrap();
+
+        // A minimal library package depending only on builtins.
+        let cabal = "\
+name: mysplit
+version: 1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Data.Split
+  hs-source-dirs: src
+";
+        let cabal_path = pkg_dir.join("mysplit.cabal");
+        std::fs::write(&cabal_path, cabal).unwrap();
+        std::fs::write(
+            src_data.join("Split.hs"),
+            "module Data.Split (splitOnComma) where\n\
+             splitOnComma :: String -> [String]\n\
+             splitOnComma s = case break (== ',') s of\n  \
+               (a, []) -> [a]\n  \
+               (a, _ : rest) -> a : splitOnComma rest\n",
+        )
+        .unwrap();
+
+        let build_info = parse_cabal_full(cabal);
+        let extracted = ExtractedPackage {
+            name: "mysplit".to_string(),
+            version: Version::from_str("1.0.0").unwrap(),
+            source_dir: pkg_dir.clone(),
+            cabal_file: cabal_path,
+            build_info,
+        };
+
+        let bhc = BhcCompilerConfig {
+            bhc_path: bhc_path.clone(),
+            version: "2026.2.0".to_string(),
+            profile: hx_config::BhcProfile::default(),
+            package_dbs: Vec::new(),
+            packages: Vec::new(),
+            tensor_fusion: false,
+            emit_kernel_report: false,
+        };
+        let config = BhcPackageBuildConfig {
+            bhc,
+            build_dir: root.path().join("build"),
+            install_dir: root.path().join("install"),
+            dependency_ids: Vec::new(),
+            jobs: 1,
+            optimization: 0,
+            verbose: false,
+        };
+
+        let result = build_package(&extracted, &config, &Output::new())
+            .await
+            .expect("build_package should succeed");
+        assert!(
+            result.success,
+            "package build failed: {:?}",
+            result.errors
+        );
+
+        // The interface must be installed where the .conf's import-dirs points.
+        let install_lib = config.install_dir.join(&result.package_id).join("lib");
+        assert!(
+            install_lib.join("Data").join("Split.bhi").exists(),
+            "interface not installed into import-dirs ({})",
+            install_lib.display()
+        );
+
+        // The package DB directory holds the .conf registration file.
+        let db_dir = result.registration_file.parent().unwrap();
+
+        // A consumer whose dependency source is absent resolves via the DB.
+        let app = root.path().join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        let main_hs = app.join("Main.hs");
+        std::fs::write(
+            &main_hs,
+            "module Main (main) where\n\
+             import Data.Split (splitOnComma)\n\
+             main :: IO ()\n\
+             main = mapM_ putStrLn (splitOnComma \"a,b,c\")\n",
+        )
+        .unwrap();
+
+        let run_check = |extra: &[&str]| -> std::process::Output {
+            std::process::Command::new(&bhc_path)
+                .arg("check")
+                .arg(&main_hs)
+                .arg("--package-db")
+                .arg(db_dir)
+                .args(extra)
+                .output()
+                .expect("failed to run bhc check")
+        };
+
+        // Resolves with no scoping (all DB packages visible).
+        let output = run_check(&[]);
+        assert!(
+            output.status.success(),
+            "bhc check failed against hx-built DB:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Resolves when the dependency's package id is explicitly exposed.
+        let output = run_check(&["--package-id", &result.package_id]);
+        assert!(
+            output.status.success(),
+            "bhc check failed with explicit --package-id:\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Fails when only an unrelated package id is exposed (scoping hides it).
+        let output = run_check(&["--package-id", "nonexistent-0.0-deadbeef"]);
+        assert!(
+            !output.status.success(),
+            "bhc check unexpectedly succeeded though the dependency package was not exposed"
+        );
+    }
 
     #[test]
     fn test_compute_package_id() {

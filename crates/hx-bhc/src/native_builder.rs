@@ -348,9 +348,9 @@ impl BhcNativeBuilder {
             args.push(db.to_string_lossy().to_string());
         }
 
-        // Dependency package IDs
+        // Dependency package IDs (BHC spells this `--package-id`).
         for dep_id in dependency_ids {
-            args.push("-package-id".to_string());
+            args.push("--package-id".to_string());
             args.push(dep_id.clone());
         }
 

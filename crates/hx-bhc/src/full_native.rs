@@ -166,7 +166,7 @@ impl BhcFullNativeBuilder {
             ];
 
             for pkg_id in self.built_packages.values() {
-                extra_flags.push("-package-id".to_string());
+                extra_flags.push("--package-id".to_string());
                 extra_flags.push(pkg_id.clone());
             }
 
@@ -303,13 +303,23 @@ impl BhcFullNativeBuilder {
             .filter_map(|dep| self.built_packages.get(dep).cloned())
             .collect();
 
+        // The in-progress package database must be visible when compiling this
+        // package so its already-built dependencies (registered earlier in the
+        // topological order) resolve. Thread it in alongside any user-provided
+        // package DBs.
+        let mut package_dbs = self.bhc.package_dbs.clone();
+        let live_db = self.package_db.db_path().to_path_buf();
+        if !package_dbs.contains(&live_db) {
+            package_dbs.push(live_db);
+        }
+
         // Configure the build
         let build_config = BhcPackageBuildConfig {
             bhc: BhcCompilerConfig {
                 bhc_path: self.bhc.bhc_path.clone(),
                 version: self.bhc.version.clone(),
                 profile: self.bhc.profile,
-                package_dbs: self.bhc.package_dbs.clone(),
+                package_dbs,
                 packages: self.bhc.packages.clone(),
                 tensor_fusion: self.bhc.tensor_fusion,
                 emit_kernel_report: self.bhc.emit_kernel_report,

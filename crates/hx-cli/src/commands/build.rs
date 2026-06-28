@@ -916,6 +916,150 @@ async fn run_bhc_build(
     }
 }
 
+/// Attempt a full BHC native build that compiles transitive dependencies from
+/// source into a package database, then builds the local project against it.
+///
+/// Returns `Ok(Some(exit_code))` when the dependency-aware build ran (whether it
+/// succeeded or failed), or `Ok(None)` when it is not applicable — no external
+/// dependencies, or no cached resolution (the caller then does a local-only
+/// build). The dependency path requires `hx lock` to have produced a cached
+/// resolution and network access to fetch sources from Hackage.
+async fn try_bhc_full_native_build(
+    project: &Project,
+    bhc: &hx_bhc::native::BhcCompilerConfig,
+    release: bool,
+    jobs: Option<usize>,
+    output: &Output,
+) -> Result<Option<i32>> {
+    use hx_bhc::full_native::BhcFullNativeBuilder;
+    use hx_bhc::native::BhcNativeBuildOptions;
+    use hx_bhc::package_db::BhcPackageDb;
+    use std::collections::HashSet;
+
+    // Stackage-snapshot projects resolve differently; defer for now.
+    if project.manifest.stackage.snapshot.is_some() {
+        return Ok(None);
+    }
+
+    // Cabal conditionals resolve against a GHC version (BHC targets GHC
+    // compatibility); take it from the manifest, falling back to a default. No
+    // GHC toolchain installation is required.
+    let ghc_str = project
+        .manifest
+        .toolchain
+        .ghc
+        .clone()
+        .unwrap_or_else(|| "9.8.2".to_string());
+    let ghc = ghc_str
+        .parse()
+        .unwrap_or_else(|_| "9.8.2".parse().expect("valid default GHC version"));
+    let ctx = CabalContext::host(ghc);
+
+    let all_deps = collect_project_deps(project, &ctx);
+    if all_deps.is_empty() {
+        // No external dependencies — the local-only build is sufficient.
+        return Ok(None);
+    }
+
+    // Reuse the lockfile's cached resolution, keyed by the dependency fingerprint.
+    let pairs: Vec<(String, String)> = all_deps
+        .iter()
+        .map(|d| (d.name.clone(), d.constraint.to_string()))
+        .collect();
+    let fingerprint = compute_deps_fingerprint(&pairs);
+    let plan = match load_cached_resolution(&fingerprint) {
+        Ok(p) => p,
+        Err(_) => {
+            output.info("BHC native build: no cached resolution — run `hx lock` first");
+            return Ok(None);
+        }
+    };
+
+    // Fetch dependency sources from Hackage.
+    let fetched = match fetch_packages(&plan, &FetchOptions::default()).await {
+        Ok(f) => f,
+        Err(e) => {
+            output.warn(&format!("Could not fetch dependencies: {e}"));
+            return Ok(None);
+        }
+    };
+
+    // Topologically ordered build plan. BHC's builtin packages are treated as
+    // pre-installed so they are neither fetched nor built from source.
+    let pre_installed: HashSet<String> = hx_bhc::builtin_packages::builtin_packages()
+        .keys()
+        .map(|s| s.to_string())
+        .collect();
+    let plan_opts = PlanOptions {
+        compiler_id: format!("ghc-{ghc_str}"),
+        platform: format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
+        pre_installed,
+        cached_hashes: Default::default(),
+    };
+    let build_plan = match generate_build_plan(&plan, &plan_opts) {
+        Ok(b) => b,
+        Err(e) => {
+            output.warn(&format!("Could not plan the dependency build: {e}"));
+            return Ok(None);
+        }
+    };
+
+    let cache_dir = default_package_cache_dir()
+        .unwrap_or_else(|| project.root.join(".hx").join("native-store"));
+    let package_db = BhcPackageDb::open(&bhc.version, &cache_dir)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to open BHC package DB: {e}"))?;
+
+    let build_config = &project.manifest.build;
+    let optimization = if release {
+        2
+    } else {
+        build_config.optimization
+    };
+    let options = BhcNativeBuildOptions {
+        src_dirs: build_config.src_dirs.iter().map(PathBuf::from).collect(),
+        output_dir: project.root.join(".hx/bhc-native-build"),
+        optimization,
+        warnings: build_config.warnings,
+        werror: build_config.werror,
+        extra_flags: build_config.ghc_flags.clone(),
+        jobs: jobs.unwrap_or(4),
+        verbose: output.is_verbose(),
+        main_module: Some("Main".to_string()),
+        output_exe: Some(
+            project
+                .root
+                .join(".hx/bhc-native-build")
+                .join(project.name()),
+        ),
+        output_lib: None,
+        target: None,
+        extensions: Vec::new(),
+    };
+
+    let mut builder = BhcFullNativeBuilder::new(bhc.clone(), package_db, cache_dir);
+    let result = builder
+        .build_project(&project.root, &build_plan, &fetched, &options, output)
+        .await
+        .map_err(|e| anyhow::anyhow!("BHC native build failed: {e}"))?;
+
+    if result.success {
+        output.status(
+            "Finished",
+            &format!(
+                "BHC native build ({} built, {} skipped)",
+                result.packages_built, result.packages_skipped
+            ),
+        );
+        Ok(Some(0))
+    } else {
+        for e in &result.errors {
+            eprintln!("{e}");
+        }
+        Ok(Some(5))
+    }
+}
+
 /// Run a native BHC build (hx owns the build graph).
 async fn run_bhc_native_build(
     project: &Project,
@@ -945,6 +1089,17 @@ async fn run_bhc_native_build(
     if output.is_verbose() {
         output.info(&format!("  BHC version: {}", bhc.version));
         output.info(&format!("  Profile: {}", bhc.profile.as_str()));
+    }
+
+    // If the project has external dependencies and a cached resolution, build
+    // them from source into a package database and link the project against it.
+    match try_bhc_full_native_build(project, &bhc, release, jobs, output).await {
+        Ok(Some(code)) => return Ok(code),
+        Ok(None) => { /* no deps / no lockfile — fall through to local-only build */ }
+        Err(e) => {
+            output.warn(&format!("Native dependency build failed: {e}"));
+            output.info("Falling back to a local-only BHC build");
+        }
     }
 
     let build_config = &project.manifest.build;

@@ -65,9 +65,10 @@ pub fn build_compile_args(
         args.push(db.to_string_lossy().to_string());
     }
 
-    // Dependency package IDs
+    // Dependency package IDs (BHC spells this `--package-id`, matching its other
+    // long flags like `--package-db`).
     for dep_id in dependency_ids {
-        args.push("-package-id".to_string());
+        args.push("--package-id".to_string());
         args.push(dep_id.clone());
     }
 
@@ -259,7 +260,7 @@ mod tests {
         assert!(args.contains(&"/tmp/pkg.db".to_string()));
 
         // Dependency IDs
-        assert!(args.contains(&"-package-id".to_string()));
+        assert!(args.contains(&"--package-id".to_string()));
         assert!(args.contains(&"base-4.18.0-abc123".to_string()));
 
         // Optimization

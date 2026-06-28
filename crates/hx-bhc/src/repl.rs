@@ -7,35 +7,35 @@ use tracing::{debug, info};
 
 /// Build argument list for a BHC REPL session.
 ///
-/// This is extracted as a helper for testability.
+/// Produces an invocation of the `bhc` CLI's `repl` subcommand using BHC's flag
+/// spellings: `--profile` and `--import-path` (top-level, before the
+/// subcommand) and `--package-db` (global). The `repl` token comes last. This is
+/// extracted as a helper for testability.
 pub fn build_repl_args(bhc: &BhcCompilerConfig, src_dirs: &[std::path::PathBuf]) -> Vec<String> {
-    let mut args = vec!["--interactive".to_string()];
+    let mut args = vec![format!("--profile={}", bhc.profile.as_str())];
 
-    // Add package databases
-    for db in &bhc.package_dbs {
-        args.push(format!("-package-db={}", db.display()));
-    }
-
-    // Add source directories
+    // Import paths for resolving `:load` targets (top-level flag).
     for dir in src_dirs {
-        args.push(format!("-i{}", dir.display()));
+        args.push("--import-path".to_string());
+        args.push(dir.display().to_string());
     }
 
-    // Add profile
-    args.push(format!("--profile={}", bhc.profile.as_str()));
-
-    // Add tensor fusion if enabled
-    if bhc.tensor_fusion {
-        args.push("--tensor-fusion".to_string());
+    // Package databases of compiled `.bhi` interfaces (global flag).
+    for db in &bhc.package_dbs {
+        args.push("--package-db".to_string());
+        args.push(db.display().to_string());
     }
+
+    // The REPL subcommand goes last, after the top-level flags.
+    args.push("repl".to_string());
 
     args
 }
 
 /// Start a BHC interactive REPL session.
 ///
-/// This launches `bhc --interactive` with the project's package databases
-/// and source directories configured.
+/// This launches `bhc repl` with the project's package databases and source
+/// directories configured.
 pub async fn start_bhc_repl(
     project_root: &Path,
     bhc: &BhcCompilerConfig,
@@ -89,17 +89,23 @@ mod tests {
 
         let args = build_repl_args(&bhc, &src_dirs);
 
-        assert!(args.contains(&"--interactive".to_string()));
-        assert!(args.contains(&"-package-db=/cache/hx/bhc-2026.2.0/package.db".to_string()));
-        assert!(args.contains(&"-package-db=/home/user/.bhc/package.db".to_string()));
-        assert!(args.contains(&"-isrc".to_string()));
-        assert!(args.contains(&"-ilib".to_string()));
+        // Launches the `repl` subcommand using BHC's flag spellings.
+        assert_eq!(args.last(), Some(&"repl".to_string()));
+        assert!(!args.contains(&"--interactive".to_string()));
+        assert!(args.contains(&"--package-db".to_string()));
+        assert!(args.contains(&"/cache/hx/bhc-2026.2.0/package.db".to_string()));
+        assert!(args.contains(&"/home/user/.bhc/package.db".to_string()));
+        assert!(args.contains(&"--import-path".to_string()));
+        assert!(args.contains(&"src".to_string()));
+        assert!(args.contains(&"lib".to_string()));
         assert!(args.contains(&"--profile=numeric".to_string()));
-        assert!(args.contains(&"--tensor-fusion".to_string()));
+        // The old GHC-style single-dash spellings must be gone.
+        assert!(!args.iter().any(|a| a.starts_with("-package-db=")));
+        assert!(!args.iter().any(|a| a.starts_with("-i") && a != "--import-path"));
     }
 
     #[test]
-    fn test_repl_args_without_tensor_fusion() {
+    fn test_repl_args_minimal() {
         let bhc = BhcCompilerConfig {
             bhc_path: PathBuf::from("bhc"),
             version: "2026.2.0".to_string(),
@@ -112,8 +118,10 @@ mod tests {
 
         let args = build_repl_args(&bhc, &[]);
 
-        assert!(args.contains(&"--interactive".to_string()));
+        assert_eq!(args.last(), Some(&"repl".to_string()));
         assert!(args.contains(&"--profile=default".to_string()));
+        // `--tensor-fusion` is not a `bhc` flag and must not be emitted.
         assert!(!args.contains(&"--tensor-fusion".to_string()));
+        assert!(!args.contains(&"--interactive".to_string()));
     }
 }
