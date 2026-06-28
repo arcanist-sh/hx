@@ -585,18 +585,39 @@ library
         )
         .unwrap();
 
-        let output = std::process::Command::new(&bhc_path)
-            .arg("check")
-            .arg(&main_hs)
-            .arg("--package-db")
-            .arg(db_dir)
-            .output()
-            .expect("failed to run bhc check");
+        let run_check = |extra: &[&str]| -> std::process::Output {
+            std::process::Command::new(&bhc_path)
+                .arg("check")
+                .arg(&main_hs)
+                .arg("--package-db")
+                .arg(db_dir)
+                .args(extra)
+                .output()
+                .expect("failed to run bhc check")
+        };
+
+        // Resolves with no scoping (all DB packages visible).
+        let output = run_check(&[]);
         assert!(
             output.status.success(),
             "bhc check failed against hx-built DB:\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Resolves when the dependency's package id is explicitly exposed.
+        let output = run_check(&["--package-id", &result.package_id]);
+        assert!(
+            output.status.success(),
+            "bhc check failed with explicit --package-id:\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Fails when only an unrelated package id is exposed (scoping hides it).
+        let output = run_check(&["--package-id", "nonexistent-0.0-deadbeef"]);
+        assert!(
+            !output.status.success(),
+            "bhc check unexpectedly succeeded though the dependency package was not exposed"
         );
     }
 

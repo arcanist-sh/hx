@@ -166,7 +166,7 @@ impl BhcFullNativeBuilder {
             ];
 
             for pkg_id in self.built_packages.values() {
-                extra_flags.push("-package-id".to_string());
+                extra_flags.push("--package-id".to_string());
                 extra_flags.push(pkg_id.clone());
             }
 
