@@ -257,8 +257,6 @@ impl BhcFullNativeBuilder {
 
         if let Ok(Some(_cached_files)) = cached {
             debug!("Artifact cache hit for {}", pkg_key);
-            // Even with cached artifacts, we need to ensure the package is registered.
-            // For now, record it as built and skip compilation.
             let package_id = crate::package_build::compute_package_id(
                 &unit.name,
                 &unit.version.to_string(),
@@ -270,10 +268,42 @@ impl BhcFullNativeBuilder {
                     .filter_map(|d| self.built_packages.get(d).cloned())
                     .collect::<Vec<_>>(),
             );
-            result.packages_skipped += 1;
-            result.registered_packages.push(package_id.clone());
-            self.built_packages.insert(unit.name.clone(), package_id);
-            return Ok(());
+
+            // A cache hit means we skip recompilation, but the package must
+            // still be registered in the (possibly fresh) package database so
+            // dependents can resolve it. The install tree is persistent at a
+            // deterministic path; register its `.conf` from there. If it is
+            // missing (install tree pruned), fall through and rebuild rather
+            // than registering a package whose interfaces are absent.
+            let conf_path = self
+                .cache_dir
+                .join(format!("bhc-{}", self.bhc.version))
+                .join("lib")
+                .join(&package_id)
+                .join(format!("{}.conf", package_id));
+
+            if conf_path.exists() {
+                match self.package_db.register(&conf_path).await {
+                    Ok(_) => {
+                        result.packages_skipped += 1;
+                        result.registered_packages.push(package_id.clone());
+                        self.built_packages.insert(unit.name.clone(), package_id);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        warn!(
+                            "cache hit for {} but registration failed ({e}); rebuilding",
+                            pkg_key
+                        );
+                    }
+                }
+            } else {
+                debug!(
+                    "cache hit for {} but install conf missing at {}; rebuilding",
+                    pkg_key,
+                    conf_path.display()
+                );
+            }
         }
 
         // Extract the package
@@ -418,5 +448,131 @@ mod tests {
         assert!(builder.built_packages().is_empty());
         assert_eq!(builder.cache_dir, cache_dir);
         assert_eq!(builder.bhc.version, "2026.2.0");
+    }
+
+    /// A warm artifact cache must still register the package in a fresh package
+    /// database, otherwise the project build cannot resolve it. No BHC binary is
+    /// needed: the cache hit skips compilation entirely.
+    #[tokio::test]
+    async fn test_cache_hit_registers_package() {
+        use crate::package_build::compute_package_id;
+        use hx_cache::artifacts::store_artifacts;
+        use hx_solver::Version;
+        use std::collections::HashMap;
+        use std::str::FromStr;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join("cache");
+        let bhc_version = "2026.2.0";
+        let profile = BhcProfile::default();
+
+        let package_id = compute_package_id("mypkg", "1.0.0", bhc_version, profile.as_str(), &[]);
+
+        // Persistent install tree holding the package's registration file.
+        let install_lib = cache_dir
+            .join(format!("bhc-{bhc_version}"))
+            .join("lib")
+            .join(&package_id);
+        std::fs::create_dir_all(&install_lib).unwrap();
+        let conf_path = install_lib.join(format!("{package_id}.conf"));
+        std::fs::write(
+            &conf_path,
+            format!(
+                "name: mypkg\nversion: 1.0.0\nid: {package_id}\nimport-dirs: {}\nexposed-modules: Data.My\n",
+                install_lib.display()
+            ),
+        )
+        .unwrap();
+
+        // Seed the artifact cache so build_dependency takes the cache-hit path.
+        // The key inputs must match what build_dependency computes.
+        let cache_flags = vec![
+            "-O0".to_string(),
+            format!("--profile={}", profile.as_str()),
+        ];
+        store_artifacts(
+            &cache_dir,
+            "mypkg-1.0.0",
+            "deadbeef",
+            bhc_version,
+            &cache_flags,
+            &HashMap::new(),
+            std::slice::from_ref(&conf_path),
+        )
+        .unwrap();
+
+        let bhc = BhcCompilerConfig {
+            bhc_path: PathBuf::from("bhc-unused-on-cache-hit"),
+            version: bhc_version.to_string(),
+            profile,
+            package_dbs: Vec::new(),
+            packages: Vec::new(),
+            tensor_fusion: false,
+            emit_kernel_report: false,
+        };
+        // Destination for restored artifacts (retrieve_artifacts copies here).
+        std::fs::create_dir_all(cache_dir.join("artifact-restore")).unwrap();
+
+        // A FRESH package DB — the bug was that a cache hit left this empty.
+        let package_db = BhcPackageDb::open(bhc_version, &cache_dir).await.unwrap();
+        let mut builder = BhcFullNativeBuilder::new(bhc, package_db, cache_dir.clone());
+
+        let unit = BuildUnit {
+            name: "mypkg".to_string(),
+            version: Version::from_str("1.0.0").unwrap(),
+            hash: Some("deadbeef".to_string()),
+            flags: HashMap::new(),
+            pre_installed: false,
+            style: BuildStyle::Source,
+            depends: Vec::new(),
+        };
+        let fetch = FetchResult {
+            name: "mypkg".to_string(),
+            version: Version::from_str("1.0.0").unwrap(),
+            path: cache_dir.join("unused.tar.gz"),
+            hash: "deadbeef".to_string(),
+            cached: true,
+        };
+        let mut fetch_map: HashMap<String, &FetchResult> = HashMap::new();
+        fetch_map.insert("mypkg-1.0.0".to_string(), &fetch);
+
+        let options = BhcNativeBuildOptions {
+            src_dirs: Vec::new(),
+            output_dir: cache_dir.join("out"),
+            optimization: 0,
+            warnings: false,
+            werror: false,
+            extra_flags: Vec::new(),
+            jobs: 1,
+            verbose: false,
+            main_module: None,
+            output_exe: None,
+            output_lib: None,
+            target: None,
+            extensions: Vec::new(),
+        };
+        let mut result = FullNativeBuildResult {
+            success: true,
+            duration: Duration::ZERO,
+            packages_built: 0,
+            packages_skipped: 0,
+            packages_failed: 0,
+            registered_packages: Vec::new(),
+            project_result: None,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        builder
+            .build_dependency(&unit, &fetch_map, &options, &Output::new(), &mut result)
+            .await
+            .expect("cache-hit dependency handling failed");
+
+        assert!(
+            builder.package_db.is_registered(&package_id),
+            "cache hit must register {package_id} in the package DB"
+        );
+        assert_eq!(result.packages_skipped, 1);
+        assert!(builder.built_packages().contains_key("mypkg"));
     }
 }
