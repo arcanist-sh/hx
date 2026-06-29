@@ -510,9 +510,6 @@ mod tests {
             tensor_fusion: false,
             emit_kernel_report: false,
         };
-        // Destination for restored artifacts (retrieve_artifacts copies here).
-        std::fs::create_dir_all(cache_dir.join("artifact-restore")).unwrap();
-
         // A FRESH package DB — the bug was that a cache hit left this empty.
         let package_db = BhcPackageDb::open(bhc_version, &cache_dir).await.unwrap();
         let mut builder = BhcFullNativeBuilder::new(bhc, package_db, cache_dir.clone());
