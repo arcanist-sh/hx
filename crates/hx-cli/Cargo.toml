@@ -64,6 +64,7 @@ predicates.workspace = true
 insta.workspace = true
 criterion.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 
 [[bench]]
 name = "cli_bench"
