@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-29
+
+### Added
+- **BHC backend native builds — dependencies, run, and test.** `hx build/run/test
+  --backend bhc --native` now compile a project *and its dependencies* from
+  source into a BHC package database and build/run/test against it, instead of
+  only handling base-only projects.
+  - `hx build --backend bhc --native` resolves the dependency set, fetches it,
+    builds each package in topological order into a package database (each
+    compiled against the packages already built), and links the project against
+    it. It falls back to a local-only build when there are no dependencies, no
+    cached resolution, or fetching fails, so offline builds keep working.
+  - `hx run --backend bhc --native` builds the native executable and runs it,
+    forwarding program arguments — the path required to run code that calls into
+    dependencies (the interpreter only has interface information for imports).
+  - `hx test --backend bhc --native` compiles a conventional test entry point
+    (`test/Main.hs`, `test/Spec.hs`, `tests/Main.hs`, `tests/Spec.hs`) to a
+    native executable and runs it; a zero exit status is a pass.
+- **`--package-id` is honored for BHC.** hx now passes BHC's `--package-id` flag
+  (double dash, matching its other flags), so a selected package's exposed
+  modules and its transitive `depends:` closure are visible during compilation.
+- **BHC REPL launches correctly.** `hx repl --backend bhc` invokes `bhc repl`
+  with BHC's flag spellings (`--profile`, `--import-path`, `--package-db`),
+  forwarding the project's package database and source directories.
+
+### Fixed
+- **Interfaces are installed into the package database.** Built BHC packages now
+  copy their `.bhi` interfaces into the directory the registration file's
+  `import-dirs` points at, so consumers can resolve imports against them.
+- **Cached packages are registered on a warm cache.** A native build no longer
+  skips registration on an artifact-cache hit, which previously left the package
+  database empty and broke the second (cached) build.
+- **Artifact retrieval creates its destination directory**, so a valid cache hit
+  on a clean tree is no longer lost to a full rebuild.
+- **The main module is compiled by file, not name.** The BHC native build
+  resolves the main module to its source file (`Main` → `src/Main.hs`) rather
+  than passing the module name to BHC, which compiles a file.
+
+### Documentation
+- New `docs/BHC_NATIVE_BUILD.md` covering BHC separate compilation, package
+  databases (flat and registered `.conf` layouts), the
+  `--package-db`/`--package-id`/`--package-dir`/`--import-path` flags, package
+  visibility scoping, and the native build/run/test workflow.
+
 ## [0.8.2] - 2026-06-23
 
 ### Added
@@ -448,7 +492,9 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/arcanist-sh/hx/compare/v0.8.2...v0.9.0
+[0.8.2]: https://github.com/arcanist-sh/hx/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/arcanist-sh/hx/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/arcanist-sh/hx/compare/v0.7.16...v0.8.0
 [0.7.16]: https://github.com/arcanist-sh/hx/compare/v0.7.15...v0.7.16
