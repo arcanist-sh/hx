@@ -99,8 +99,9 @@ pub async fn run(cli: Cli) -> Result<i32> {
             pattern,
             package,
             target,
+            native,
             backend,
-        }) => build::test(pattern, package, target, backend, policy, &output).await,
+        }) => build::test(pattern, package, target, native, backend, policy, &output).await,
         Some(Commands::Run {
             args,
             package,
