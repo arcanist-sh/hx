@@ -316,6 +316,14 @@ pub fn retrieve_artifacts(
         return Ok(None);
     }
 
+    // Ensure the destination exists; otherwise the copies below fail and a valid
+    // cache hit is silently lost to a rebuild.
+    fs::create_dir_all(dest_dir).map_err(|e| Error::Io {
+        message: "failed to create artifact destination directory".to_string(),
+        path: Some(dest_dir.to_path_buf()),
+        source: e,
+    })?;
+
     // Copy files to destination
     let mut copied_files = Vec::new();
     for filename in &entry.files {
@@ -438,6 +446,42 @@ fn format_size(bytes: u64) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_retrieve_creates_missing_dest_dir() {
+        // A cache hit must succeed even when the destination directory does not
+        // exist yet — retrieve_artifacts creates it rather than erroring out and
+        // silently losing the hit.
+        let tmp = tempdir().unwrap();
+        let cache_dir = tmp.path();
+
+        let artifact = cache_dir.join("Foo.o");
+        std::fs::write(&artifact, b"object").unwrap();
+
+        let flags = vec!["-O0".to_string()];
+        let deps = HashMap::new();
+        store_artifacts(
+            cache_dir,
+            "Foo",
+            "srchash",
+            "2026.2.0",
+            &flags,
+            &deps,
+            std::slice::from_ref(&artifact),
+        )
+        .unwrap();
+
+        // Destination does not exist beforehand.
+        let dest = cache_dir.join("restore").join("nested");
+        assert!(!dest.exists());
+
+        let got = retrieve_artifacts(cache_dir, "srchash", "2026.2.0", &flags, &deps, &dest)
+            .unwrap();
+
+        let files = got.expect("expected a cache hit");
+        assert_eq!(files.len(), 1);
+        assert!(dest.join("Foo.o").exists());
+    }
 
     #[test]
     fn test_compute_artifact_hash() {
