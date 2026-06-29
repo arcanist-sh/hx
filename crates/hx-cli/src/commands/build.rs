@@ -1060,6 +1060,26 @@ async fn try_bhc_full_native_build(
     }
 }
 
+/// Resolve a main module name to the source file BHC should compile.
+///
+/// BHC compiles a file, not a module name, so `Main` becomes `<src>/Main.hs`
+/// (and `Foo.Bar` becomes `<src>/Foo/Bar.hs`). Returns the first candidate that
+/// exists under `src_dirs` relative to `project_root`, or the bare relative path
+/// (`Main.hs`) when none match — bhc then reports a clear missing-file error.
+fn resolve_main_source(
+    main_module: &str,
+    src_dirs: &[PathBuf],
+    project_root: &std::path::Path,
+) -> String {
+    let rel = format!("{}.hs", main_module.replace('.', "/"));
+    src_dirs
+        .iter()
+        .map(|dir| dir.join(&rel))
+        .find(|candidate| project_root.join(candidate).exists())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or(rel)
+}
+
 /// Run a native BHC build (hx owns the build graph).
 async fn run_bhc_native_build(
     project: &Project,
@@ -1157,7 +1177,12 @@ async fn run_bhc_native_build(
     args.extend(options.extra_flags.iter().cloned());
 
     if let Some(ref main_module) = options.main_module {
-        args.push(main_module.clone());
+        // BHC compiles a source file, not a module name.
+        args.push(resolve_main_source(
+            main_module,
+            &options.src_dirs,
+            &project.root,
+        ));
     }
 
     if let Some(ref exe_path) = options.output_exe {
@@ -1305,5 +1330,40 @@ async fn run_bhc_test(
     } else {
         output.error("BHC tests failed");
         Ok(5)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_main_source;
+    use std::path::PathBuf;
+
+    #[test]
+    fn resolve_main_source_finds_file_under_src_dir() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/Main.hs"), "module Main where\n").unwrap();
+
+        let got = resolve_main_source("Main", &[PathBuf::from("src")], root.path());
+        assert_eq!(got, "src/Main.hs");
+    }
+
+    #[test]
+    fn resolve_main_source_maps_dotted_module_to_path() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("lib/Foo")).unwrap();
+        std::fs::write(root.path().join("lib/Foo/Bar.hs"), "module Foo.Bar where\n").unwrap();
+
+        let got = resolve_main_source("Foo.Bar", &[PathBuf::from("lib")], root.path());
+        assert_eq!(got, "lib/Foo/Bar.hs");
+    }
+
+    #[test]
+    fn resolve_main_source_falls_back_to_relative_path() {
+        let root = tempfile::tempdir().unwrap();
+        // No matching file exists; returns the bare relative path so bhc emits a
+        // clear missing-file error rather than treating "Main" as a file.
+        let got = resolve_main_source("Main", &[PathBuf::from("src")], root.path());
+        assert_eq!(got, "Main.hs");
     }
 }
