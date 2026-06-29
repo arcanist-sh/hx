@@ -169,6 +169,18 @@ fetching fails, hx falls back to a **local-only** build (compiling just the
 project's own modules). So offline builds and projects without a lockfile keep
 working.
 
+### Running
+
+```bash
+hx run --backend bhc --native -- <args>
+```
+
+`hx run --native` performs the build above and then **executes the produced
+native binary**, forwarding any program arguments. The native path is required
+to run code that calls into dependencies: the interpreter path (`hx run`
+without `--native`) only has interface (`.bhi`) information for imported
+packages, not their compiled bodies.
+
 ### Where things live
 
 | Path | Contents |

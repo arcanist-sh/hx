@@ -14,6 +14,7 @@ pub async fn run(
     args: Vec<String>,
     package: Option<String>,
     target: Option<String>,
+    native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
     output: &Output,
@@ -27,6 +28,9 @@ pub async fn run(
 
     // Use BHC backend for running
     if backend == CompilerBackend::Bhc {
+        if native {
+            return run_bhc_native_run(&project, args, target, output).await;
+        }
         return run_bhc_run(&project, args, package, target, output).await;
     }
 
@@ -250,6 +254,46 @@ async fn run_bhc_run(
             Ok(5)
         }
     }
+}
+
+/// Run a project using a native BHC build (hx owns the build graph).
+///
+/// Builds the project (and its dependencies) to a native executable, then
+/// executes that binary with the program arguments. This is how dependency code
+/// runs under BHC: the interpreter path (`run_bhc_run`) only has interface
+/// information for imported packages, not their compiled bodies.
+async fn run_bhc_native_run(
+    project: &Project,
+    args: Vec<String>,
+    target: Option<String>,
+    output: &Output,
+) -> Result<i32> {
+    // Build the native executable (deps + project) via the build command.
+    let code = crate::commands::build::run_bhc_native_build(project, false, None, target, output)
+        .await?;
+    if code != 0 {
+        return Ok(code);
+    }
+
+    let exe = project
+        .root
+        .join(".hx/bhc-native-build")
+        .join(project.name());
+    if !exe.exists() {
+        output.error(&format!(
+            "native build did not produce an executable at {}",
+            exe.display()
+        ));
+        return Ok(5);
+    }
+
+    output.status("Running", &format!("{} (BHC native)", project.name()));
+    let status = std::process::Command::new(&exe)
+        .args(&args)
+        .current_dir(&project.root)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run {}: {e}", exe.display()))?;
+    Ok(status.code().unwrap_or(1))
 }
 
 /// Start a BHC REPL session.

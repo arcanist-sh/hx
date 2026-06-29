@@ -105,8 +105,9 @@ pub async fn run(cli: Cli) -> Result<i32> {
             args,
             package,
             target,
+            native,
             backend,
-        }) => run::run(args, package, target, backend, policy, &output).await,
+        }) => run::run(args, package, target, native, backend, policy, &output).await,
         Some(Commands::Repl { backend }) => run::repl(backend, policy, &output).await,
         Some(Commands::Check { backend }) => {
             // Check is just a fast build
