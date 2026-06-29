@@ -181,6 +181,30 @@ to run code that calls into dependencies: the interpreter path (`hx run`
 without `--native`) only has interface (`.bhi`) information for imported
 packages, not their compiled bodies.
 
+### Testing
+
+```bash
+hx test --backend bhc --native
+```
+
+`hx test --native` compiles a conventional test entry point to a native
+executable — discovering and compiling the project's own modules from the
+source directories — then runs it. A zero exit status is a pass; a non-zero
+status is a failure.
+
+The test entry is the first of these that exists:
+
+```
+test/Main.hs   test/Spec.hs   tests/Main.hs   tests/Spec.hs
+```
+
+> **BHC caveat:** at present BHC's runtime does not implement program exit codes
+> faithfully — `error` terminates with status 0, and `System.Exit.exitSuccess` /
+> `exitFailure` are stubs that abort. Until that is addressed in BHC, a BHC test
+> binary cannot reliably signal pass/fail through the usual mechanisms, so this
+> command's pass/fail result is only as trustworthy as the test binary's exit
+> code. The hx side (build → run → propagate exit status) is correct.
+
 ### Where things live
 
 | Path | Contents |

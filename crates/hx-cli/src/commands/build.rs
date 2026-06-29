@@ -285,6 +285,7 @@ pub async fn test(
     pattern: Option<String>,
     package: Option<String>,
     target: Option<String>,
+    native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
     output: &Output,
@@ -298,6 +299,9 @@ pub async fn test(
 
     // Use BHC backend for testing
     if backend == CompilerBackend::Bhc {
+        if native {
+            return run_bhc_native_test(&project, target, output).await;
+        }
         return run_bhc_test(&project, pattern, package, target, output).await;
     }
 
@@ -1080,6 +1084,24 @@ fn resolve_main_source(
         .unwrap_or(rel)
 }
 
+/// Find a project's test entry point for a native BHC test build.
+///
+/// hx has no structured test-suite config yet, so it looks for a conventional
+/// test main module and returns its path relative to the project root, or
+/// `None` if none is present.
+fn find_test_entry(project_root: &std::path::Path) -> Option<String> {
+    const CANDIDATES: [&str; 4] = [
+        "test/Main.hs",
+        "test/Spec.hs",
+        "tests/Main.hs",
+        "tests/Spec.hs",
+    ];
+    CANDIDATES
+        .iter()
+        .find(|rel| project_root.join(rel).exists())
+        .map(|rel| (*rel).to_string())
+}
+
 /// Run a native BHC build (hx owns the build graph).
 pub(crate) async fn run_bhc_native_build(
     project: &Project,
@@ -1237,6 +1259,112 @@ pub(crate) async fn run_bhc_native_build(
     }
 }
 
+/// Run a project's tests with a native BHC build.
+///
+/// Compiles a conventional test entry point (`test/Main.hs`, `test/Spec.hs`, …)
+/// to a native executable — discovering and compiling the project's own modules
+/// from the source directories — then runs it. A zero exit status is a pass.
+async fn run_bhc_native_test(
+    project: &Project,
+    target: Option<String>,
+    output: &Output,
+) -> Result<i32> {
+    use hx_bhc::native::BhcCompilerConfig;
+
+    output.warn("BHC native test is experimental");
+
+    let Some(entry) = find_test_entry(&project.root) else {
+        output.error("no BHC test entry found (expected test/Main.hs or test/Spec.hs)");
+        return Ok(2);
+    };
+    let test_dir = std::path::Path::new(&entry)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    output.status("Testing", &format!("{} (BHC native)", project.name()));
+
+    let bhc = match BhcCompilerConfig::detect().await {
+        Ok(config) => config
+            .with_profile(project.manifest.compiler.bhc.profile)
+            .with_tensor_fusion(project.manifest.compiler.bhc.tensor_fusion)
+            .with_emit_kernel_report(project.manifest.compiler.bhc.emit_kernel_report),
+        Err(e) => {
+            output.error(&format!("BHC not available: {}", e));
+            output.info("Install BHC with: hx toolchain install --bhc latest");
+            return Ok(4);
+        }
+    };
+
+    let build_config = &project.manifest.build;
+    let out_dir = project.root.join(".hx/bhc-native-test");
+    let exe = out_dir.join(format!("{}-test", project.name()));
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    // Import paths: the project's source dirs (so the test can import the
+    // library) plus the test directory itself.
+    let mut import_paths: Vec<String> = build_config.src_dirs.clone();
+    if !test_dir.is_empty() && !import_paths.contains(&test_dir) {
+        import_paths.push(test_dir);
+    }
+
+    let mut args = bhc.bhc_flags();
+    args.push("-O".to_string());
+    args.push(build_config.optimization.to_string());
+    args.push("--odir".to_string());
+    args.push(out_dir.to_string_lossy().to_string());
+    if build_config.warnings {
+        args.push("--Wall".to_string());
+    }
+    if build_config.werror {
+        args.push("--Werror".to_string());
+    }
+    for dir in &import_paths {
+        args.push("--import-path".to_string());
+        args.push(dir.clone());
+    }
+    if let Some(ref t) = target {
+        args.push("--target".to_string());
+        args.push(t.clone());
+    }
+    args.extend(build_config.ghc_flags.iter().cloned());
+    args.push(entry); // the test source file
+    args.push("-o".to_string());
+    args.push(exe.to_string_lossy().to_string());
+
+    let build = std::process::Command::new(&bhc.bhc_path)
+        .args(&args)
+        .current_dir(&project.root)
+        .output()?;
+    if !build.status.success() {
+        let stderr = String::from_utf8_lossy(&build.stderr);
+        if !stderr.is_empty() {
+            eprintln!("{}", stderr);
+        }
+        output.error("BHC native test build failed");
+        return Ok(5);
+    }
+
+    // Run the test executable; its exit status is the test result.
+    let start = std::time::Instant::now();
+    let status = std::process::Command::new(&exe)
+        .current_dir(&project.root)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run test executable {}: {e}", exe.display()))?;
+    let duration = start.elapsed();
+
+    if status.success() {
+        output.status(
+            "Finished",
+            &format!("BHC native tests in {}", format_build_duration(duration)),
+        );
+        Ok(0)
+    } else {
+        output.error("BHC native tests failed");
+        Ok(status.code().unwrap_or(5))
+    }
+}
+
 /// Run tests using the BHC backend.
 async fn run_bhc_test(
     project: &Project,
@@ -1365,5 +1493,35 @@ mod tests {
         // clear missing-file error rather than treating "Main" as a file.
         let got = resolve_main_source("Main", &[PathBuf::from("src")], root.path());
         assert_eq!(got, "Main.hs");
+    }
+
+    #[test]
+    fn find_test_entry_prefers_test_main() {
+        use super::find_test_entry;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("test")).unwrap();
+        std::fs::write(root.path().join("test/Spec.hs"), "module Main where\n").unwrap();
+        std::fs::write(root.path().join("test/Main.hs"), "module Main where\n").unwrap();
+        // test/Main.hs is listed before test/Spec.hs.
+        assert_eq!(find_test_entry(root.path()).as_deref(), Some("test/Main.hs"));
+    }
+
+    #[test]
+    fn find_test_entry_finds_tests_spec() {
+        use super::find_test_entry;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("tests")).unwrap();
+        std::fs::write(root.path().join("tests/Spec.hs"), "module Main where\n").unwrap();
+        assert_eq!(
+            find_test_entry(root.path()).as_deref(),
+            Some("tests/Spec.hs")
+        );
+    }
+
+    #[test]
+    fn find_test_entry_none_when_absent() {
+        use super::find_test_entry;
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(find_test_entry(root.path()), None);
     }
 }

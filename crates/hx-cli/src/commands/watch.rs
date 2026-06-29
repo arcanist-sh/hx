@@ -169,7 +169,7 @@ async fn run_action(
     output: &Output,
 ) -> Result<i32> {
     if test {
-        build::test(None, package, None, None, policy, output).await
+        build::test(None, package, None, false, None, policy, output).await
     } else {
         build::run(false, None, None, package, false, None, policy, output).await
     }
