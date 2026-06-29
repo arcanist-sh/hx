@@ -1081,7 +1081,7 @@ fn resolve_main_source(
 }
 
 /// Run a native BHC build (hx owns the build graph).
-async fn run_bhc_native_build(
+pub(crate) async fn run_bhc_native_build(
     project: &Project,
     release: bool,
     jobs: Option<usize>,

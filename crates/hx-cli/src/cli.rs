@@ -139,6 +139,10 @@ pub enum Commands {
         #[arg(long)]
         target: Option<String>,
 
+        /// Use native build (experimental)
+        #[arg(long)]
+        native: bool,
+
         /// Compiler backend to use (ghc or bhc)
         #[arg(long, value_parser = parse_compiler_backend)]
         backend: Option<hx_config::CompilerBackend>,
