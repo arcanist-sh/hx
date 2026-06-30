@@ -251,24 +251,30 @@ fn tool_definitions() -> Value {
     fn schema(props: Value, required: &[&str]) -> Value {
         json!({ "type": "object", "properties": props, "required": required })
     }
-    let cwd = json!({ "type": "string", "description": "Project directory to run in (default: current directory)" });
+    let cwd = || json!({ "type": "string", "description": "Project directory to run in (default: current directory)" });
 
-    json!([
-        { "name": "hx_doctor", "description": "Diagnose the Haskell toolchain and project setup. Reports missing tools and how to fix them.", "inputSchema": schema(json!({ "cwd": cwd }), &[]) },
-        { "name": "hx_build", "description": "Build the current Haskell project.", "inputSchema": schema(json!({ "release": {"type":"boolean","description":"Optimized release build"}, "native": {"type":"boolean","description":"Native GHC build (no cabal); simple projects only"}, "jobs": {"type":"integer","description":"Parallel jobs"}, "cwd": cwd }), &[]) },
-        { "name": "hx_check", "description": "Fast type-check without producing a binary.", "inputSchema": schema(json!({ "cwd": cwd }), &[]) },
-        { "name": "hx_test", "description": "Run the project's test suite.", "inputSchema": schema(json!({ "pattern": {"type":"string","description":"Only run tests matching this pattern"}, "cwd": cwd }), &[]) },
-        { "name": "hx_run", "description": "Build and run the project's executable.", "inputSchema": schema(json!({ "args": {"type":"array","items":{"type":"string"},"description":"Arguments passed to the program"}, "cwd": cwd }), &[]) },
-        { "name": "hx_lock", "description": "Generate or update hx.lock for reproducible builds.", "inputSchema": schema(json!({ "update": {"type":"boolean","description":"Update all dependencies"}, "cwd": cwd }), &[]) },
-        { "name": "hx_sync", "description": "Build using the locked dependency set.", "inputSchema": schema(json!({ "force": {"type":"boolean"}, "cwd": cwd }), &[]) },
-        { "name": "hx_fmt", "description": "Format Haskell source (fourmolu). Set check=true to verify without modifying.", "inputSchema": schema(json!({ "check": {"type":"boolean"}, "cwd": cwd }), &[]) },
-        { "name": "hx_lint", "description": "Run hlint. Set fix=true to apply automatic suggestions.", "inputSchema": schema(json!({ "fix": {"type":"boolean"}, "cwd": cwd }), &[]) },
-        { "name": "hx_add", "description": "Add a dependency to the project.", "inputSchema": schema(json!({ "package": {"type":"string"}, "constraint": {"type":"string","description":"Version constraint, e.g. \">=2.0\""}, "dev": {"type":"boolean","description":"Add as a dev dependency"}, "cwd": cwd }), &["package"]) },
-        { "name": "hx_remove", "description": "Remove a dependency from the project.", "inputSchema": schema(json!({ "package": {"type":"string"}, "cwd": cwd }), &["package"]) },
-        { "name": "hx_info", "description": "Show package details from Hackage.", "inputSchema": schema(json!({ "package": {"type":"string"}, "versions": {"type":"boolean","description":"Include all available versions"}, "cwd": cwd }), &["package"]) },
-        { "name": "hx_tree", "description": "Show the dependency tree.", "inputSchema": schema(json!({ "depth": {"type":"integer"}, "cwd": cwd }), &[]) },
-        { "name": "hx_outdated", "description": "List outdated dependencies.", "inputSchema": schema(json!({ "direct": {"type":"boolean","description":"Only direct dependencies"}, "cwd": cwd }), &[]) }
-    ])
+    // Built tool-by-tool into a Vec rather than as one giant `json!([...])`
+    // literal: a single huge json! expression materializes all of its nested
+    // temporaries on the stack at once, which overflows the smaller default
+    // thread stack on Windows (debug builds especially — the server exits with
+    // STATUS_STACK_OVERFLOW, 0xC00000FD). Per-tool statements keep peak stack
+    // usage to one small schema at a time.
+    let mut tools = Vec::with_capacity(14);
+    tools.push(json!({ "name": "hx_doctor", "description": "Diagnose the Haskell toolchain and project setup. Reports missing tools and how to fix them.", "inputSchema": schema(json!({ "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_build", "description": "Build the current Haskell project.", "inputSchema": schema(json!({ "release": {"type":"boolean","description":"Optimized release build"}, "native": {"type":"boolean","description":"Native GHC build (no cabal); simple projects only"}, "jobs": {"type":"integer","description":"Parallel jobs"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_check", "description": "Fast type-check without producing a binary.", "inputSchema": schema(json!({ "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_test", "description": "Run the project's test suite.", "inputSchema": schema(json!({ "pattern": {"type":"string","description":"Only run tests matching this pattern"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_run", "description": "Build and run the project's executable.", "inputSchema": schema(json!({ "args": {"type":"array","items":{"type":"string"},"description":"Arguments passed to the program"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_lock", "description": "Generate or update hx.lock for reproducible builds.", "inputSchema": schema(json!({ "update": {"type":"boolean","description":"Update all dependencies"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_sync", "description": "Build using the locked dependency set.", "inputSchema": schema(json!({ "force": {"type":"boolean"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_fmt", "description": "Format Haskell source (fourmolu). Set check=true to verify without modifying.", "inputSchema": schema(json!({ "check": {"type":"boolean"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_lint", "description": "Run hlint. Set fix=true to apply automatic suggestions.", "inputSchema": schema(json!({ "fix": {"type":"boolean"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_add", "description": "Add a dependency to the project.", "inputSchema": schema(json!({ "package": {"type":"string"}, "constraint": {"type":"string","description":"Version constraint, e.g. \">=2.0\""}, "dev": {"type":"boolean","description":"Add as a dev dependency"}, "cwd": cwd() }), &["package"]) }));
+    tools.push(json!({ "name": "hx_remove", "description": "Remove a dependency from the project.", "inputSchema": schema(json!({ "package": {"type":"string"}, "cwd": cwd() }), &["package"]) }));
+    tools.push(json!({ "name": "hx_info", "description": "Show package details from Hackage.", "inputSchema": schema(json!({ "package": {"type":"string"}, "versions": {"type":"boolean","description":"Include all available versions"}, "cwd": cwd() }), &["package"]) }));
+    tools.push(json!({ "name": "hx_tree", "description": "Show the dependency tree.", "inputSchema": schema(json!({ "depth": {"type":"integer"}, "cwd": cwd() }), &[]) }));
+    tools.push(json!({ "name": "hx_outdated", "description": "List outdated dependencies.", "inputSchema": schema(json!({ "direct": {"type":"boolean","description":"Only direct dependencies"}, "cwd": cwd() }), &[]) }));
+    Value::Array(tools)
 }
 
 #[cfg(test)]
