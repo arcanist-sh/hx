@@ -198,12 +198,12 @@ The test entry is the first of these that exists:
 test/Main.hs   test/Spec.hs   tests/Main.hs   tests/Spec.hs
 ```
 
-> **BHC caveat:** at present BHC's runtime does not implement program exit codes
-> faithfully — `error` terminates with status 0, and `System.Exit.exitSuccess` /
-> `exitFailure` are stubs that abort. Until that is addressed in BHC, a BHC test
-> binary cannot reliably signal pass/fail through the usual mechanisms, so this
-> command's pass/fail result is only as trustworthy as the test binary's exit
-> code. The hx side (build → run → propagate exit status) is correct.
+> **Note:** BHC implements program exit codes faithfully — `error` and uncaught
+> exceptions exit non-zero (printing the message to stderr), and
+> `System.Exit.exitSuccess` / `exitFailure` / `exitWith` produce the expected
+> status. A BHC test binary therefore signals pass/fail reliably through its
+> exit code, and the hx side (build → run → propagate exit status) is correct
+> end to end.
 
 ### Where things live
 
