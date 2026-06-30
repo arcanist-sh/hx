@@ -571,9 +571,11 @@ fn parse_ghc_options(value: &str) -> Vec<String> {
 /// use [`parse_cabal_ctx`] with the project's actual GHC version so that
 /// `if impl(ghc …)` branches are evaluated correctly.
 pub fn parse_cabal(content: &str) -> CabalFile {
-    let ctx = CabalContext::host("9.99.0".parse().unwrap_or_else(|_| {
-        crate::version::Version::new(vec![9, 99])
-    }));
+    let ctx = CabalContext::host(
+        "9.99.0"
+            .parse()
+            .unwrap_or_else(|_| crate::version::Version::new(vec![9, 99])),
+    );
     parse_cabal_ctx(content, &ctx)
 }
 
@@ -932,7 +934,10 @@ fn parse_single_dependency(s: &str) -> Option<Dependency> {
     // Cabal permits parenthesised constraints, e.g. `base (>= 4.9 && < 5)`.
     // Parentheses are only grouping; with our `||`-then-`&&` precedence the
     // common forms parse correctly once the parens are removed.
-    let constraint_str: String = s[name_end..].chars().filter(|c| !matches!(c, '(' | ')')).collect();
+    let constraint_str: String = s[name_end..]
+        .chars()
+        .filter(|c| !matches!(c, '(' | ')'))
+        .collect();
     let constraint_str = constraint_str.trim();
     let constraint = if constraint_str.is_empty() {
         VersionConstraint::Any
@@ -1161,7 +1166,11 @@ library
         // Exactly two deps — the comma inside `{0.6, 0.7}` must NOT split.
         assert_eq!(cabal.library_deps.len(), 2);
 
-        let base = cabal.library_deps.iter().find(|d| d.name == "base").unwrap();
+        let base = cabal
+            .library_deps
+            .iter()
+            .find(|d| d.name == "base")
+            .unwrap();
         assert_eq!(base.name, "base"); // not "base ("
         assert!(matches!(base.constraint, VersionConstraint::And(_, _)));
 

@@ -715,12 +715,11 @@ async fn run_full_native_build(
         .path()
         .cloned()
         .unwrap_or_else(|| PathBuf::from("ghc"));
-    let cache_dir =
-        default_package_cache_dir().unwrap_or_else(|| project.root.join(".hx").join("native-store"));
+    let cache_dir = default_package_cache_dir()
+        .unwrap_or_else(|| project.root.join(".hx").join("native-store"));
     // Memoised on disk: GHC/ghc-pkg introspection is ~150ms of subprocess time
     // and its result is fixed for a given GHC install.
-    let ghc_config =
-        GhcConfig::detect_with_path_cached(&ghc_path, &cache_dir, &ghc_version).await;
+    let ghc_config = GhcConfig::detect_with_path_cached(&ghc_path, &cache_dir, &ghc_version).await;
 
     let mut builder = FullNativeBuilder::new(ghc_config, cache_dir).await?;
     let opts = FullNativeBuildOptions {
@@ -751,7 +750,13 @@ async fn run_full_native_build(
         jobs: opts.jobs,
         verbose: output.is_verbose(),
         main_module: Some("Main".to_string()),
-        output_exe: Some(project.root.join(".hx").join("native-build").join(project.name())),
+        output_exe: Some(
+            project
+                .root
+                .join(".hx")
+                .join("native-build")
+                .join(project.name()),
+        ),
         output_lib: None,
         native_linking: true,
         target: None,
@@ -763,7 +768,14 @@ async fn run_full_native_build(
     );
 
     let result = builder
-        .build_project(&project.root, &build_plan, &fetched, &opts, &local_options, output)
+        .build_project(
+            &project.root,
+            &build_plan,
+            &fetched,
+            &opts,
+            &local_options,
+            output,
+        )
         .await?;
 
     let project_ok = result
@@ -775,7 +787,10 @@ async fn run_full_native_build(
     if result.success && project_ok {
         output.status(
             "Finished",
-            &format!("native build ({} dependencies built)", result.packages_built),
+            &format!(
+                "native build ({} dependencies built)",
+                result.packages_built
+            ),
         );
         Ok(Some(0))
     } else {
@@ -1473,7 +1488,8 @@ mod tests {
         std::fs::write(root.path().join("src/Main.hs"), "module Main where\n").unwrap();
 
         let got = resolve_main_source("Main", &[PathBuf::from("src")], root.path());
-        assert_eq!(got, "src/Main.hs");
+        // Normalize the OS path separator (`\` on Windows) before comparing.
+        assert_eq!(got.replace('\\', "/"), "src/Main.hs");
     }
 
     #[test]
@@ -1483,7 +1499,8 @@ mod tests {
         std::fs::write(root.path().join("lib/Foo/Bar.hs"), "module Foo.Bar where\n").unwrap();
 
         let got = resolve_main_source("Foo.Bar", &[PathBuf::from("lib")], root.path());
-        assert_eq!(got, "lib/Foo/Bar.hs");
+        // Normalize the OS path separator (`\` on Windows) before comparing.
+        assert_eq!(got.replace('\\', "/"), "lib/Foo/Bar.hs");
     }
 
     #[test]
@@ -1503,7 +1520,10 @@ mod tests {
         std::fs::write(root.path().join("test/Spec.hs"), "module Main where\n").unwrap();
         std::fs::write(root.path().join("test/Main.hs"), "module Main where\n").unwrap();
         // test/Main.hs is listed before test/Spec.hs.
-        assert_eq!(find_test_entry(root.path()).as_deref(), Some("test/Main.hs"));
+        assert_eq!(
+            find_test_entry(root.path()).as_deref(),
+            Some("test/Main.hs")
+        );
     }
 
     #[test]

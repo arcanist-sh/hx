@@ -121,10 +121,20 @@ async fn full_native_builds_one_real_dependency() {
 
     // The dependency must have been built and registered, and the local project
     // must have compiled against it.
-    assert!(result.success, "full native build failed: {:?}", result.errors);
-    assert!(result.packages_built >= 1, "split was not built from source");
     assert!(
-        result.registered_packages.iter().any(|p| p.contains("split")),
+        result.success,
+        "full native build failed: {:?}",
+        result.errors
+    );
+    assert!(
+        result.packages_built >= 1,
+        "split was not built from source"
+    );
+    assert!(
+        result
+            .registered_packages
+            .iter()
+            .any(|p| p.contains("split")),
         "split was not registered: {:?}",
         result.registered_packages
     );
@@ -136,6 +146,9 @@ async fn full_native_builds_one_real_dependency() {
         let out = std::process::Command::new(&exe).output().expect("run exe");
         let stdout = String::from_utf8_lossy(&out.stdout);
         eprintln!("exe output: {stdout:?}");
-        assert!(stdout.contains("a b c") && stdout.contains("2"), "unexpected output: {stdout:?}");
+        assert!(
+            stdout.contains("a b c") && stdout.contains("2"),
+            "unexpected output: {stdout:?}"
+        );
     }
 }

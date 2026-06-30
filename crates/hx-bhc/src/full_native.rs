@@ -486,10 +486,7 @@ mod tests {
 
         // Seed the artifact cache so build_dependency takes the cache-hit path.
         // The key inputs must match what build_dependency computes.
-        let cache_flags = vec![
-            "-O0".to_string(),
-            format!("--profile={}", profile.as_str()),
-        ];
+        let cache_flags = vec!["-O0".to_string(), format!("--profile={}", profile.as_str())];
         store_artifacts(
             &cache_dir,
             "mypkg-1.0.0",

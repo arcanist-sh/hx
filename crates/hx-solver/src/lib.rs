@@ -46,11 +46,11 @@ pub use cabal::{
     BuildType, CabalFile, CustomSetupConfig, ExecutableConfig, LibraryConfig, PackageBuildInfo,
     parse_cabal, parse_cabal_ctx, parse_cabal_full,
 };
-pub use condition::{CabalContext, Condition, parse_condition};
 pub use cache::{
     CacheError, clear_index_cache, clear_resolution_cache, compute_deps_fingerprint,
     load_cached_index, load_cached_resolution, save_index_cache, save_resolution_cache,
 };
+pub use condition::{CabalContext, Condition, parse_condition};
 pub use extract::{
     ExtractError, ExtractOptions, ExtractedPackage, clear_sources, extract_all_packages,
     extract_package, is_extracted, sources_dir,

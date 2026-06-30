@@ -269,8 +269,8 @@ async fn run_bhc_native_run(
     output: &Output,
 ) -> Result<i32> {
     // Build the native executable (deps + project) via the build command.
-    let code = crate::commands::build::run_bhc_native_build(project, false, None, target, output)
-        .await?;
+    let code =
+        crate::commands::build::run_bhc_native_build(project, false, None, target, output).await?;
     if code != 0 {
         return Ok(code);
     }

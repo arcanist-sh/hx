@@ -475,8 +475,8 @@ mod tests {
         let dest = cache_dir.join("restore").join("nested");
         assert!(!dest.exists());
 
-        let got = retrieve_artifacts(cache_dir, "srchash", "2026.2.0", &flags, &deps, &dest)
-            .unwrap();
+        let got =
+            retrieve_artifacts(cache_dir, "srchash", "2026.2.0", &flags, &deps, &dest).unwrap();
 
         let files = got.expect("expected a cache hit");
         assert_eq!(files.len(), 1);

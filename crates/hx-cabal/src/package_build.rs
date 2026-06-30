@@ -320,22 +320,25 @@ pub async fn build_package(
     let declared = collect_modules(lib_config);
     let declared_set: std::collections::HashSet<&str> =
         declared.iter().map(|s| s.as_str()).collect();
-    let modules = match hx_solver::build_module_graph(&graph_dirs)
-        .and_then(|g| g.topological_order())
-    {
-        Ok(order) if !order.is_empty() => {
-            if declared_set.is_empty() {
-                order
-            } else {
-                let filtered: Vec<String> = order
-                    .into_iter()
-                    .filter(|m| declared_set.contains(m.as_str()))
-                    .collect();
-                if filtered.is_empty() { declared } else { filtered }
+    let modules =
+        match hx_solver::build_module_graph(&graph_dirs).and_then(|g| g.topological_order()) {
+            Ok(order) if !order.is_empty() => {
+                if declared_set.is_empty() {
+                    order
+                } else {
+                    let filtered: Vec<String> = order
+                        .into_iter()
+                        .filter(|m| declared_set.contains(m.as_str()))
+                        .collect();
+                    if filtered.is_empty() {
+                        declared
+                    } else {
+                        filtered
+                    }
+                }
             }
-        }
-        _ => declared,
-    };
+            _ => declared,
+        };
     let module_count = modules.len();
 
     if config.verbose {
@@ -512,7 +515,9 @@ fn generate_cabal_macros(
     }
 
     out.push_str("#ifndef CURRENT_PACKAGE_VERSION\n");
-    out.push_str(&format!("#define CURRENT_PACKAGE_VERSION \"{own_version}\"\n"));
+    out.push_str(&format!(
+        "#define CURRENT_PACKAGE_VERSION \"{own_version}\"\n"
+    ));
     out.push_str("#endif /* CURRENT_PACKAGE_VERSION */\n");
     let _ = own_name;
     out
@@ -528,9 +533,7 @@ fn sanitize_macro_name(name: &str) -> String {
 /// First three numeric components of a version (`4.19.1.0` → `(4, 19, 1)`),
 /// padding missing components with 0 and ignoring non-numeric junk.
 fn version_triple(version: &str) -> (u64, u64, u64) {
-    let mut it = version
-        .split('.')
-        .map(|c| c.parse::<u64>().unwrap_or(0));
+    let mut it = version.split('.').map(|c| c.parse::<u64>().unwrap_or(0));
     (
         it.next().unwrap_or(0),
         it.next().unwrap_or(0),

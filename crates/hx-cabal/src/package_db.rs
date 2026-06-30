@@ -190,8 +190,8 @@ impl PackageDb {
             // in `load_registered` reports the bare name-version, not the full
             // unit-id, so the early-return guard above cannot catch this.
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let already_registered = stderr.contains("already exist")
-                || stderr.contains("already installed");
+            let already_registered =
+                stderr.contains("already exist") || stderr.contains("already installed");
             if !already_registered {
                 return Err(Error::CommandFailed {
                     command: "ghc-pkg register".to_string(),

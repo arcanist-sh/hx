@@ -101,7 +101,11 @@ mod tests {
         assert!(args.contains(&"--profile=numeric".to_string()));
         // The old GHC-style single-dash spellings must be gone.
         assert!(!args.iter().any(|a| a.starts_with("-package-db=")));
-        assert!(!args.iter().any(|a| a.starts_with("-i") && a != "--import-path"));
+        assert!(
+            !args
+                .iter()
+                .any(|a| a.starts_with("-i") && a != "--import-path")
+        );
     }
 
     #[test]

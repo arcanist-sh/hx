@@ -262,7 +262,8 @@ impl FullNativeBuilder {
         if self
             .package_db
             .has_package(&unit.name, &unit.version.to_string())
-            && let Some(unit_id) = self.find_installed_unit_id(&unit.name, &unit.version.to_string())
+            && let Some(unit_id) =
+                self.find_installed_unit_id(&unit.name, &unit.version.to_string())
         {
             debug!("Reusing already-built dependency: {}", unit_id);
             result.packages_skipped += 1;
