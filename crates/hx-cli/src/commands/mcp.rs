@@ -21,7 +21,14 @@ pub async fn run() -> Result<i32> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let stdout = std::io::stdout();
 
-    while let Some(line) = lines.next_line().await? {
+    loop {
+        // A clean EOF gives `Ok(None)`; a closed stdin pipe can also surface as
+        // a read error (e.g. broken pipe on Windows). Both mean "no more input",
+        // so end the server loop and exit 0 rather than propagating an error.
+        let line = match lines.next_line().await {
+            Ok(Some(line)) => line,
+            Ok(None) | Err(_) => break,
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
