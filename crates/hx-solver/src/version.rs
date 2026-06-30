@@ -237,7 +237,9 @@ fn parse_single_constraint(s: &str) -> Result<VersionConstraint, ConstraintParse
         let rest = rest.trim();
 
         // Cabal wildcard (== only): `== A.B.*` => `>= A.B && < A.(B+1)`.
-        if op == "==" && let Some(prefix) = rest.strip_suffix(".*") {
+        if op == "=="
+            && let Some(prefix) = rest.strip_suffix(".*")
+        {
             let lower: Version = prefix.trim().parse()?;
             let upper = wildcard_upper_bound(&lower);
             return Ok(VersionConstraint::GreaterThanOrEqual(lower)

@@ -702,11 +702,7 @@ library
         let result = build_package(&extracted, &config, &Output::new())
             .await
             .expect("build_package should succeed");
-        assert!(
-            result.success,
-            "package build failed: {:?}",
-            result.errors
-        );
+        assert!(result.success, "package build failed: {:?}", result.errors);
 
         // The interface must be installed where the .conf's import-dirs points.
         let install_lib = config.install_dir.join(&result.package_id).join("lib");

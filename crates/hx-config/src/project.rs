@@ -430,7 +430,11 @@ name = "test"
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("stack.yaml"), "resolver: lts-22.0\n").unwrap();
         let err = find_project_root(dir.path()).unwrap_err();
-        assert!(fix_commands(&err).iter().any(|c| c == "hx import --from stack"));
+        assert!(
+            fix_commands(&err)
+                .iter()
+                .any(|c| c == "hx import --from stack")
+        );
     }
 
     #[test]

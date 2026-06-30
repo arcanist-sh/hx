@@ -377,12 +377,19 @@ mod tests {
     #[test]
     fn test_unknown_flag_defaults_true() {
         // No flag info -> keep the branch (never drop a needed dependency).
-        assert!(parse_condition("flag(whatever)").unwrap().eval(&ctx(), &no_flags));
+        assert!(
+            parse_condition("flag(whatever)")
+                .unwrap()
+                .eval(&ctx(), &no_flags)
+        );
     }
 
     #[test]
     fn test_malformed_returns_none() {
-        assert!(parse_condition("os(").is_none() || true); // unbalanced tolerated as empty arg
+        // An unbalanced paren is tolerated as an empty argument rather than
+        // rejected, so it parses to `Some`. (Asserted explicitly; the previous
+        // `is_none() || true` was a no-op that always passed.)
+        assert!(parse_condition("os(").is_some());
         assert!(parse_condition("&& foo").is_none());
         assert!(parse_condition("randomword").is_none());
     }

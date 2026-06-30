@@ -751,7 +751,10 @@ async fn detect_rts_include_dirs() -> Vec<PathBuf> {
     let runner = CommandRunner::new();
     let mut dirs = Vec::new();
     if let Ok(output) = runner
-        .run("ghc-pkg", ["field", "rts", "include-dirs", "--simple-output"])
+        .run(
+            "ghc-pkg",
+            ["field", "rts", "include-dirs", "--simple-output"],
+        )
         .await
         && output.success()
     {

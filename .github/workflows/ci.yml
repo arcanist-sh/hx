@@ -51,7 +51,9 @@ jobs:
         run: cargo build --workspace
 
       - name: Run tests
-        run: cargo test --workspace
+        # --no-fail-fast so every test binary runs and all failures surface in a
+        # single CI run (cargo is otherwise fail-fast between test binaries).
+        run: cargo test --workspace --no-fail-fast
 
   build-release:
     name: Build Release

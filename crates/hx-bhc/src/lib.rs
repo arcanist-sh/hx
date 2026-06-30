@@ -156,11 +156,7 @@ impl BhcBackend {
         args.push(opt_level.to_string());
 
         // Cross-compilation target.
-        if let Some(target) = options
-            .target
-            .as_ref()
-            .or(self.config.target.as_ref())
-        {
+        if let Some(target) = options.target.as_ref().or(self.config.target.as_ref()) {
             args.push("--target".to_string());
             args.push(target.clone());
         }
@@ -633,19 +629,28 @@ mod tests {
         assert!(args.contains(&"--kernel-report".to_string()));
         assert!(!args.iter().any(|a| a == "--tensor-fusion"));
         assert!(!args.iter().any(|a| a == "--emit-kernel-report"));
-        assert!(args.windows(2).any(|w| w == ["--target", "aarch64-linux-gnu"]));
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--target", "aarch64-linux-gnu"])
+        );
     }
 
     #[test]
     fn test_output_indicates_failure() {
         // BHC 0.2.3 exits 0 while printing these; we must catch them.
-        assert!(output_indicates_failure("error: type checking failed: 2 errors"));
-        assert!(output_indicates_failure("  Compute FAILED: lowering failed: 1 error"));
+        assert!(output_indicates_failure(
+            "error: type checking failed: 2 errors"
+        ));
+        assert!(output_indicates_failure(
+            "  Compute FAILED: lowering failed: 1 error"
+        ));
         assert!(output_indicates_failure(
             "ld: library 'bhc_rts' not found\nlinking failed"
         ));
         // Clean output is not a failure.
-        assert!(!output_indicates_failure("Compiled 3 modules\nLinked ./app"));
+        assert!(!output_indicates_failure(
+            "Compiled 3 modules\nLinked ./app"
+        ));
         assert!(!output_indicates_failure(""));
     }
 
