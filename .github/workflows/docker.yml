@@ -36,6 +36,28 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      # The Docker workflow and the Release workflow both trigger on the tag
+      # push and run in parallel, but the image is built from the release
+      # tarballs. Wait for the Release workflow to publish them before building,
+      # otherwise the Dockerfile's download 404s.
+      - name: Wait for release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          asset="hx-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "Waiting for release asset ${asset} on ${GITHUB_REF_NAME}..."
+          for i in $(seq 1 60); do
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" \
+                 --json assets --jq '.assets[].name' 2>/dev/null | grep -qxF "${asset}"; then
+              echo "Release assets are ready."
+              exit 0
+            fi
+            echo "  not ready yet (attempt ${i}/60); sleeping 30s"
+            sleep 30
+          done
+          echo "::error::Release assets for ${GITHUB_REF_NAME} did not appear within 30 minutes"
+          exit 1
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
