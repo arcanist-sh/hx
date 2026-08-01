@@ -7,58 +7,40 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    # nixpkgs 26.11 dropped x86_64-darwin support, which broke evaluation of
-    # this flake (`nix flake show --all-systems`, as run by flakehub-push).
-    # Enumerate the supported systems explicitly and omit x86_64-darwin. The
-    # prebuilt x86_64-darwin binary is still published as a release artifact;
-    # only the Nix package drops that platform.
+    # nixpkgs 26.11 dropped x86_64-darwin support, so it is intentionally
+    # omitted from the supported systems.
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        version = "0.9.1";
 
-        # Binary releases for each platform
-        sources = {
-          x86_64-linux = {
-            url = "https://github.com/arcanist-sh/hx/releases/download/v${version}/hx-v${version}-x86_64-unknown-linux-gnu.tar.gz";
-            sha256 = "f005e671266933f7655aca92ed7125534a9fe537cd640eba87ca119adb3bc288";
-          };
-          aarch64-linux = {
-            url = "https://github.com/arcanist-sh/hx/releases/download/v${version}/hx-v${version}-aarch64-unknown-linux-gnu.tar.gz";
-            sha256 = "24efcd2c4e7596c70a8759eeb7a116e13d8834e4e4b9929b84fd704f62b73e11";
-          };
-          aarch64-darwin = {
-            url = "https://github.com/arcanist-sh/hx/releases/download/v${version}/hx-v${version}-aarch64-apple-darwin.tar.gz";
-            sha256 = "a73e90d7477fa8162bbc5e1c293b272407c624f3aedb4ec78989dd2a70dbca33";
-          };
-        };
-
-        src = sources.${system} or (throw "Unsupported system: ${system}");
+        # Build hx from source rather than fetching prebuilt release tarballs.
+        # The version is read from Cargo.toml and dependencies are vendored from
+        # the committed Cargo.lock, so the flake never needs a per-release
+        # version/hash bump — it always matches the checked-out revision.
+        version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
       in
       {
-        packages.default = pkgs.stdenv.mkDerivation {
+        packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "hx";
           inherit version;
 
-          src = pkgs.fetchurl {
-            inherit (src) url sha256;
-          };
+          src = self;
 
-          sourceRoot = ".";
+          # Every dependency is a crates.io registry crate, so the lockfile
+          # alone pins them deterministically — no manual output hashes.
+          cargoLock.lockFile = ./Cargo.lock;
 
-          nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.autoPatchelfHook
-          ];
+          # Some transitive crates probe for system libraries via pkg-config;
+          # ring (0.17) and zstd-sys compile their bundled C with the stdenv cc.
+          nativeBuildInputs = [ pkgs.pkg-config ];
 
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.stdenv.cc.cc.lib
-          ];
+          # libiconv is needed when linking on Darwin; harmless elsewhere.
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
 
-          installPhase = ''
-            runHook preInstall
-            install -Dm755 hx $out/bin/hx
-            runHook postInstall
-          '';
+          # The workspace's tests shell out to cabal/ghc and touch the network,
+          # neither of which exists in the Nix sandbox. CI runs the full suite;
+          # the Nix build just produces the binary.
+          doCheck = false;
 
           meta = with pkgs.lib; {
             description = "Fast, opinionated Haskell toolchain CLI";
@@ -70,6 +52,11 @@
         };
 
         packages.hx = self.packages.${system}.default;
+
+        apps.default = flake-utils.lib.mkApp {
+          drv = self.packages.${system}.default;
+          name = "hx";
+        };
       }
     );
 }
