@@ -10,7 +10,7 @@ pub mod error;
 pub mod fsutil;
 pub mod version;
 
-pub use command::{CommandOutput, CommandRunner};
+pub use command::{CommandOutput, CommandRunner, OutputStream};
 pub use diagnostic::{
     DiagnosticReport, DiagnosticSeverity, GhcDiagnostic, QuickFix, SourceSpan, TextEdit,
 };
