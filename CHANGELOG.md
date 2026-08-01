@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Live build progress for `hx build`, `hx run`, and `hx test`.** Cabal's output
+  is now streamed as it is produced instead of being buffered until the build
+  finishes (which left only a spinner for the whole compile). In the default
+  compact mode the spinner now reflects live progress (`Compiling Data.Foo
+  (3/10)`, `Linking …`), parsed from GHC/cabal output; with `--verbose` the
+  underlying tool output streams line-by-line rather than being dumped at the
+  end. `hx run` inherits the terminal's stdio, so build progress and the
+  program's own output stream live and interactive programs can read from stdin.
+  ([#6](https://github.com/arcanist-sh/hx/issues/6))
+  - New `CommandRunner::run_streaming` (captures full output while invoking a
+    per-line callback as lines arrive) and `CommandRunner::run_inherited`
+    (stdio passthrough) in `hx-core`.
+
 ## [0.9.0] - 2026-06-29
 
 ### Added

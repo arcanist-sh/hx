@@ -94,7 +94,24 @@ pub async fn build(
     for bin_dir in &options.toolchain_bin_dirs {
         runner = runner.with_ghc_bin(bin_dir);
     }
-    let cmd_output = runner.run("cabal", args.iter().map(|s| s.as_str())).await?;
+
+    // Stream cabal's output live rather than buffering it until the build
+    // finishes. In compact mode, reflect progress in the spinner message; in
+    // verbose mode, pass the underlying tool output straight through.
+    let cmd_output = runner
+        .run_streaming(
+            "cabal",
+            args.iter().map(|s| s.as_str()),
+            |_stream, line| match &spinner {
+                Some(spinner) => {
+                    if let Some(msg) = build_progress_message(line) {
+                        spinner.set_message(msg);
+                    }
+                }
+                None => output.verbose(line),
+            },
+        )
+        .await?;
 
     let result = parse_build_output(&cmd_output);
 
@@ -106,17 +123,11 @@ pub async fn build(
         }
     }
 
-    if options.verbose || !result.success {
-        if !cmd_output.stdout.is_empty() {
-            output.verbose(&cmd_output.stdout);
-        }
-        if !cmd_output.stderr.is_empty() {
-            if result.success {
-                output.verbose(&cmd_output.stderr);
-            } else {
-                eprintln!("{}", cmd_output.stderr);
-            }
-        }
+    // On failure in compact mode we only streamed progress, not the raw
+    // compiler diagnostics, so surface them now. In verbose mode everything
+    // already streamed live above.
+    if !result.success && !options.verbose && !cmd_output.stderr.is_empty() {
+        eprintln!("{}", cmd_output.stderr);
     }
 
     if !result.success {
@@ -196,7 +207,16 @@ pub async fn test(
     for bin_dir in toolchain_bin_dirs {
         runner = runner.with_ghc_bin(bin_dir);
     }
-    let cmd_output = runner.run("cabal", args.iter().map(|s| s.as_str())).await?;
+
+    // Show live compile progress in the spinner while the suite builds; the
+    // test results themselves are printed once below.
+    let cmd_output = runner
+        .run_streaming("cabal", args.iter().map(|s| s.as_str()), |_stream, line| {
+            if let Some(msg) = build_progress_message(line) {
+                spinner.set_message(msg);
+            }
+        })
+        .await?;
 
     let result = parse_build_output(&cmd_output);
 
@@ -264,19 +284,14 @@ pub async fn run(
     for bin_dir in toolchain_bin_dirs {
         runner = runner.with_ghc_bin(bin_dir);
     }
-    let cmd_output = runner
-        .run("cabal", cmd_args.iter().map(|s| s.as_str()))
+
+    // Inherit stdio so build progress and the program's own output stream live
+    // to the terminal, and an interactive program can read from stdin.
+    let exit_code = runner
+        .run_inherited("cabal", cmd_args.iter().map(|s| s.as_str()))
         .await?;
 
-    // Print output directly for run
-    if !cmd_output.stdout.is_empty() {
-        print!("{}", cmd_output.stdout);
-    }
-    if !cmd_output.stderr.is_empty() {
-        eprint!("{}", cmd_output.stderr);
-    }
-
-    Ok(cmd_output.exit_code)
+    Ok(exit_code)
 }
 
 /// Run cabal repl.
@@ -348,5 +363,111 @@ fn format_duration(duration: Duration) -> String {
         format!("{:.1}s", secs)
     } else {
         format!("{:.1}m", secs / 60.0)
+    }
+}
+
+/// Extract a compact, human-friendly progress message from a line of
+/// cabal/GHC build output, or `None` if the line isn't a progress marker.
+///
+/// Recognizes GHC's per-module compile lines (`[ 3 of 10] Compiling Data.Foo
+/// ( ... )`) and cabal's phase announcements (`Building`, `Linking`, …). Noise
+/// such as blank lines, warnings, and diagnostics returns `None` so it never
+/// clobbers the spinner.
+fn build_progress_message(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // GHC compile progress, e.g. "[ 3 of 10] Compiling Data.Foo ( src/... )".
+    if let Some(rest) = trimmed.strip_prefix('[')
+        && let Some((counter, after)) = rest.split_once(']')
+    {
+        let parts: Vec<&str> = counter.split_whitespace().collect();
+        if parts.len() == 3 && parts[1] == "of" {
+            let (cur, total) = (parts[0], parts[2]);
+            // "Compiling Data.Foo ( ... )" -> "Compiling Data.Foo"
+            let action = after
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let action = if action.is_empty() {
+                "Compiling".to_string()
+            } else {
+                action
+            };
+            return Some(format!("{} ({}/{})", action, cur, total));
+        }
+    }
+
+    // Cabal phase announcements worth surfacing.
+    const PHASES: [&str; 7] = [
+        "Building",
+        "Preprocessing",
+        "Linking",
+        "Configuring",
+        "Resolving dependencies",
+        "Downloading",
+        "Installing",
+    ];
+    for phase in PHASES {
+        if trimmed.starts_with(phase) {
+            // Trim trailing "..." / whitespace noise for a tidy message.
+            let msg = trimmed.trim_end_matches(['.', ' ']);
+            return Some(msg.to_string());
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_message_parses_ghc_compile_line() {
+        assert_eq!(
+            build_progress_message("[ 3 of 10] Compiling Data.Foo ( src/Data/Foo.hs, dist/Foo.o )"),
+            Some("Compiling Data.Foo (3/10)".to_string())
+        );
+    }
+
+    #[test]
+    fn progress_message_parses_compact_compile_line() {
+        assert_eq!(
+            build_progress_message("[1 of 1] Compiling Main"),
+            Some("Compiling Main (1/1)".to_string())
+        );
+    }
+
+    #[test]
+    fn progress_message_parses_cabal_phase_lines() {
+        assert_eq!(
+            build_progress_message("Resolving dependencies..."),
+            Some("Resolving dependencies".to_string())
+        );
+        assert_eq!(
+            build_progress_message("Linking dist/build/foo/foo ..."),
+            Some("Linking dist/build/foo/foo".to_string())
+        );
+        assert_eq!(
+            build_progress_message("Building library for pkg-0.1.0.."),
+            Some("Building library for pkg-0.1.0".to_string())
+        );
+    }
+
+    #[test]
+    fn progress_message_ignores_noise_and_diagnostics() {
+        assert_eq!(build_progress_message(""), None);
+        assert_eq!(build_progress_message("   "), None);
+        assert_eq!(
+            build_progress_message("src/Foo.hs:10:5: warning: [-Wunused-imports]"),
+            None
+        );
+        assert_eq!(build_progress_message("some random text"), None);
+        // Bracketed but not a compile counter.
+        assert_eq!(build_progress_message("[Warning] deprecated"), None);
     }
 }
