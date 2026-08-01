@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-01
+
 ### Fixed
 - **Live build progress for `hx build`, `hx run`, and `hx test`.** Cabal's output
   is now streamed as it is produced instead of being buffered until the build
@@ -20,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `CommandRunner::run_streaming` (captures full output while invoking a
     per-line callback as lines arrive) and `CommandRunner::run_inherited`
     (stdio passthrough) in `hx-core`.
+- **No more stack overflow on Windows.** The CLI now runs on a dedicated
+  16 MB-stack thread, and the MCP server builds its tool definitions one tool at
+  a time, fixing stack overflows observed on Windows. The MCP server also exits
+  cleanly on stdin EOF.
+
+### Documentation
+- BHC native exit codes are now documented as faithful, following the merge of
+  the BHC-side fix.
+
+### CI
+- Bump `actions/checkout` from v5 to v7; green Lint (fmt + clippy) and Windows
+  tests.
 
 ## [0.9.0] - 2026-06-29
 
