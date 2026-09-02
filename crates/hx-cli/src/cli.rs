@@ -1255,3 +1255,18 @@ pub enum DistCommands {
 fn parse_compiler_backend(s: &str) -> Result<hx_config::CompilerBackend, String> {
     s.parse()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// [`DEFAULT_NAME`] and the `#[command(name = ...)]` attribute hold the
+    /// same literal separately, because clap attributes cannot reference a
+    /// const. Nothing else would catch them drifting apart: [`command`]
+    /// overrides the attribute on every user-facing path, so a stale
+    /// attribute would only surface as a wrong fallback name.
+    #[test]
+    fn default_name_matches_command_attribute() {
+        assert_eq!(Cli::command().get_name(), DEFAULT_NAME);
+    }
+}
