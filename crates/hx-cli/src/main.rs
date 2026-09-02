@@ -6,7 +6,7 @@
 #![allow(clippy::collapsible_if)]
 
 use anyhow::Result;
-use clap::Parser;
+use clap::FromArgMatches;
 
 mod cli;
 mod commands;
@@ -43,7 +43,9 @@ fn run() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
-    let cli = Cli::parse();
+    // Not `Cli::parse()`: that uses the name baked in by the derive, so usage
+    // and error output would say `hx` regardless of how the binary was invoked.
+    let cli = Cli::from_arg_matches(&cli::command().get_matches()).unwrap_or_else(|err| err.exit());
 
     // Initialize telemetry based on verbosity
     hx_telemetry::init(cli.global.verbose);

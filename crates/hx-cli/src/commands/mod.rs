@@ -354,8 +354,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
         },
         None => {
             // No command - show help
-            use clap::CommandFactory;
-            Cli::command().print_help()?;
+            crate::cli::command().print_help()?;
             println!();
             Ok(0)
         }
