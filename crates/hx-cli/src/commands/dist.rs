@@ -501,7 +501,9 @@ pub fn generate_formula(
   end
 
   test do
-    system "{bin_interpolation}/hxs", "--version"
+    # The version banner is named from argv[0] as of #19, so a binary
+    # installed as hxs reports "hxs <version>", not "hx <version>".
+    assert_match "hxs #{{version}}", shell_output("{bin_interpolation}/hxs --version")
   end
 end
 "#,
