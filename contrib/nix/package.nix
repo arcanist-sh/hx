@@ -14,7 +14,7 @@ rustPlatform.buildRustPackage rec {
   version = "0.4.1";
 
   src = fetchFromGitHub {
-    owner = "raskell-io";
+    owner = "arcanist-sh";
     repo = "hx";
     rev = "v${version}";
     hash = "sha256-HM6mEweF62t4+IyoHBgrVRkRpZmG2ibonJrH+wG3koc=";
@@ -43,7 +43,7 @@ rustPlatform.buildRustPackage rec {
 
   meta = {
     description = "Fast, opinionated Haskell toolchain CLI";
-    homepage = "https://github.com/raskell-io/hx";
+    homepage = "https://github.com/arcanist-sh/hx";
     license = lib.licenses.mit;
     maintainers = with lib.maintainers; [ ];
     mainProgram = "hx";

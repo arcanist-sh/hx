@@ -1,7 +1,7 @@
 //! Integration tests for hx CLI.
 //!
 //! These tests are skipped on Windows due to stack overflow in the CLI binary.
-//! See: https://github.com/raskell-io/hx/issues/xxx (TODO: file issue)
+//! See: https://github.com/arcanist-sh/hx/issues/xxx (TODO: file issue)
 
 #![cfg(not(windows))]
 #![allow(deprecated)] // cargo_bin is deprecated but the replacement requires macros

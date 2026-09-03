@@ -2,7 +2,7 @@
 # hx installer script
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/raskell-io/hx/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/arcanist-sh/hx/main/install.sh | sh
 #
 # Options (via environment variables):
 #   HX_VERSION      - Specific version to install (default: latest)
@@ -17,7 +17,7 @@
 
 set -e
 
-REPO="raskell-io/hx"
+REPO="arcanist-sh/hx"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 
 # Colors (if terminal supports it)

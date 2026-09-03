@@ -6,8 +6,8 @@ Tracking all places where hx is or could be available.
 
 | Channel | Install Command | Link |
 |---------|-----------------|------|
-| GitHub Releases | `curl -fsSL https://hx.raskell.io/install.sh \| sh` | [releases](https://github.com/raskell-io/hx/releases) |
-| Homebrew | `brew install raskell-io/tap/hx` | [homebrew-tap](https://github.com/raskell-io/homebrew-tap) |
+| GitHub Releases | `curl -fsSL https://arcanist.sh/hx/install.sh \| sh` | [releases](https://github.com/raskell-io/hx/releases) |
+| Homebrew | `brew install arcanist-sh/tap/hx` | [homebrew-tap](https://github.com/arcanist-sh/homebrew-tap) |
 | Nix Flake | `nix run github:raskell-io/hx` | [flake.nix](../flake.nix) |
 | Scoop | `scoop bucket add raskell-io ...` | [scoop-bucket](https://github.com/raskell-io/scoop-bucket) |
 | aqua | `aqua g -i raskell-io/hx` | [aqua-registry](https://github.com/aquaproj/aqua-registry) |
@@ -38,7 +38,7 @@ Tracking all places where hx is or could be available.
 |------|---------|
 | [raskell-io/asdf-hx](https://github.com/raskell-io/asdf-hx) | asdf plugin |
 | [raskell-io/mise-hx](https://github.com/raskell-io/mise-hx) | mise plugin |
-| [raskell-io/homebrew-tap](https://github.com/raskell-io/homebrew-tap) | Homebrew formula |
+| [arcanist-sh/homebrew-tap](https://github.com/arcanist-sh/homebrew-tap) | Homebrew formula |
 | [raskell-io/scoop-bucket](https://github.com/raskell-io/scoop-bucket) | Scoop bucket |
 | [raskell-io/aur-hx-bin](https://github.com/raskell-io/aur-hx-bin) | AUR PKGBUILD |
 | [raskell-io/chocolatey-hx](https://github.com/raskell-io/chocolatey-hx) | Chocolatey package |
