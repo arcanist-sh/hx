@@ -37,8 +37,8 @@ pub use store::{
 /// Get the global cache directory.
 ///
 /// - Linux: `~/.cache/hx`
-/// - macOS: `~/Library/Caches/hx`
-/// - Windows: `%LOCALAPPDATA%\hx\cache`
+/// - macOS: `~/Library/Caches/io.raskell.hx`
+/// - Windows: `%LOCALAPPDATA%\raskell\hx\cache`
 pub fn global_cache_dir() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("io", "raskell", "hx")
         .ok_or_else(|| Error::config("could not determine home directory for cache"))?;
@@ -46,6 +46,9 @@ pub fn global_cache_dir() -> Result<PathBuf> {
 }
 
 /// Get the Cabal store directory within the global cache.
+///
+/// Always `<global cache>/cabal/store`, so it moves with the platform cache
+/// directory rather than living under `~/.hx`.
 pub fn cabal_store_dir() -> Result<PathBuf> {
     Ok(global_cache_dir()?.join("cabal").join("store"))
 }
@@ -53,8 +56,8 @@ pub fn cabal_store_dir() -> Result<PathBuf> {
 /// Get the global config directory.
 ///
 /// - Linux: `~/.config/hx`
-/// - macOS: `~/Library/Application Support/hx`
-/// - Windows: `%APPDATA%\hx\config`
+/// - macOS: `~/Library/Application Support/io.raskell.hx`
+/// - Windows: `%APPDATA%\raskell\hx\config`
 pub fn global_config_dir() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("io", "raskell", "hx")
         .ok_or_else(|| Error::config("could not determine home directory for config"))?;
@@ -64,8 +67,8 @@ pub fn global_config_dir() -> Result<PathBuf> {
 /// Get the global config file path.
 ///
 /// - Linux: `~/.config/hx/config.toml`
-/// - macOS: `~/Library/Application Support/hx/config.toml`
-/// - Windows: `%APPDATA%\hx\config\config.toml`
+/// - macOS: `~/Library/Application Support/io.raskell.hx/config.toml`
+/// - Windows: `%APPDATA%\raskell\hx\config\config.toml`
 pub fn global_config_file() -> Result<PathBuf> {
     Ok(global_config_dir()?.join("config.toml"))
 }

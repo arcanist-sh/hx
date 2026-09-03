@@ -390,7 +390,7 @@ post_test = ["./scripts/notify.scm"]
 
 ## Global Configuration
 
-hx supports global configuration at `~/.config/hx/config.toml` (Linux), `~/Library/Application Support/hx/config.toml` (macOS), or `%APPDATA%\hx\config\config.toml` (Windows).
+hx supports global configuration at `~/.config/hx/config.toml` (Linux), `~/Library/Application Support/io.raskell.hx/config.toml` (macOS), or `%APPDATA%\raskell\hx\config\config.toml` (Windows).
 
 Global settings provide defaults that can be overridden by project-local `hx.toml`:
 

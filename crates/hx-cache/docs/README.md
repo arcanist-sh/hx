@@ -27,7 +27,7 @@ Cache management, fingerprinting, and artifact storage for hx.
 └── manifest.json               # Toolchain manifest
 
 ~/.cache/hx/                    # Global cache (Linux)
-~/Library/Caches/hx/            # Global cache (macOS)
+~/Library/Caches/io.raskell.hx/  # Global cache (macOS)
 ├── store/
 │   ├── index.json              # Build cache index
 │   └── {fingerprint}/          # Cached builds

@@ -19,13 +19,13 @@ use directories::{BaseDirs, ProjectDirs, UserDirs};
 
 // Cache directory
 // Linux: ~/.cache/hx
-// macOS: ~/Library/Caches/hx
-// Windows: C:\Users\<user>\AppData\Local\hx\cache
+// macOS: ~/Library/Caches/io.raskell.hx
+// Windows: C:\Users\<user>\AppData\Local\raskell\hx\cache
 
 // Config directory
 // Linux: ~/.config/hx
-// macOS: ~/Library/Application Support/hx
-// Windows: C:\Users\<user>\AppData\Roaming\hx\config
+// macOS: ~/Library/Application Support/io.raskell.hx
+// Windows: C:\Users\<user>\AppData\Roaming\raskell\hx\config
 ```
 
 ### Path Separators
