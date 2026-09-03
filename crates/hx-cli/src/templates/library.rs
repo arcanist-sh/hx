@@ -98,7 +98,7 @@ test-suite {{project_name}}-test
 "#;
 
 const HX_TOML: &str = r#"# hx project configuration
-# See: https://github.com/raskell-io/hx
+# See: https://github.com/arcanist-sh/hx
 
 [project]
 name = "{{project_name}}"

@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use hx_ui::Output;
 
-const REPO_OWNER: &str = "raskell-io";
+const REPO_OWNER: &str = "arcanist-sh";
 const REPO_NAME: &str = "hx";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
