@@ -444,27 +444,27 @@ pub fn generate_formula(
 
     let formula = format!(
         r#"class Hx < Formula
-  desc "A fast, opinionated toolchain CLI for Haskell"
-  homepage "https://github.com/raskell-io/hx"
+  desc "Fast, opinionated Haskell toolchain CLI"
+  homepage "https://arcanist.sh/hx/"
   version "{version}"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/raskell-io/hx/releases/download/v{version}/hx-v{version}-aarch64-apple-darwin.tar.gz"
+      url "https://github.com/arcanist-sh/hx/releases/download/v{version}/hx-v{version}-aarch64-apple-darwin.tar.gz"
       sha256 "REPLACE_WITH_SHA256_ARM64_DARWIN"
     else
-      url "https://github.com/raskell-io/hx/releases/download/v{version}/hx-v{version}-x86_64-apple-darwin.tar.gz"
+      url "https://github.com/arcanist-sh/hx/releases/download/v{version}/hx-v{version}-x86_64-apple-darwin.tar.gz"
       sha256 "REPLACE_WITH_SHA256_X64_DARWIN"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/raskell-io/hx/releases/download/v{version}/hx-v{version}-aarch64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/arcanist-sh/hx/releases/download/v{version}/hx-v{version}-aarch64-unknown-linux-gnu.tar.gz"
       sha256 "REPLACE_WITH_SHA256_ARM64_LINUX"
     else
-      url "https://github.com/raskell-io/hx/releases/download/v{version}/hx-v{version}-x86_64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/arcanist-sh/hx/releases/download/v{version}/hx-v{version}-x86_64-unknown-linux-gnu.tar.gz"
       sha256 "REPLACE_WITH_SHA256_X64_LINUX"
     end
   end
@@ -501,7 +501,9 @@ pub fn generate_formula(
   end
 
   test do
-    system "{bin_interpolation}/hxs", "--version"
+    # The version banner is named from argv[0] as of #19, so a binary
+    # installed as hxs reports "hxs <version>", not "hx <version>".
+    assert_match "hxs #{{version}}", shell_output("{bin_interpolation}/hxs --version")
   end
 end
 "#,
@@ -542,7 +544,7 @@ pub fn generate_install_script(
 set -e
 
 VERSION="{version}"
-REPO="raskell-io/hx"
+REPO="arcanist-sh/hx"
 INSTALL_DIR="${{HX_INSTALL_DIR:-/usr/local/bin}}"
 
 # Colors (if terminal supports it)
