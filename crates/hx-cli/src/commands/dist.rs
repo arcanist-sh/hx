@@ -216,8 +216,12 @@ fn generate_completions(staging_dir: &Path, output: &Output) -> Result<()> {
         let mut file =
             File::create(&path).with_context(|| format!("Failed to create {}", filename))?;
 
+        // Deliberately the default name, not the invoked one: these ship inside
+        // the release archive, before the installer decides what to call the
+        // binary on this machine. An alternate install regenerates them with
+        // `completions install`.
         let mut cmd = Cli::command();
-        generate(*shell, &mut cmd, "hx", &mut file);
+        generate(*shell, &mut cmd, crate::cli::DEFAULT_NAME, &mut file);
 
         output.verbose(&format!("Generated {} completions", filename));
     }

@@ -1,7 +1,6 @@
 //! Shell completion generation and installation.
 
 use anyhow::Result;
-use clap::CommandFactory;
 use clap_complete::Shell;
 use clap_mangen::Man;
 use hx_ui::Output;
@@ -9,11 +8,9 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::cli::Cli;
-
 /// Generate shell completions and print to stdout.
 pub fn generate(shell: Shell) -> Result<i32> {
-    let mut cmd = Cli::command();
+    let mut cmd = crate::cli::command();
     let name = cmd.get_name().to_string();
 
     clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
@@ -35,7 +32,7 @@ pub async fn install(shell: Option<Shell>, output: &Output) -> Result<i32> {
     let completions = generate_completions(&shell);
 
     // Get the installation path
-    let (install_path, source_instruction) = get_install_path(&shell)?;
+    let (install_path, source_instruction) = get_install_path(&shell, crate::cli::invoked_name())?;
 
     // Create parent directories if needed
     if let Some(parent) = install_path.parent() {
@@ -110,7 +107,7 @@ fn shell_name(shell: &Shell) -> &'static str {
 
 /// Generate completions as a string.
 fn generate_completions(shell: &Shell) -> Vec<u8> {
-    let mut cmd = Cli::command();
+    let mut cmd = crate::cli::command();
     let name = cmd.get_name().to_string();
     let mut buf = Vec::new();
 
@@ -120,7 +117,7 @@ fn generate_completions(shell: &Shell) -> Vec<u8> {
 }
 
 /// Get the installation path and optional source instruction for the shell.
-fn get_install_path(shell: &Shell) -> Result<(PathBuf, Option<String>)> {
+fn get_install_path(shell: &Shell, name: &str) -> Result<(PathBuf, Option<String>)> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
 
     match shell {
@@ -128,7 +125,7 @@ fn get_install_path(shell: &Shell) -> Result<(PathBuf, Option<String>)> {
             // Try XDG first, then fallback to ~/.local/share
             let data_dir = dirs::data_local_dir().unwrap_or_else(|| home.join(".local/share"));
             let completions_dir = data_dir.join("bash-completion/completions");
-            let path = completions_dir.join("hx");
+            let path = completions_dir.join(name);
 
             // Check if bash-completion is set up
             let bashrc = home.join(".bashrc");
@@ -159,7 +156,7 @@ fn get_install_path(shell: &Shell) -> Result<(PathBuf, Option<String>)> {
 
             // Use the first one, create if needed
             let completions_dir = fpath_dirs[0].clone();
-            let path = completions_dir.join("_hx");
+            let path = completions_dir.join(format!("_{name}"));
 
             // Check if fpath includes this directory
             let zshrc = home.join(".zshrc");
@@ -182,23 +179,28 @@ fn get_install_path(shell: &Shell) -> Result<(PathBuf, Option<String>)> {
         Shell::Fish => {
             // Fish has a standard completions directory
             let config_dir = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
-            let path = config_dir.join("fish/completions/hx.fish");
+            let path = config_dir
+                .join("fish/completions")
+                .join(format!("{name}.fish"));
 
             // Fish auto-loads from this directory
             Ok((path, None))
         }
         Shell::Elvish => {
             let config_dir = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
-            let path = config_dir.join("elvish/lib/hx.elv");
+            let path = config_dir.join("elvish/lib").join(format!("{name}.elv"));
 
-            Ok((path, Some("use hx".to_string())))
+            Ok((path, Some(format!("use {name}"))))
         }
         Shell::PowerShell => {
             // PowerShell profile location varies
             let documents = dirs::document_dir().unwrap_or_else(|| home.join("Documents"));
-            let path = documents.join("PowerShell/Modules/hx/hx.psm1");
+            let path = documents
+                .join("PowerShell/Modules")
+                .join(name)
+                .join(format!("{name}.psm1"));
 
-            Ok((path, Some("Import-Module hx".to_string())))
+            Ok((path, Some(format!("Import-Module {name}"))))
         }
         _ => {
             anyhow::bail!("Unsupported shell for auto-install")
@@ -212,7 +214,7 @@ pub fn manpages(out_dir: PathBuf, output: &Output) -> Result<i32> {
 
     fs::create_dir_all(&out_dir)?;
 
-    let cmd = Cli::command();
+    let cmd = crate::cli::command();
     generate_manpage_recursive(&cmd, &out_dir, "")?;
 
     output.info(&format!("Man pages written to {}", out_dir.display()));

@@ -1,10 +1,59 @@
 //! CLI argument parsing.
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use hx_core::EnvVars;
+use std::sync::OnceLock;
 
 use crate::styles::STYLES;
+
+/// Command name used when the invoked name cannot be determined.
+pub const DEFAULT_NAME: &str = "hx";
+
+/// The name hx was invoked as, derived from `argv[0]`.
+///
+/// The binary ships under more than one name: `hx` by default, and an
+/// alternate where that would collide with another tool already on PATH.
+/// Help text, usage strings, completions and man pages must all follow the
+/// name the user actually installed, or they document a command that does
+/// not exist on their machine.
+///
+/// Reads `argv[0]` rather than [`std::env::current_exe`] deliberately:
+/// `current_exe` resolves symlinks, so an aliased install would report the
+/// link target's name and defeat the purpose.
+///
+/// Returns `&'static str` because clap's `Str` converts only from
+/// `&'static str`. The name is resolved once and leaked — a few bytes held
+/// for the process lifetime, which is what the value's scope is anyway.
+pub fn invoked_name() -> &'static str {
+    static NAME: OnceLock<&'static str> = OnceLock::new();
+    NAME.get_or_init(|| {
+        std::env::args_os()
+            .next()
+            .and_then(|arg0| {
+                std::path::Path::new(&arg0)
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+            })
+            .filter(|name| !name.is_empty())
+            .map(|name| &*Box::leak(name.into_boxed_str()))
+            .unwrap_or(DEFAULT_NAME)
+    })
+}
+
+/// Build the clap command, named for how the binary was invoked.
+///
+/// Prefer this over [`Cli::command`] anywhere the name reaches the user:
+/// the derived form carries the hardcoded [`DEFAULT_NAME`] and would render
+/// help and completions for `hx` even when installed as something else.
+pub fn command() -> clap::Command {
+    let name = invoked_name();
+    let after_help = format!("Use `{name} help <command>` for more information about a command.");
+    Cli::command()
+        .name(name)
+        .bin_name(name)
+        .after_help(after_help)
+}
 
 /// hx - Haskell Toolchain CLI
 #[derive(Parser, Debug)]
@@ -1205,4 +1254,19 @@ pub enum DistCommands {
 /// Parse compiler backend from string.
 fn parse_compiler_backend(s: &str) -> Result<hx_config::CompilerBackend, String> {
     s.parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// [`DEFAULT_NAME`] and the `#[command(name = ...)]` attribute hold the
+    /// same literal separately, because clap attributes cannot reference a
+    /// const. Nothing else would catch them drifting apart: [`command`]
+    /// overrides the attribute on every user-facing path, so a stale
+    /// attribute would only surface as a wrong fallback name.
+    #[test]
+    fn default_name_matches_command_attribute() {
+        assert_eq!(Cli::command().get_name(), DEFAULT_NAME);
+    }
 }

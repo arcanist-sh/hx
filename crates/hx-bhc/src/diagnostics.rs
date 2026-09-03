@@ -68,19 +68,13 @@ fn parse_diagnostic_line(line: &str) -> Option<Diagnostic> {
     // Try to match: file:line:col: severity[code]: message
     // or: file:line:col: severity: message
 
-    // Split by the first occurrence of ": error", ": warning", or ": hint"
-    let (location, severity_and_message) = if let Some(pos) = line.find(": error") {
-        let (loc, rest) = line.split_at(pos);
-        (loc, rest.strip_prefix(": ")?)
-    } else if let Some(pos) = line.find(": warning") {
-        let (loc, rest) = line.split_at(pos);
-        (loc, rest.strip_prefix(": ")?)
-    } else if let Some(pos) = line.find(": hint") {
-        let (loc, rest) = line.split_at(pos);
-        (loc, rest.strip_prefix(": ")?)
-    } else {
-        return None;
-    };
+    // Split at the first occurrence of ": error", ": warning", or ": hint",
+    // preferring them in that order when a line contains more than one.
+    let pos = [": error", ": warning", ": hint"]
+        .iter()
+        .find_map(|marker| line.find(marker))?;
+    let (location, rest) = line.split_at(pos);
+    let severity_and_message = rest.strip_prefix(": ")?;
 
     // Parse severity and code
     let (severity, code, message) = parse_severity_and_message(severity_and_message)?;
