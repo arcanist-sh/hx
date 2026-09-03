@@ -79,6 +79,29 @@ winget install raskell-io.hx
 cargo install --git https://github.com/arcanist-sh/hx hx-cli
 ```
 
+### If you already use Helix
+
+The Helix editor's binary is also called `hx`. When the installer finds an
+`hx` on your `PATH` that isn't hx, it installs as **`hxs`** instead so both
+stay reachable, and tells you it did. Every command below then works the
+same, just spelled `hxs`.
+
+To take the `hx` name anyway:
+
+```bash
+curl -fsSL https://arcanist.sh/hx/install.sh | HX_BINARY_NAME=hx sh
+```
+
+Or to choose the name yourself:
+
+```bash
+curl -fsSL https://arcanist.sh/hx/install.sh | sh -s -- --binary-name hxs
+```
+
+Installing from source or from a release archive gives you `hx` regardless;
+rename the binary if it would collide. `hx doctor` reports either direction
+of collision if one appears later.
+
 ### Verify installation
 
 ```bash
