@@ -9,7 +9,7 @@ use hx_core::error::Fix;
 use hx_solver::bhc_platform::{find_platform_for_bhc, latest_platform};
 use hx_toolchain::{Toolchain, detect_bhc, install::ghcup_install_command};
 use hx_ui::{Output, Style};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Severity of a diagnostic.
@@ -118,8 +118,11 @@ impl DoctorReport {
 }
 
 /// Run all doctor checks.
-pub async fn run_checks(project_dir: Option<&Path>) -> DoctorReport {
+pub async fn run_checks(project_dir: Option<&Path>, invoked_name: &str) -> DoctorReport {
     let mut report = DoctorReport::default();
+
+    // Check whether our own name collides with another binary on PATH
+    check_binary_shadowing(invoked_name, &mut report);
 
     // Detect toolchain
     let toolchain = Toolchain::detect().await;
@@ -154,6 +157,94 @@ pub async fn run_checks(project_dir: Option<&Path>) -> DoctorReport {
     }
 
     report
+}
+
+/// Check whether the name hx was invoked as also resolves to another binary
+/// on PATH.
+///
+/// Helix's editor binary is also called `hx` and ships in most distributions,
+/// so a machine can easily end up with two different executables under one
+/// name. Whichever comes first on PATH wins and the other becomes
+/// unreachable, which fails confusingly in both directions: `hx build` opens
+/// an editor on a file named `build`, or `hx foo.hs` reports an unknown
+/// command. Diagnosing it means reasoning about PATH order, so say it plainly
+/// instead.
+fn check_binary_shadowing(invoked_name: &str, report: &mut DoctorReport) {
+    let Ok(current) = std::env::current_exe() else {
+        return;
+    };
+    let current = current.canonicalize().unwrap_or(current);
+
+    let Ok(found) = which::which_all(invoked_name) else {
+        return;
+    };
+    let found: Vec<PathBuf> = found.map(|p| p.canonicalize().unwrap_or(p)).collect();
+
+    if let Some(diagnostic) = shadowing_diagnostic(invoked_name, &current, &found) {
+        report.add(diagnostic);
+    }
+}
+
+/// The decision half of [`check_binary_shadowing`], split out so every PATH
+/// arrangement can be tested without touching the real environment.
+///
+/// `found` is every executable named `invoked_name` on PATH, in PATH order.
+fn shadowing_diagnostic(
+    invoked_name: &str,
+    current: &Path,
+    found: &[PathBuf],
+) -> Option<Diagnostic> {
+    // Not reached through PATH at all -- a build directory or an explicit
+    // path. Shadowing is meaningless here, and warning would fire on every
+    // `cargo run -- doctor`.
+    if !found.iter().any(|p| p == current) {
+        return None;
+    }
+
+    let others: Vec<&PathBuf> = found.iter().filter(|p| p.as_path() != current).collect();
+    if others.is_empty() {
+        return None;
+    }
+
+    let other_list = others
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    if found
+        .first()
+        .is_some_and(|first| first.as_path() == current)
+    {
+        // We win. That may well have broken someone's editor.
+        Some(
+            Diagnostic::warning(format!(
+                "hx at {} shadows another `{invoked_name}` at {other_list}",
+                current.display()
+            ))
+            .with_fix(Fix::new(format!(
+                "If that is the Helix editor, reinstall hx under another name so both stay reachable, or move {} later in PATH",
+                current.display()
+            ))),
+        )
+    } else {
+        // Something else wins. Typing our name does not reach us.
+        let first = found.first()?;
+        Some(
+            Diagnostic::warning(format!(
+                "`{invoked_name}` runs {}, not hx at {}",
+                first.display(),
+                current.display()
+            ))
+            .with_fix(Fix::new(format!(
+                "Put {} earlier in PATH, or invoke hx by its full path",
+                current
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| current.display().to_string())
+            ))),
+        )
+    }
 }
 
 fn check_ghcup(toolchain: &Toolchain, report: &mut DoctorReport) {
@@ -900,5 +991,70 @@ pub fn print_report(report: &DoctorReport, output: &Output) {
         eprintln!("{} {} warning(s)", Style::warning("⚠"), warnings);
     } else {
         eprintln!("{} All checks passed", Style::success("✓"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(s: &str) -> PathBuf {
+        PathBuf::from(s)
+    }
+
+    #[test]
+    fn shadowing_silent_when_not_reached_through_path() {
+        // Running from a build directory: the `hx` on PATH is a different
+        // binary, but that is expected and not worth a warning.
+        let current = p("/repo/target/debug/hx");
+        let found = vec![p("/usr/bin/hx")];
+        assert!(shadowing_diagnostic("hx", &current, &found).is_none());
+    }
+
+    #[test]
+    fn shadowing_silent_when_we_are_the_only_match() {
+        let current = p("/home/u/.local/bin/hx");
+        let found = vec![current.clone()];
+        assert!(shadowing_diagnostic("hx", &current, &found).is_none());
+    }
+
+    #[test]
+    fn shadowing_silent_when_path_has_no_matches() {
+        let current = p("/home/u/.local/bin/hx");
+        assert!(shadowing_diagnostic("hx", &current, &[]).is_none());
+    }
+
+    #[test]
+    fn shadowing_warns_when_we_take_precedence_over_another() {
+        // hx installed ahead of Helix: their editor is now unreachable.
+        let current = p("/home/u/.local/bin/hx");
+        let found = vec![current.clone(), p("/usr/bin/hx")];
+
+        let diag = shadowing_diagnostic("hx", &current, &found).expect("expected a warning");
+        assert_eq!(diag.severity, Severity::Warning);
+        assert!(diag.message.contains("/usr/bin/hx"), "{}", diag.message);
+        assert!(diag.message.contains("shadows"), "{}", diag.message);
+        assert!(!diag.fixes.is_empty());
+    }
+
+    #[test]
+    fn shadowing_warns_when_another_takes_precedence_over_us() {
+        // Helix wins: typing `hx` never reaches the toolchain.
+        let current = p("/home/u/.local/bin/hx");
+        let found = vec![p("/usr/bin/hx"), current.clone()];
+
+        let diag = shadowing_diagnostic("hx", &current, &found).expect("expected a warning");
+        assert_eq!(diag.severity, Severity::Warning);
+        assert!(diag.message.contains("/usr/bin/hx"), "{}", diag.message);
+        assert!(diag.message.contains("not hx at"), "{}", diag.message);
+    }
+
+    #[test]
+    fn shadowing_uses_the_invoked_name_not_a_hardcoded_one() {
+        let current = p("/home/u/.local/bin/hxs");
+        let found = vec![current.clone(), p("/usr/bin/hxs")];
+
+        let diag = shadowing_diagnostic("hxs", &current, &found).expect("expected a warning");
+        assert!(diag.message.contains("`hxs`"), "{}", diag.message);
     }
 }
