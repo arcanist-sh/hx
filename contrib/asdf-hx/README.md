@@ -54,3 +54,18 @@ asdf local hx 0.4.0
 - [hx documentation](https://github.com/raskell-io/hx)
 - [asdf documentation](https://asdf-vm.com)
 - [mise documentation](https://mise.jdx.dev)
+
+## Binary name
+
+The Helix editor's binary is also called `hx`. asdf and mise create one shim
+per executable, so installing as `hx` would put a colliding shim on `PATH`.
+
+When the plugin finds an `hx` that isn't hx, it installs as **`hxs`** instead
+and says so. An hx installed elsewhere — or a shim from a previous install of
+this plugin — is treated as an upgrade and keeps the name.
+
+Override in either direction:
+
+```bash
+HX_BINARY_NAME=hx mise install hx@latest
+```

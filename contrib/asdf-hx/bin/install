@@ -2,9 +2,67 @@
 
 set -euo pipefail
 
+DEFAULT_BIN_NAME="hx"
+FALLBACK_BIN_NAME="hxs"
+
+# Decide what to call the installed binary.
+#
+# The Helix editor's binary is also called `hx` and ships in most
+# distributions. asdf and mise generate one shim per executable in bin/, so
+# installing as `hx` puts a colliding shim on PATH: whichever comes first wins
+# and the other becomes unreachable.
+#
+# Mirrors install.sh, with one addition. An existing `hx` that identifies
+# itself as hx is an upgrade, not a collision -- but a shim left by a previous
+# install of this plugin may not answer `--version` at all (asdf and mise shims
+# error when no version is active for the current directory), so match the
+# shim by path before asking it anything.
+resolve_binary_name() {
+  if [ -n "${HX_BINARY_NAME:-}" ]; then
+    printf '%s' "$HX_BINARY_NAME"
+    return
+  fi
+
+  local existing
+  existing=$(command -v "$DEFAULT_BIN_NAME" 2>/dev/null || true)
+
+  # Nothing owns the name yet.
+  if [ -z "$existing" ]; then
+    printf '%s' "$DEFAULT_BIN_NAME"
+    return
+  fi
+
+  # A shim inside the asdf or mise tree is ours by definition.
+  case "$existing" in
+    "${ASDF_DATA_DIR:-$HOME/.asdf}"/* | \
+    "${MISE_DATA_DIR:-$HOME/.local/share/mise}"/* | \
+    "$HOME"/.asdf/* | "$HOME"/.local/share/mise/*)
+      printf '%s' "$DEFAULT_BIN_NAME"
+      return
+      ;;
+  esac
+
+  # An hx installed elsewhere is still an upgrade. Ask it; anything that does
+  # not identify as hx we treat as foreign.
+  if "$existing" --version 2>/dev/null | grep -qi "^hx "; then
+    printf '%s' "$DEFAULT_BIN_NAME"
+    return
+  fi
+
+  printf '%s' "$FALLBACK_BIN_NAME"
+}
+
 mkdir -p "${ASDF_INSTALL_PATH}/bin"
 
-cp "${ASDF_DOWNLOAD_PATH}/hx" "${ASDF_INSTALL_PATH}/bin/hx"
-chmod +x "${ASDF_INSTALL_PATH}/bin/hx"
+BIN_NAME=$(resolve_binary_name)
 
-echo "hx ${ASDF_INSTALL_VERSION} installed successfully."
+cp "${ASDF_DOWNLOAD_PATH}/hx" "${ASDF_INSTALL_PATH}/bin/${BIN_NAME}"
+chmod +x "${ASDF_INSTALL_PATH}/bin/${BIN_NAME}"
+
+if [ "$BIN_NAME" != "$DEFAULT_BIN_NAME" ]; then
+  echo "\`${DEFAULT_BIN_NAME}\` on this system already refers to $(command -v "$DEFAULT_BIN_NAME")"
+  echo "Installed as \`${BIN_NAME}\` so both stay reachable."
+  echo "Override with HX_BINARY_NAME=${DEFAULT_BIN_NAME} to take the name anyway."
+fi
+
+echo "hx ${ASDF_INSTALL_VERSION} installed successfully as ${BIN_NAME}."
