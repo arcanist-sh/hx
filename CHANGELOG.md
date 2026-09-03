@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The binary name is no longer fixed to `hx`.** The Helix editor's binary is
+  also called `hx` and ships in most distributions, so a machine can end up with
+  two executables under one name — whichever comes first on `PATH` wins and the
+  other becomes unreachable. hx now adapts instead of colliding.
+  - The CLI derives its command name from `argv[0]`, so help text, usage,
+    parse errors, completions and man pages all follow the name the binary was
+    actually installed under. Previously these were hardcoded: a renamed binary
+    printed `hx` throughout its help and, worse, generated shell completions
+    registered against `hx` — a command absent from that machine.
+    ([#19](https://github.com/arcanist-sh/hx/pull/19))
+  - `install.sh` probes `PATH` and installs as **`hxs`** when something else
+    already owns `hx`, reporting it plainly. It distinguishes an upgrade from a
+    collision: an hx installed elsewhere keeps the name rather than being
+    silently renamed. `HX_BINARY_NAME` or `--binary-name` overrides in either
+    direction. ([#22](https://github.com/arcanist-sh/hx/pull/22))
+  - **Breaking for Homebrew tap users.** The generated formula now installs the
+    binary as `hxs`, so `brew upgrade` replaces an existing `hx` with `hxs`.
+    Homebrew removed formula options, so a formula cannot detect and adapt the
+    way `install.sh` does — one name has to serve every brew user. Renaming was
+    chosen over `conflicts_with "helix"` because a Haskell toolchain is not an
+    alternative to an editor and someone may reasonably want both. The formula's
+    caveats explain how to symlink the short name back.
+    ([#25](https://github.com/arcanist-sh/hx/pull/25))
+  - ([#17](https://github.com/arcanist-sh/hx/issues/17))
+
+### Added
+- **`hx doctor` reports binary name collisions.** It warns in both directions —
+  when another `hx` shadows this one, and when this one shadows another, since
+  installing hx ahead of Helix silently breaks that editor. This covers the case
+  install-time detection cannot: installing hx first and Helix second. Stays
+  quiet when hx was not reached through `PATH` at all.
+  ([#21](https://github.com/arcanist-sh/hx/pull/21))
+
+### Fixed
+- **Documented cache and config directory paths were wrong on macOS and
+  Windows.** `ProjectDirs` does not place the project at the top of the platform
+  directory: macOS joins the parts into a bundle id and Windows joins
+  organization and application. The real locations are
+  `~/Library/Caches/io.raskell.hx` and `%LOCALAPPDATA%\raskell\hx\cache`, not
+  `~/Library/Caches/hx` and `%LOCALAPPDATA%\hx\cache`. `cabal_store_dir()` was
+  also documented as `~/.hx/store` throughout but returns
+  `<global cache>/cabal/store`. These are the paths users follow to find or
+  clear their own cache, and on those platforms they did not exist.
+  ([#23](https://github.com/arcanist-sh/hx/pull/23))
+- **`hx upgrade` and `install.sh` targeted the pre-rename GitHub org.** Both
+  resolved `raskell-io/hx` and worked only by following a redirect; they now
+  name `arcanist-sh/hx` directly. The generated Homebrew formula and install
+  script did too, which meant regenerating the published tap formula would have
+  silently reverted a hand-applied fix. Project templates also wrote a
+  `raskell-io` link into every generated `hx.toml`.
+  ([#26](https://github.com/arcanist-sh/hx/pull/26),
+  [#27](https://github.com/arcanist-sh/hx/pull/27))
+- **The generated Homebrew formula could not install.** It referenced
+  `completions/*` files that the release archive does not contain — it ships only
+  the binary. Completions are now generated from the installed binary, which also
+  makes them correct for a renamed install.
+  ([#25](https://github.com/arcanist-sh/hx/pull/25))
+
+### Internal
+- CI passes `--locked`, so a manifest declaring a dependency the lockfile lacks
+  fails the build instead of silently regenerating `Cargo.lock` and going green.
+  ([#24](https://github.com/arcanist-sh/hx/pull/24))
+
 ## [0.9.1] - 2026-08-01
 
 ### Fixed
