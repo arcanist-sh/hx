@@ -12,7 +12,7 @@ pub async fn run(output: &Output) -> Result<i32> {
     // Try to find project root (but don't fail if not in a project)
     let project_dir = find_project_root(".").ok();
 
-    let report = run_checks(project_dir.as_deref()).await;
+    let report = run_checks(project_dir.as_deref(), crate::cli::invoked_name()).await;
 
     print_report(&report, output);
 
