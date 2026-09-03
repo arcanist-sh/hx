@@ -25,7 +25,7 @@ let toolchains = toolchain_dir()?;
 // Toolchain symlinks (~/.hx/bin)
 let bin = toolchain_bin_dir()?;
 
-// Cabal package store (~/.hx/store)
+// Cabal package store (<global cache>/cabal/store)
 let store = cabal_store_dir()?;
 ```
 
@@ -39,24 +39,24 @@ let store = cabal_store_dir()?;
 | `global_config_dir()` | `~/.config/hx` |
 | `toolchain_dir()` | `~/.hx/toolchains` |
 | `toolchain_bin_dir()` | `~/.hx/bin` |
-| `cabal_store_dir()` | `~/.hx/store` |
+| `cabal_store_dir()` | `~/.cache/hx/cabal/store` |
 
 ### macOS
 
 | Function | Path |
 |----------|------|
-| `global_cache_dir()` | `~/Library/Caches/hx` |
-| `global_config_dir()` | `~/Library/Application Support/hx` |
+| `global_cache_dir()` | `~/Library/Caches/io.raskell.hx` |
+| `global_config_dir()` | `~/Library/Application Support/io.raskell.hx` |
 | `toolchain_dir()` | `~/.hx/toolchains` |
 | `toolchain_bin_dir()` | `~/.hx/bin` |
-| `cabal_store_dir()` | `~/.hx/store` |
+| `cabal_store_dir()` | `~/Library/Caches/io.raskell.hx/cabal/store` |
 
 ### Windows
 
 | Function | Path |
 |----------|------|
-| `global_cache_dir()` | `%LOCALAPPDATA%\hx\cache` |
-| `global_config_dir()` | `%APPDATA%\hx\config` |
+| `global_cache_dir()` | `%LOCALAPPDATA%\raskell\hx\cache` |
+| `global_config_dir()` | `%APPDATA%\raskell\hx\config` |
 | `toolchain_dir()` | `%USERPROFILE%\.hx\toolchains` |
 | `toolchain_bin_dir()` | `%USERPROFILE%\.hx\bin` |
 | `cabal_store_dir()` | `%USERPROFILE%\.hx\store` |
@@ -108,7 +108,7 @@ project/.hx/
 ## Global Store Layout
 
 ```
-~/.hx/store/
+~/.cache/hx/cabal/store/
 ├── ghc-9.8.2/                    # Per-GHC-version packages
 │   ├── aeson-2.2.1.0-abc123/
 │   │   ├── lib/

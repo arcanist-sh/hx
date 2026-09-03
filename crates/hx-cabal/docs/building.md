@@ -64,7 +64,7 @@ pub struct BuildOptions {
 The build function constructs and runs:
 
 ```bash
-cabal --store-dir=~/.hx/store build \
+cabal --store-dir=<cache>/cabal/store build \
     --builddir=.hx/build \
     --jobs=4 \
     -O2  # if release
@@ -99,7 +99,7 @@ let exit_code = test(
 
 Runs:
 ```bash
-cabal --store-dir=~/.hx/store test \
+cabal --store-dir=<cache>/cabal/store test \
     --builddir=.hx/build \
     --test-show-details=streaming \
     my-package:test:MyTest
@@ -122,7 +122,7 @@ let exit_code = run(
 
 Runs:
 ```bash
-cabal --store-dir=~/.hx/store run \
+cabal --store-dir=<cache>/cabal/store run \
     --builddir=.hx/build \
     my-package -- --port 8080
 ```
@@ -141,7 +141,7 @@ let exit_code = repl(
 
 Runs:
 ```bash
-cabal --store-dir=~/.hx/store repl --builddir=.hx/build
+cabal --store-dir=<cache>/cabal/store repl --builddir=.hx/build
 ```
 
 ## Build Results
@@ -178,10 +178,12 @@ This ensures hx-managed GHC/Cabal are used.
 
 ## Store Directory
 
-hx uses a shared store for built packages:
+hx uses a shared store for built packages, under the platform cache
+directory (`hx_cache::cabal_store_dir()`, i.e. `<global cache>/cabal/store` --
+see `crates/hx-cache/docs/directories.md` for the per-platform locations):
 
 ```
-~/.hx/store/
+<cache>/cabal/store/
 ├── ghc-9.8.2/
 │   ├── aeson-2.2.1.0-abc123/
 │   ├── text-2.1-def456/

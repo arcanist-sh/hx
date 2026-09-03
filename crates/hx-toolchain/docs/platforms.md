@@ -102,7 +102,7 @@ Cache: `~/.cache/hx/`
 └── bin/
 ```
 
-Cache: `~/Library/Caches/hx/`
+Cache: `~/Library/Caches/io.raskell.hx/`
 
 ### Windows
 
@@ -116,7 +116,7 @@ Cache: `~/Library/Caches/hx/`
 └── bin\
 ```
 
-Cache: `%LOCALAPPDATA%\hx\cache\`
+Cache: `%LOCALAPPDATA%\raskell\hx\cache\`
 
 ## GHC Installation Differences
 
