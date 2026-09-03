@@ -9,6 +9,11 @@
 #   HX_INSTALL_DIR  - Installation directory (default: ~/.local/bin or /usr/local/bin)
 #   HX_NO_MODIFY_PATH - Set to skip PATH modification suggestions
 #   HX_ALLOW_UNVERIFIED - Set to 1 to proceed when checksum verification is impossible
+#   HX_BINARY_NAME  - Name to install the binary as (default: hx, or hxs when
+#                     another program already owns `hx` on PATH)
+#
+# Options (via flags, e.g. `curl -fsSL ... | sh -s -- --binary-name hxs`):
+#   --binary-name <name>  - Same as HX_BINARY_NAME
 
 set -e
 
@@ -170,7 +175,66 @@ get_shell_config() {
     esac
 }
 
+# Default name, and the fallback used when `hx` is already taken.
+DEFAULT_BIN_NAME="hx"
+FALLBACK_BIN_NAME="hxs"
+
+# Decide what to call the installed binary.
+#
+# Helix's editor binary is also called `hx` and ships in most distributions,
+# so installing over it would leave whichever comes first on PATH winning and
+# the other unreachable. Detect that and step aside by default, rather than
+# making the user diagnose PATH order after the fact.
+resolve_binary_name() {
+    # Explicit choice always wins.
+    if [ -n "$HX_BINARY_NAME" ]; then
+        echo "$HX_BINARY_NAME"
+        return
+    fi
+
+    existing=$(command -v "$DEFAULT_BIN_NAME" 2>/dev/null || true)
+
+    # Nothing owns the name yet.
+    if [ -z "$existing" ]; then
+        echo "$DEFAULT_BIN_NAME"
+        return
+    fi
+
+    # Our own previous install, at the directory we are about to write to.
+    if [ "$existing" = "$INSTALL_DIR/$DEFAULT_BIN_NAME" ]; then
+        echo "$DEFAULT_BIN_NAME"
+        return
+    fi
+
+    # An hx installed somewhere else -- still an upgrade, not a collision.
+    # Ask it. Anything that does not identify as hx we treat as foreign.
+    if "$existing" --version 2>/dev/null | grep -qi "^hx "; then
+        echo "$DEFAULT_BIN_NAME"
+        return
+    fi
+
+    echo "$FALLBACK_BIN_NAME"
+}
+
 main() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --binary-name)
+                [ -n "$2" ] || error "--binary-name requires a value"
+                HX_BINARY_NAME="$2"
+                shift 2
+                ;;
+            --binary-name=*)
+                HX_BINARY_NAME="${1#*=}"
+                [ -n "$HX_BINARY_NAME" ] || error "--binary-name requires a value"
+                shift
+                ;;
+            *)
+                error "Unknown option: $1"
+                ;;
+        esac
+    done
+
     printf "\n"
     printf "${BOLD}${CYAN}hx${NC} installer\n"
     printf "\n"
@@ -255,23 +319,32 @@ main() {
 
     # Install binary
     INSTALL_DIR=$(get_install_dir)
-    info "Installing to $INSTALL_DIR..."
+
+    BIN_NAME=$(resolve_binary_name)
+    if [ "$BIN_NAME" != "$DEFAULT_BIN_NAME" ]; then
+        EXISTING=$(command -v "$DEFAULT_BIN_NAME" 2>/dev/null || true)
+        warn "\`$DEFAULT_BIN_NAME\` on this system already refers to $EXISTING"
+        info "Installing as \`$BIN_NAME\` so both stay reachable"
+        printf "      Override with ${CYAN}HX_BINARY_NAME=$DEFAULT_BIN_NAME${NC} to take the name anyway.\n"
+    fi
+
+    info "Installing to $INSTALL_DIR as $BIN_NAME..."
 
     mkdir -p "$INSTALL_DIR" 2>/dev/null || true
 
     if [ -w "$INSTALL_DIR" ]; then
-        cp "$BINARY" "$INSTALL_DIR/"
-        chmod +x "$INSTALL_DIR/hx"
+        cp "$BINARY" "$INSTALL_DIR/$BIN_NAME"
+        chmod +x "$INSTALL_DIR/$BIN_NAME"
     else
         info "Requesting sudo access..."
         sudo mkdir -p "$INSTALL_DIR"
-        sudo cp "$BINARY" "$INSTALL_DIR/"
-        sudo chmod +x "$INSTALL_DIR/hx"
+        sudo cp "$BINARY" "$INSTALL_DIR/$BIN_NAME"
+        sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
     fi
 
     # Success message
     printf "\n"
-    printf "${GREEN}${BOLD}hx v$VERSION installed successfully!${NC}\n"
+    printf "${GREEN}${BOLD}hx v$VERSION installed successfully as $BIN_NAME!${NC}\n"
     printf "\n"
 
     # PATH instructions
@@ -291,15 +364,15 @@ main() {
     # Next steps
     printf "Get started:\n"
     printf "\n"
-    printf "  ${CYAN}hx --help${NC}              Show available commands\n"
-    printf "  ${CYAN}hx init myproject${NC}      Create a new Haskell project\n"
-    printf "  ${CYAN}hx doctor${NC}              Check your Haskell setup\n"
-    printf "  ${CYAN}hx completions install${NC} Install shell completions\n"
+    printf "  ${CYAN}$BIN_NAME --help${NC}              Show available commands\n"
+    printf "  ${CYAN}$BIN_NAME init myproject${NC}      Create a new Haskell project\n"
+    printf "  ${CYAN}$BIN_NAME doctor${NC}              Check your Haskell setup\n"
+    printf "  ${CYAN}$BIN_NAME completions install${NC} Install shell completions\n"
     printf "\n"
 
     # Verify installation worked
-    if in_path "$INSTALL_DIR" && check_cmd hx; then
-        info "Run 'hx --version' to verify: $(hx --version 2>/dev/null || echo 'installed')"
+    if in_path "$INSTALL_DIR" && check_cmd "$BIN_NAME"; then
+        info "Run '$BIN_NAME --version' to verify: $("$BIN_NAME" --version 2>/dev/null || echo 'installed')"
     fi
 }
 
