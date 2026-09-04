@@ -72,6 +72,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI passes `--locked`, so a manifest declaring a dependency the lockfile lacks
   fails the build instead of silently regenerating `Cargo.lock` and going green.
   ([#24](https://github.com/arcanist-sh/hx/pull/24))
+- **The Nix flake builds from source.** It previously fetched prebuilt release
+  tarballs pinned to a version and per-platform sha256, so it went stale after
+  every release — it had drifted to v0.4.1 while releases reached v0.9.x.
+  `rustPlatform.buildRustPackage` now reads the version from `Cargo.toml` and
+  vendors dependencies from the committed `Cargo.lock`, so it always matches the
+  checked-out revision. ([#16](https://github.com/arcanist-sh/hx/pull/16))
+- **FlakeHub and Docker release publishing repaired.** Both failed on the v0.9.1
+  tag for reasons unrelated to that release's contents: `nix flake show
+  --all-systems` could not evaluate after nixpkgs 26.11 dropped x86_64-darwin
+  while the flake still declared it. Supported systems are now enumerated
+  explicitly. The prebuilt x86_64-darwin binary is still shipped as a release
+  artifact; only the Nix package dropped that platform.
+  ([#15](https://github.com/arcanist-sh/hx/pull/15))
 
 ## [0.9.1] - 2026-08-01
 
