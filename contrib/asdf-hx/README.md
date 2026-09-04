@@ -1,6 +1,6 @@
 # asdf-hx
 
-[hx](https://github.com/raskell-io/hx) plugin for [asdf](https://asdf-vm.com) and [mise](https://mise.jdx.dev).
+[hx](https://github.com/arcanist-sh/hx) plugin for [asdf](https://asdf-vm.com) and [mise](https://mise.jdx.dev).
 
 ## Installation
 
@@ -51,7 +51,7 @@ asdf local hx 0.4.0
 
 ## Links
 
-- [hx documentation](https://github.com/raskell-io/hx)
+- [hx documentation](https://github.com/arcanist-sh/hx)
 - [asdf documentation](https://asdf-vm.com)
 - [mise documentation](https://mise.jdx.dev)
 

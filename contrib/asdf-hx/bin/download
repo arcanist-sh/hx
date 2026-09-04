@@ -14,7 +14,7 @@ version="$ASDF_INSTALL_VERSION"
 platform=$(get_platform)
 arch=$(get_arch)
 
-download_url="https://github.com/raskell-io/hx/releases/download/v${version}/hx-v${version}-${arch}-${platform}.tar.gz"
+download_url="https://github.com/arcanist-sh/hx/releases/download/v${version}/hx-v${version}-${arch}-${platform}.tar.gz"
 
 echo "Downloading hx v${version} for ${arch}-${platform}..."
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Fetch all release tags from GitHub
-releases_url="https://api.github.com/repos/raskell-io/hx/releases"
+releases_url="https://api.github.com/repos/arcanist-sh/hx/releases"
 
 # Get versions, strip 'v' prefix, sort by semver
 curl -sL "$releases_url" \
