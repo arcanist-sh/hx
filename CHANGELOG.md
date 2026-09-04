@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-04
+
 ### Changed
 - **The binary name is no longer fixed to `hx`.** The Helix editor's binary is
   also called `hx` and ships in most distributions, so a machine can end up with
@@ -584,7 +586,9 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/arcanist-sh/hx/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/arcanist-sh/hx/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/arcanist-sh/hx/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/arcanist-sh/hx/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/arcanist-sh/hx/compare/v0.8.0...v0.8.1
