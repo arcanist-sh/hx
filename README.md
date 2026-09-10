@@ -52,7 +52,7 @@ Haskell's tooling is powerful — and scattered. Starting a project means juggli
 - **Drop-in compatible** — Works with existing `.cabal` files and Hackage. Import from Stack or Cabal — your workflow stays the same, just better.
 - **Extensible** — Plugin system with Steel (Scheme), pre/post-build hooks, and Nix integration.
 - **Agent-ready** — A built-in MCP server (`hx mcp`), an [AGENTS.md](AGENTS.md), and a Claude skill let AI agents drive the whole toolchain.
-- **Blazingly fast** — Native builds bypass Cabal overhead: ~5.6× faster cold builds, ~7.8× faster incremental.
+- **Blazingly fast** — Native builds bypass Cabal overhead: ~5.6× faster cold builds, ~4.8× faster no-op rebuilds, measured on hx 0.9.2 — see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **Futuristic** — A first-class [BHC](docs/BHC_PLATFORM.md) backend: a next-generation Haskell compiler with curated Platform snapshots.
 
 ## Installation
