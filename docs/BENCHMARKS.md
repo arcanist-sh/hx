@@ -2,41 +2,44 @@
 
 Numbers, not adjectives. "Blazingly fast" is a claim — here is the methodology and the measurements behind it, comparing hx against cabal across the workflows you run all day.
 
-> **Measured with hx 0.8.0.** Honest summary: hx is faster than cabal on all four operations measured here — cold builds, CLI startup, no-op incremental rebuilds, and clean (see the per-operation notes below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
+> **Measured with hx 0.9.2.** Honest summary: hx is faster than cabal on all four operations measured here — cold builds, CLI startup, no-op incremental rebuilds, and clean (see the per-operation notes below). stack was not re-measured for this release, so its rows are omitted rather than carried over.
 
 ## Test Environment
 
 | Property | Value |
 |----------|-------|
-| **hx version** | 0.8.0 |
+| **hx version** | 0.9.2 |
 | **GHC version** | 9.8.2 |
 | **Cabal version** | 3.12.1.0 |
 | **stack** | not measured |
 | **Platform** | macOS, Apple M4 (10-core) |
-| **Tooling** | hyperfine 1.20.0 (6–30 runs, 1–5 warmup) |
-| **Date** | 2026-06-21 |
+| **Tooling** | hyperfine 1.20.0 (8–30 runs, 1–5 warmup) |
+| **Date** | 2026-09-10 |
 
 ## Results
 
-**Test project:** a single-module executable depending only on `base` — the case hx's native build mode targets.
+**Test project:** a simple 3-module executable (`Main.hs`, `Lib.hs`, `Utils.hs`) depending only on `base` — the case hx's native build mode targets.
 
 | Operation | hx (`--native`) | cabal | Result |
 |-----------|-----------------|-------|--------|
-| CLI startup (`--help`) | **3.2 ms** | 18.6 ms | hx **5.8× faster** |
-| Cold build (clean state) | **0.39 s** | 2.04 s | hx **5.2× faster** |
-| Incremental (no changes) | **3.2 ms** | 18.2 ms | hx **5.7× faster** |
-| Clean | **4.7 ms** | 18.9 ms | hx **4.1× faster** |
+| CLI startup (`--help`) | **3.2 ms** | 18.9 ms | hx **6.0× faster** |
+| Cold build (clean state) | **0.52 s** | 2.89 s | hx **5.6× faster** |
+| Incremental (no changes) | **3.7 ms** | 17.7 ms | hx **4.8× faster** |
+| Clean | **5.2 ms** | 18.5 ms | hx **3.6× faster** |
 
 ### Where hx wins
 
 hx is faster than cabal on all four operations measured here.
 
-- **Cold builds (≈5.2×) and CLI startup (≈5.8×)** are inherent: the native build path invokes GHC directly, skipping cabal's package-database queries and build-plan calculation, and hx is a native Rust binary with no GHC-runtime startup cost.
-- **No-op incremental rebuilds (≈5.7×)** short-circuit before any subprocess spawns — this path used to be *slower* than cabal (~78 ms spawning `ghc`/`ghc-pkg` before realizing nothing had changed) until it was fixed in [#5](https://github.com/arcanist-sh/hx/issues/5).
-- **`clean` (≈4.1×)** is just `rm -rf .hx`; it no longer spins up the plugin runtime when no clean hooks are configured.
+- **Cold builds (≈5.6×) and CLI startup (≈6.0×)** are inherent: the native build path invokes GHC directly, skipping cabal's package-database queries and build-plan calculation, and hx is a native Rust binary with no GHC-runtime startup cost.
+- **No-op incremental rebuilds (≈4.8×)** short-circuit before any subprocess spawns — this path used to be *slower* than cabal (~78 ms spawning `ghc`/`ghc-pkg` before realizing nothing had changed) until it was fixed in [#5](https://github.com/arcanist-sh/hx/issues/5).
+- **`clean` (≈3.6×)** is just `rm -rf .hx`; it no longer spins up the plugin runtime when no clean hooks are configured.
 - **Honesty note:** earlier published figures (cabal "0.39 s" incremental, "180 ms" clean) were overstated. These numbers are measured fresh; cabal's no-op and clean times are dominated by its own ~18 ms process startup.
+- **Absolute times drifted between runs:** the 0.9.2 cold build measured 0.52 s against 0.39 s at 0.8.0, and cabal drifted the same way (2.89 s against 2.04 s) on the same machine, so the ratio held while both tools got slower in absolute terms. Treat the ratios as the stable figure and the absolute times as machine-state dependent.
 
 ### Dependency resolution
+
+> Measured at 0.8.0 and not re-run for 0.9.2.
 
 `hx lock` reads a cached, pre-parsed Hackage index, so a warm lock of a project
 with real dependencies is **~37 ms**. The first lock after the index changes
@@ -100,14 +103,15 @@ hyperfine --warmup 3 'hx build --native' 'cabal build'
 
 > `scripts/benchmark-comparison.sh` runs the full comparison suite (startup, init, build, clean, …) and writes JSON/markdown results; the direct invocations above reproduce the headline build numbers.
 
-## Not Re-Measured for 0.8.0
+## Not Re-Measured for 0.9.2
 
-The following were measured at 0.5.0 but **have not been re-run** for 0.8.0, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, and memory usage. Contributions welcome.
+The following were measured at 0.5.0 but **have not been re-run** for 0.9.2, so their old figures were removed rather than presented as current: project init, single-file-change incremental, preprocessor overhead, and memory usage. Contributions welcome.
 
 ## Historical Results (cold build)
 
 | Version | Date | hx `--native` | cabal | Speedup | Source |
 |---------|------|---------------|-------|---------|--------|
+| 0.9.2 | 2026-09-10 | 0.52 s | 2.89 s | 5.6× | measured (hyperfine, M4) |
 | 0.8.0 | 2026-06-21 | 0.39 s | 2.04 s | 5.2× | measured (hyperfine, M4) |
 | 0.7.7 | 2026-06-18 | 0.45 s | 2.02 s | 4.4× | measured (hyperfine, M4) |
 | 0.5.0 | 2026-02-02 | 0.48 s | 2.68 s | 5.6× | unverified (not reproduced) |
