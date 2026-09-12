@@ -36,10 +36,15 @@ pub use store::{
 
 /// Get the global cache directory.
 ///
+/// Respects `$XDG_CACHE_HOME` if set to a non-empty value, on any platform.
+/// Otherwise falls back to the platform default:
 /// - Linux: `~/.cache/hx`
 /// - macOS: `~/Library/Caches/io.raskell.hx`
 /// - Windows: `%LOCALAPPDATA%\raskell\hx\cache`
 pub fn global_cache_dir() -> Result<PathBuf> {
+    if let Some(dir) = xdg_dir(std::env::var("XDG_CACHE_HOME").ok()) {
+        return Ok(dir);
+    }
     let dirs = ProjectDirs::from("io", "raskell", "hx")
         .ok_or_else(|| Error::config("could not determine home directory for cache"))?;
     Ok(dirs.cache_dir().to_path_buf())
@@ -55,13 +60,24 @@ pub fn cabal_store_dir() -> Result<PathBuf> {
 
 /// Get the global config directory.
 ///
+/// Respects `$XDG_CONFIG_HOME` if set to a non-empty value, on any platform.
+/// Otherwise falls back to the platform default:
 /// - Linux: `~/.config/hx`
 /// - macOS: `~/Library/Application Support/io.raskell.hx`
 /// - Windows: `%APPDATA%\raskell\hx\config`
 pub fn global_config_dir() -> Result<PathBuf> {
+    if let Some(dir) = xdg_dir(std::env::var("XDG_CONFIG_HOME").ok()) {
+        return Ok(dir);
+    }
     let dirs = ProjectDirs::from("io", "raskell", "hx")
         .ok_or_else(|| Error::config("could not determine home directory for config"))?;
     Ok(dirs.config_dir().to_path_buf())
+}
+
+fn xdg_dir(env_value: Option<String>) -> Option<PathBuf> {
+    env_value
+        .filter(|v| !v.is_empty())
+        .map(|v| PathBuf::from(v).join("hx"))
 }
 
 /// Get the global config file path.
@@ -162,4 +178,82 @@ pub fn clean_project_cache(project_root: &Path) -> Result<()> {
         })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[test]
+    fn xdg_dir_appends_hx_to_set_value() {
+        assert_eq!(
+            xdg_dir(Some("/custom/config".to_string())),
+            Some(PathBuf::from("/custom/config/hx"))
+        );
+    }
+
+    #[test]
+    fn xdg_dir_falls_back_when_unset() {
+        assert_eq!(xdg_dir(None), None);
+    }
+
+    #[test]
+    fn xdg_dir_falls_back_when_empty() {
+        assert_eq!(xdg_dir(Some(String::new())), None);
+    }
+
+    // std::env::set_var is process-global and `cargo test` runs tests in
+    // parallel by default, so any test that touches real XDG_* env vars
+    // must serialize against the others via this lock.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn global_config_and_cache_dirs_use_distinct_xdg_vars() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // SAFETY: serialized by ENV_LOCK against other tests in this module.
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", "/tmp/hx-xdg-test/config");
+            std::env::set_var("XDG_CACHE_HOME", "/tmp/hx-xdg-test/cache");
+        }
+
+        let config = global_config_dir().unwrap();
+        let cache = global_cache_dir().unwrap();
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::remove_var("XDG_CACHE_HOME");
+        }
+
+        assert_ne!(
+            config, cache,
+            "config and cache dirs must not collapse to the same path"
+        );
+        assert_eq!(config, PathBuf::from("/tmp/hx-xdg-test/config/hx"));
+        assert_eq!(cache, PathBuf::from("/tmp/hx-xdg-test/cache/hx"));
+    }
+
+    #[test]
+    fn global_config_dir_ignores_xdg_cache_home() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // SAFETY: serialized by ENV_LOCK against other tests in this module.
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+            std::env::set_var("XDG_CACHE_HOME", "/tmp/hx-xdg-test/cache-only");
+        }
+
+        let config = global_config_dir().unwrap();
+
+        unsafe {
+            std::env::remove_var("XDG_CACHE_HOME");
+        }
+
+        assert_ne!(
+            config,
+            PathBuf::from("/tmp/hx-xdg-test/cache-only/hx"),
+            "XDG_CACHE_HOME must not leak into the config dir resolution"
+        );
+    }
 }
