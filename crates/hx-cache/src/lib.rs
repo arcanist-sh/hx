@@ -163,6 +163,20 @@ pub fn clean_global_cache() -> Result<()> {
     Ok(())
 }
 
+/// Clean a project's local cache.
+pub fn clean_project_cache(project_root: &Path) -> Result<()> {
+    let cache_dir = project_root.join(".hx");
+    if cache_dir.exists() {
+        debug!("Removing project cache: {}", cache_dir.display());
+        std::fs::remove_dir_all(&cache_dir).map_err(|e| Error::Io {
+            message: "failed to remove project cache".to_string(),
+            path: Some(cache_dir),
+            source: e,
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,18 +253,4 @@ mod tests {
             "XDG_CACHE_HOME must not leak into the config dir resolution"
         );
     }
-}
-
-/// Clean a project's local cache.
-pub fn clean_project_cache(project_root: &Path) -> Result<()> {
-    let cache_dir = project_root.join(".hx");
-    if cache_dir.exists() {
-        debug!("Removing project cache: {}", cache_dir.display());
-        std::fs::remove_dir_all(&cache_dir).map_err(|e| Error::Io {
-            message: "failed to remove project cache".to_string(),
-            path: Some(cache_dir),
-            source: e,
-        })?;
-    }
-    Ok(())
 }
