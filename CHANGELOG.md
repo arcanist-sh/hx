@@ -7,10 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-19
+
+### Added
+- **`hx install` and `hx uninstall`**, the `cargo install` of Haskell: build a
+  package's executables from Hackage (`hx install hlint`,
+  `hx install fourmolu@0.18.0`), a git repository (`--git <url> [--rev]`) or a
+  local project (`--path`), with the active GHC or `--ghc`, and place them in
+  `~/.hx/bin`. Installs are recorded in `~/.hx/installed.toml`;
+  `hx install --list` shows them, reinstalling an up-to-date version is a
+  no-op (`--force` rebuilds), and executables owned by another package are
+  never overwritten silently.
+- **Workspaces.** `hx workspace init|add|rm|list|affected` manage
+  multi-package projects, with `cabal.project` as the single member list.
+  `hx build`/`test`/`check`/`run` work across all members at the root and on
+  the current member from inside one, sharing the root lockfile and toolchain;
+  `-p/--package` is repeatable, and `--changed [BASE]` acts only on members
+  touched since `BASE` and the members that depend on them.
+- **Release metadata from ghcup.** hx reads GHC, Cabal and HLS releases,
+  recommendations, download URLs and checksums from ghcup's published
+  metadata (cached for a day, with hx's built-in tables as the offline
+  fallback), so new releases and renamed downloads reach hx without an hx
+  update. On Linux it picks the build for your distribution, including
+  Alpine/musl. `hx toolchain list` marks installed, recommended and latest
+  GHC and Cabal versions (`--available` lists all), and `hx doctor` mentions
+  when a newer recommended release exists.
+- **Reproducible, verifiable lockfiles.** `hx.lock` format 2 pins every
+  dependency by the SHA-256 of its source tarball and its Hackage `.cabal`
+  revision, together with the index state, compiler and platform it was
+  resolved for. `hx fetch` downloads and verifies every locked source,
+  `hx sync --offline` builds without network access, and `hx lock --check`
+  verifies the lockfile for CI. Existing lockfiles keep working and upgrade on
+  the next `hx lock`.
+- **`hx test` with BHC** builds and runs the project's test suites with BHC,
+  reporting results per suite; `--package` selects a member or a suite and
+  `--pattern` is forwarded to hspec or tasty.
+- **Package registries.** `hx publish --registry <name|url>`,
+  `hx search --registry` and `hx registry login|logout|list|add|info|yank|owner|token`.
+  The [arcanist.sh registry](https://arcanist.sh/registry/) is built in as
+  `arcanist`, and `hx registry add` writes the signed (hackage-security)
+  `repository` stanza so plain cabal builds use it too. Hackage stays the
+  default.
+- **Every location in one place.** `hx config path --all` lists where hx
+  keeps config, plugins, caches, the Cabal store and toolchains, and which
+  setting chose each; `hx cache status` shows cache locations.
+- Environment variables: `HX_OFFLINE`, `HX_GHCUP_METADATA_URL`,
+  `HX_HACKAGE_URL`, `HX_REGISTRY_TOKEN`, `HX_BHC_PLATFORM_URL`, and the now
+  honoured `HX_CACHE_DIR`, `HX_STORE_DIR`, `HX_HOME` and `--config-file`.
+
 ### Changed
-- **`install.sh` installs the static musl build on x86_64 Linux**, which runs
-  on every distribution regardless of its glibc version (or none, on Alpine).
-  `hx upgrade` stays on the variant it was installed as.
+- **`hx sync` builds with exactly what `hx.lock` records** (versions, flags,
+  index state) and refuses source tarballs whose hash does not match.
+- `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` apply to every hx location on every
+  platform. Default locations are unchanged.
+- HTTPS trusts the operating system's certificate store in addition to the
+  bundled Mozilla roots, honours `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` and
+  system proxy settings, and identifies as `hx/<version>`.
+- Linux release binaries link against glibc 2.28 (Debian 10, Ubuntu 20.04,
+  RHEL 8 and later); `install.sh` installs the static musl build on x86_64
+  Linux, and `hx upgrade` stays on the variant it was installed as.
+- Dependency updates: reqwest 0.13, sha2 0.11, directories 6, criterion 0.8;
+  `dirs` and `dirs-next` are no longer used.
+
+### Fixed
+- `hx search` on macOS finds the index mirrored by `hx index update`.
+- Native GHC and BHC builds find the package databases hx writes, on every
+  platform and with `XDG_CACHE_HOME` set.
+- `hx lock --cabal` passes `--store-dir` where cabal expects it.
+- Multi-line `depends:` entries from `ghc-pkg` are read in full.
+- `hx test --package <name>` passes a valid Cabal target; workspace test runs
+  skip members without test suites; a partial build no longer marks the whole
+  workspace up to date; `hx sync` builds every workspace member.
+- `cabal.project` parsing supports globs, `.cabal` paths, comma-separated
+  lists and `optional-packages`.
+
+### Internal
+- CI reads the Rust toolchain from `rust-toolchain.toml` everywhere, builds
+  all six release targets and the Nix flake on pull requests that can affect
+  them, audits dependencies on every change and weekly, and Dependabot
+  proposes Cargo updates. Nightly real-world builds cover GHC 9.10, 9.12 and
+  9.14 and run the BHC pipeline on BHC 0.2.22.
+- One shared HTTP client (`hx_core::http`) and one hashing helper
+  (`hx_core::hash`); golden tests pin every cache key and checksum.
 
 ## [0.9.3] - 2026-10-19
 
@@ -665,7 +743,8 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/arcanist-sh/hx/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/arcanist-sh/hx/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/arcanist-sh/hx/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/arcanist-sh/hx/compare/v0.9.0...v0.9.1
