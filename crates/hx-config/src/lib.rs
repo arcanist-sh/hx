@@ -28,7 +28,7 @@ pub use ide::{
 pub use manifest::{
     BhcConfig, BhcPlatformConfig, BhcProfile, BuildConfig, CompilerBackend, CompilerConfig,
     FormatConfig, GhcConfig, LintConfig, Manifest, PluginConfig, PluginHookConfig, ProjectConfig,
-    ProjectKind, StackageConfig, ToolchainConfig,
+    ProjectKind, RegistryConfig, StackageConfig, ToolchainConfig,
 };
 pub use project::{AffectedMembers, Project, WorkspacePackage, find_project_root};
 
