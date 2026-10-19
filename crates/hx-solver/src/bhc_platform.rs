@@ -212,6 +212,22 @@ pub fn verify_ed25519(
         .map_err(|e| SnapshotError::SignatureInvalid(format!("Ed25519 verification failed: {}", e)))
 }
 
+/// Default location of the BHC Platform snapshot registry.
+pub const DEFAULT_REGISTRY_URL: &str = "https://arcanist.sh/bhc-platform/index.json";
+
+/// The registry URL: `HX_BHC_PLATFORM_URL` when set (mirrors, air-gapped
+/// setups), otherwise [`DEFAULT_REGISTRY_URL`].
+pub fn registry_url() -> String {
+    registry_url_from(std::env::var(hx_core::env::EnvVars::HX_BHC_PLATFORM_URL).ok())
+}
+
+fn registry_url_from(override_url: Option<String>) -> String {
+    override_url
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| DEFAULT_REGISTRY_URL.to_string())
+}
+
 /// Fetch the snapshot registry from the remote server.
 pub async fn fetch_snapshot_registry() -> Result<SnapshotRegistry, SnapshotError> {
     info!("Fetching BHC Platform snapshot registry");
@@ -221,11 +237,11 @@ pub async fn fetch_snapshot_registry() -> Result<SnapshotRegistry, SnapshotError
         .build()
         .map_err(|e| SnapshotError::FetchError(format!("failed to create HTTP client: {}", e)))?;
 
-    let url = "https://bhc-platform.raskell.io/index.json";
+    let url = registry_url();
     debug!("Fetching registry from: {}", url);
 
     let response =
-        client.get(url).send().await.map_err(|e| {
+        client.get(&url).send().await.map_err(|e| {
             SnapshotError::RegistryOffline(format!("failed to fetch registry: {}", e))
         })?;
 
@@ -400,6 +416,22 @@ pub fn find_platform_for_bhc(bhc_version: &str) -> Option<BhcPlatformInfo> {
 /// Return the newest embedded BHC Platform snapshot.
 pub fn latest_platform() -> Option<BhcPlatformInfo> {
     list_platforms().into_iter().last()
+}
+
+/// Return the newest embedded platform that a released BHC can use, together
+/// with the newest such release.
+///
+/// A platform may be curated ahead of the compiler release it targets;
+/// `released` (ascending, e.g. hx-toolchain's known BHC versions) keeps hx from
+/// recommending a BHC that cannot be installed yet.
+pub fn latest_installable_platform<'a>(released: &[&'a str]) -> Option<(BhcPlatformInfo, &'a str)> {
+    list_platforms().into_iter().rev().find_map(|platform| {
+        released
+            .iter()
+            .rev()
+            .find(|v| version_compatible(v, platform.bhc_version))
+            .map(|v| (platform, *v))
+    })
 }
 
 /// List all available BHC platform snapshots.
@@ -746,12 +778,39 @@ mod tests {
     }
 
     #[test]
+    fn test_latest_installable_platform_skips_unreleased_bhc() {
+        // 2026.2 targets BHC 0.3, which is not released in this list
+        let (platform, bhc) = latest_installable_platform(&["0.2.0", "0.2.21", "0.2.22"]).unwrap();
+        assert_eq!(platform.id, "bhc-platform-2026.1");
+        assert_eq!(bhc, "0.2.22");
+
+        let (platform, bhc) = latest_installable_platform(&["0.2.22", "0.3.0", "0.3.1"]).unwrap();
+        assert_eq!(platform.id, "bhc-platform-2026.2");
+        assert_eq!(bhc, "0.3.1");
+
+        assert!(latest_installable_platform(&[]).is_none());
+    }
+
+    #[test]
+    fn test_registry_url_override() {
+        assert_eq!(registry_url_from(None), DEFAULT_REGISTRY_URL);
+        assert_eq!(
+            registry_url_from(Some("  ".to_string())),
+            DEFAULT_REGISTRY_URL
+        );
+        assert_eq!(
+            registry_url_from(Some("https://mirror.example/index.json".to_string())),
+            "https://mirror.example/index.json"
+        );
+    }
+
+    #[test]
     fn test_parse_registry_json() {
         let json = r#"{
             "snapshots": [
                 {
                     "id": "bhc-platform-2026.1",
-                    "url": "https://bhc-platform.raskell.io/snapshots/bhc-platform-2026.1.toml",
+                    "url": "https://arcanist.sh/bhc-platform/snapshots/bhc-platform-2026.1.toml",
                     "bhc_version": "0.2.0",
                     "ghc_compat": "9.8.2",
                     "package_count": 70,

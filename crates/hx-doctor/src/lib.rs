@@ -6,7 +6,7 @@
 
 use hx_config::{CompilerBackend, MANIFEST_FILENAME};
 use hx_core::error::Fix;
-use hx_solver::bhc_platform::{find_platform_for_bhc, latest_platform};
+use hx_solver::bhc_platform::{find_platform_for_bhc, latest_installable_platform};
 use hx_toolchain::{Toolchain, detect_bhc, install::ghcup_install_command};
 use hx_ui::{Output, Style};
 use std::path::{Path, PathBuf};
@@ -460,17 +460,18 @@ fn check_bhc_platform(
             }
 
             // Suggest upgrade if a newer platform exists
-            if let Some(latest) = latest_platform()
+            if let Some((latest, bhc_release)) =
+                latest_installable_platform(hx_toolchain::KNOWN_BHC_VERSIONS)
                 && latest.id != platform.id
             {
                 report.add(
                     Diagnostic::info(format!(
-                        "Newer BHC Platform available: {} (requires BHC {})",
-                        latest.id, latest.bhc_version
+                        "Newer BHC Platform available: {} (BHC {})",
+                        latest.id, bhc_release
                     ))
                     .with_fix(Fix::with_command(
-                        format!("Upgrade BHC to {}", latest.bhc_version),
-                        format!("hx toolchain install --bhc {}", latest.bhc_version),
+                        format!("Upgrade BHC to {}", bhc_release),
+                        format!("hx toolchain install --bhc {}", bhc_release),
                     )),
                 );
             }

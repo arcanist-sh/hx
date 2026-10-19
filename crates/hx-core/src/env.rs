@@ -53,6 +53,9 @@ impl EnvVars {
     /// Pinned Ed25519 public key (hex) for BHC Platform snapshot verification.
     pub const HX_BHC_PLATFORM_PUBKEY: &'static str = "HX_BHC_PLATFORM_PUBKEY";
 
+    /// BHC Platform snapshot registry URL (for mirrors).
+    pub const HX_BHC_PLATFORM_URL: &'static str = "HX_BHC_PLATFORM_URL";
+
     // ─── Build Settings ──────────────────────────────────────────────────────
 
     /// Number of parallel jobs for builds.
