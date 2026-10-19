@@ -7,6 +7,13 @@ and where each bindist lives from the metadata file ghcup publishes:
 https://raw.githubusercontent.com/haskell/ghcup-metadata/master/ghcup-0.1.0.yaml
 ```
 
+This is ghcup's default channel, so hx's recommended versions match what
+ghcup recommends. ghcup also publishes a *vanilla* channel
+(`ghcup-vanilla-0.1.0.yaml`) whose downloads are all upstream artifacts, for
+example Cabal from `downloads.haskell.org/~cabal/` rather than ghcup's own
+bindists; its tags follow the newest releases. To use it, set
+`HX_GHCUP_METADATA_URL` to that file.
+
 This replaces hand-kept version and URL tables, so new releases, renamed
 assets and per-distribution builds reach hx without a new hx release. The
 built-in tables (`KNOWN_GHC_VERSIONS`, `RECOMMENDED_GHC_VERSION`, the
@@ -142,9 +149,10 @@ if let Some(m) = meta.as_deref()
 
 ## What hx does not mirror
 
-- **Other channels**: only `ghcup-0.1.0.yaml` is read; ghcup's prerelease,
-  cross and vanilla channels are not merged in. Use `HX_GHCUP_METADATA_URL`
-  to point at a different file.
+- **Other channels**: only the default channel is read; ghcup's vanilla,
+  prerelease and cross channels are not merged in. Use `HX_GHCUP_METADATA_URL`
+  to point at a different file (both the current `toolVersions` layout and the
+  flat layout are understood).
 - **Install specs** (`dlInstallSpec`): hx keeps its own install steps
   (`./configure && make install` for GHC, a single binary for Cabal).
 - **Regex unpack directories** (`dlSubdir: {RegexDir: ...}`): ignored; the

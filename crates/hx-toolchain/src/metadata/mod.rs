@@ -253,11 +253,15 @@ fn scalar_string(node: &Yaml) -> Option<String> {
 }
 
 fn parse_releases(tool: &Yaml) -> Vec<Release> {
-    let Some(versions) = tool["toolVersions"].as_hash() else {
+    // Current files nest releases under `toolVersions` (next to
+    // `toolDetails`); the vanilla channel still lists them directly under the
+    // tool. Accept both.
+    let Some(versions) = tool["toolVersions"].as_hash().or_else(|| tool.as_hash()) else {
         return Vec::new();
     };
     let mut releases: Vec<Release> = versions
         .iter()
+        .filter(|(version, _)| version.as_str() != Some("toolDetails"))
         .filter_map(|(version, info)| {
             Some(Release {
                 version: scalar_string(version)?,
@@ -703,6 +707,32 @@ mod tests {
                 .ends_with("ghc-9.8.1-x86_64-apple-darwin.tar.xz")
         );
         assert_eq!(resolved.file_name, "ghc-9.8.1-x86_64-darwin.tar.xz");
+    }
+
+    #[test]
+    fn test_flat_tool_layout_of_the_vanilla_channel() {
+        let yaml = r#"
+ghcupDownloads:
+  GHC:
+    9.10.3:
+      viTags: [Recommended, base-4.20.2.0]
+      viArch:
+        A_64:
+          Darwin:
+            unknown_versioning:
+              dlUri: https://downloads.haskell.org/~ghc/9.10.3/ghc-9.10.3-x86_64-apple-darwin.tar.xz
+              dlSubdir: ghc-9.10.3-x86_64-apple-darwin
+              dlHash: abc
+  Cabal:
+    3.16.1.0:
+      viTags: [Recommended]
+"#;
+        let m = GhcupMetadata::parse(yaml).unwrap();
+        let ghc = m.releases(Tool::Ghc);
+        assert_eq!(ghc.len(), 1);
+        assert_eq!(ghc[0].version, "9.10.3");
+        assert!(ghc[0].tags.iter().any(|t| t == "Recommended"));
+        assert_eq!(m.releases(Tool::Cabal)[0].version, "3.16.1.0");
     }
 
     #[test]

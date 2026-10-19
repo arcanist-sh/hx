@@ -6,7 +6,6 @@
 //! their built-in tables. Nothing here ever turns into an error for the user.
 
 use super::GhcupMetadata;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -14,6 +13,9 @@ use tokio::sync::OnceCell;
 use tracing::debug;
 
 /// Where ghcup publishes the metadata hx reads.
+/// ghcup's default channel, so hx's "recommended" matches what ghcup users get.
+/// For upstream-only downloads, point `HX_GHCUP_METADATA_URL` at the vanilla
+/// channel (`ghcup-vanilla-0.1.0.yaml`); its tags track the newest releases.
 pub const DEFAULT_METADATA_URL: &str =
     "https://raw.githubusercontent.com/haskell/ghcup-metadata/master/ghcup-0.1.0.yaml";
 
@@ -49,7 +51,7 @@ pub fn is_offline() -> bool {
 ///
 /// Keyed by URL so switching to a mirror never serves the other source's copy.
 pub fn cache_file(url: &str) -> Option<PathBuf> {
-    let digest = hex::encode(Sha256::digest(url.as_bytes()));
+    let digest = hx_core::hash::sha256_hex(url.as_bytes());
     let dir = hx_cache::global_cache_dir().ok()?.join("ghcup");
     Some(dir.join(format!("ghcup-metadata-{}.yaml", &digest[..16])))
 }
@@ -172,7 +174,7 @@ async fn fetch(url: &str, timeout: Duration) -> Result<String, String> {
     }
 
     debug!("Fetching ghcup metadata from {}", url);
-    let client = reqwest::Client::builder()
+    let client = hx_core::http::builder()
         .timeout(timeout)
         .build()
         .map_err(|e| e.to_string())?;
