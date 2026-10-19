@@ -48,6 +48,9 @@ pub struct PackageBuildInfo {
     pub library: Option<LibraryConfig>,
     /// Executable configurations
     pub executables: Vec<ExecutableConfig>,
+    /// Test-suite configurations
+    #[serde(default)]
+    pub test_suites: Vec<TestSuiteConfig>,
     /// Cabal version specification
     pub cabal_version: Option<String>,
     /// Custom Setup.hs configuration (for build-type: Custom)
@@ -232,12 +235,34 @@ pub struct ExecutableConfig {
     pub default_language: Option<String>,
 }
 
+/// Test-suite configuration from a .cabal file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TestSuiteConfig {
+    /// Test-suite name
+    pub name: String,
+    /// Test-suite interface type (`exitcode-stdio-1.0`, `detailed-0.9`)
+    pub test_type: Option<String>,
+    /// Main module file (for `exitcode-stdio-1.0`)
+    pub main_is: Option<String>,
+    /// Source directories
+    pub hs_source_dirs: Vec<String>,
+    /// Other modules
+    pub other_modules: Vec<String>,
+    /// Build dependencies
+    pub build_depends: Vec<Dependency>,
+    /// Default language extensions
+    pub default_extensions: Vec<String>,
+    /// GHC options
+    pub ghc_options: Vec<String>,
+}
+
 /// Parse a .cabal file and extract full build information.
 pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
     let mut info = PackageBuildInfo::default();
     let mut current_section = Section::TopLevel;
     let mut current_library = LibraryConfig::default();
     let mut current_executable: Option<ExecutableConfig> = None;
+    let mut current_test_suite: Option<TestSuiteConfig> = None;
     let mut current_custom_setup = CustomSetupConfig::default();
     let mut field_buffer = FieldBuffer::new();
 
@@ -258,6 +283,7 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                 &mut info,
                 &mut current_library,
                 &mut current_executable,
+                &mut current_test_suite,
                 &mut current_custom_setup,
             );
 
@@ -271,6 +297,11 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                         info.executables.push(exe);
                     }
                 }
+                Section::TestSuite(_) => {
+                    if let Some(suite) = current_test_suite.take() {
+                        info.test_suites.push(suite);
+                    }
+                }
                 Section::CustomSetup if !current_custom_setup.setup_depends.is_empty() => {
                     info.custom_setup = Some(std::mem::take(&mut current_custom_setup));
                 }
@@ -279,11 +310,20 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
 
             // Start new section
             current_section = section.clone();
-            if let Section::Executable(name) = &section {
-                current_executable = Some(ExecutableConfig {
-                    name: name.clone(),
-                    ..Default::default()
-                });
+            match &section {
+                Section::Executable(name) => {
+                    current_executable = Some(ExecutableConfig {
+                        name: name.clone(),
+                        ..Default::default()
+                    });
+                }
+                Section::TestSuite(name) => {
+                    current_test_suite = Some(TestSuiteConfig {
+                        name: name.clone(),
+                        ..Default::default()
+                    });
+                }
+                _ => {}
             }
             continue;
         }
@@ -301,6 +341,7 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                 &mut info,
                 &mut current_library,
                 &mut current_executable,
+                &mut current_test_suite,
                 &mut current_custom_setup,
             );
             continue;
@@ -315,6 +356,7 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
                 &mut info,
                 &mut current_library,
                 &mut current_executable,
+                &mut current_test_suite,
                 &mut current_custom_setup,
             );
             // Start new field
@@ -332,6 +374,7 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
         &mut info,
         &mut current_library,
         &mut current_executable,
+        &mut current_test_suite,
         &mut current_custom_setup,
     );
 
@@ -343,6 +386,11 @@ pub fn parse_cabal_full(content: &str) -> PackageBuildInfo {
         Section::Executable(_) => {
             if let Some(exe) = current_executable {
                 info.executables.push(exe);
+            }
+        }
+        Section::TestSuite(_) => {
+            if let Some(suite) = current_test_suite {
+                info.test_suites.push(suite);
             }
         }
         Section::CustomSetup if !current_custom_setup.setup_depends.is_empty() => {
@@ -420,6 +468,7 @@ fn flush_field(
     info: &mut PackageBuildInfo,
     library: &mut LibraryConfig,
     executable: &mut Option<ExecutableConfig>,
+    test_suite: &mut Option<TestSuiteConfig>,
     custom_setup: &mut CustomSetupConfig,
 ) {
     let Some((key, value)) = buffer.take() else {
@@ -436,6 +485,11 @@ fn flush_field(
         Section::Executable(_) => {
             if let Some(exe) = executable {
                 apply_executable_field(exe, &key, &value);
+            }
+        }
+        Section::TestSuite(_) => {
+            if let Some(suite) = test_suite {
+                apply_test_suite_field(suite, &key, &value);
             }
         }
         Section::CustomSetup => {
@@ -510,6 +564,23 @@ fn apply_executable_field(exe: &mut ExecutableConfig, key: &str, value: &str) {
         "extra-libraries" => exe.extra_libraries = parse_list(value),
         "build-tools" | "build-tool-depends" => exe.build_tools.extend(parse_list(value)),
         "default-language" => exe.default_language = Some(value.to_string()),
+        _ => {}
+    }
+}
+
+/// Apply a test-suite section field to TestSuiteConfig.
+///
+/// List fields accumulate, like the library's, because conditionals (which
+/// this flat parser does not evaluate) usually add to them.
+fn apply_test_suite_field(suite: &mut TestSuiteConfig, key: &str, value: &str) {
+    match key {
+        "type" => suite.test_type = Some(value.trim().to_string()),
+        "main-is" => suite.main_is = Some(value.trim().to_string()),
+        "hs-source-dirs" => suite.hs_source_dirs.extend(parse_list(value)),
+        "other-modules" => suite.other_modules.extend(parse_module_list(value)),
+        "build-depends" => suite.build_depends.extend(parse_build_depends(value)),
+        "default-extensions" => suite.default_extensions.extend(parse_list(value)),
+        "ghc-options" => suite.ghc_options.extend(parse_ghc_options(value)),
         _ => {}
     }
 }
@@ -820,6 +891,7 @@ enum Section {
     Library,
     #[allow(dead_code)] // Name stored for future use
     Executable(String),
+    TestSuite(String),
     CustomSetup,
     Other,
 }
@@ -840,8 +912,12 @@ fn parse_section_header(line: &str) -> Option<Section> {
         return Some(Section::Executable(name));
     }
 
-    if lower.starts_with("test-suite ")
-        || lower.starts_with("benchmark ")
+    if lower.starts_with("test-suite ") {
+        let name = line[11..].trim().to_string();
+        return Some(Section::TestSuite(name));
+    }
+
+    if lower.starts_with("benchmark ")
         || lower.starts_with("common ")
         || lower.starts_with("source-repository ")
         || lower.starts_with("flag ")
@@ -1255,6 +1331,86 @@ executable myapp
         assert_eq!(exe.main_is, Some("Main.hs".to_string()));
         assert_eq!(exe.hs_source_dirs, vec!["app"]);
         assert_eq!(exe.ghc_options, vec!["-threaded", "-rtsopts"]);
+    }
+
+    #[test]
+    fn test_parse_test_suites() {
+        let content = r#"
+cabal-version: 2.4
+name:          mylib
+version:       0.1.0
+
+library
+  hs-source-dirs: src
+  exposed-modules: MyLib
+  build-depends: base
+
+test-suite mylib-test
+  type:             exitcode-stdio-1.0
+  main-is:          Spec.hs
+  hs-source-dirs:   test
+  other-modules:    MyLibSpec
+  build-depends:    base, mylib, hspec
+  default-extensions: OverloadedStrings
+  ghc-options:      -threaded
+
+test-suite doctests
+  type:    detailed-0.9
+  test-module: DocTests
+  build-depends: base
+
+benchmark bench
+  type:    exitcode-stdio-1.0
+  main-is: Bench.hs
+"#;
+
+        let info = parse_cabal_full(content);
+        // The library is unaffected by the stanzas after it.
+        assert_eq!(
+            info.library.as_ref().unwrap().exposed_modules,
+            vec!["MyLib"]
+        );
+        assert!(info.executables.is_empty());
+
+        assert_eq!(info.test_suites.len(), 2);
+        let suite = &info.test_suites[0];
+        assert_eq!(suite.name, "mylib-test");
+        assert_eq!(suite.test_type.as_deref(), Some("exitcode-stdio-1.0"));
+        assert_eq!(suite.main_is.as_deref(), Some("Spec.hs"));
+        assert_eq!(suite.hs_source_dirs, vec!["test"]);
+        assert_eq!(suite.other_modules, vec!["MyLibSpec"]);
+        let deps: Vec<&str> = suite
+            .build_depends
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert_eq!(deps, vec!["base", "mylib", "hspec"]);
+        assert_eq!(suite.default_extensions, vec!["OverloadedStrings"]);
+        assert_eq!(suite.ghc_options, vec!["-threaded"]);
+
+        let doc = &info.test_suites[1];
+        assert_eq!(doc.name, "doctests");
+        assert_eq!(doc.test_type.as_deref(), Some("detailed-0.9"));
+        assert_eq!(doc.main_is, None);
+    }
+
+    #[test]
+    fn test_parse_cabal_ignores_test_suite_deps() {
+        // Dependency resolution covers the library and executables only;
+        // test-suite stanzas must not leak into either list.
+        let content = r#"
+name: p
+version: 1
+library
+  build-depends: base
+test-suite t
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  build-depends: base, hspec
+"#;
+        let cabal = parse_cabal(content);
+        assert_eq!(cabal.library_deps.len(), 1);
+        assert!(cabal.executable_deps.is_empty());
     }
 
     #[test]

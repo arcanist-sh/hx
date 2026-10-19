@@ -44,7 +44,7 @@ pub mod version;
 
 pub use cabal::{
     BuildType, CabalFile, CustomSetupConfig, ExecutableConfig, LibraryConfig, PackageBuildInfo,
-    parse_cabal, parse_cabal_ctx, parse_cabal_full,
+    TestSuiteConfig, parse_cabal, parse_cabal_ctx, parse_cabal_full,
 };
 pub use cache::{
     CacheError, clear_index_cache, clear_resolution_cache, compute_deps_fingerprint,
