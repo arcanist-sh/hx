@@ -1658,6 +1658,7 @@ version = "0.9.3"
 dependencies = [
  "chrono",
  "hx-core",
+ "insta",
  "serde",
  "serde_json",
  "tempfile",

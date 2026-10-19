@@ -19,7 +19,7 @@ The fingerprint includes:
 1. **Toolchain versions** - GHC and Cabal versions
 2. **Platform** - OS and architecture
 3. **Index state** - Hackage snapshot timestamp
-4. **All packages** - Name, version, source, hash
+4. **All packages** - Name and version, plus (format v2) `sha256`, `revision`, `cabal_sha256`, flags and git/path origin when present
 
 ## Fingerprint Algorithm
 

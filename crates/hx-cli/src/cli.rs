@@ -254,6 +254,14 @@ pub enum Commands {
     Doctor,
 
     /// Create or update the lockfile
+    ///
+    /// Pins exact versions, flags, source tarball hashes, Hackage `.cabal`
+    /// revisions and the index state, so builds are reproducible.
+    ///
+    /// Examples:
+    ///   hx lock             # Resolve and write hx.lock
+    ///   hx lock --check     # Verify hx.lock in CI (non-zero exit on mismatch)
+    #[command(verbatim_doc_comment)]
     Lock {
         /// Use cabal freeze instead of native solver
         #[arg(long)]
@@ -266,9 +274,19 @@ pub enum Commands {
         /// Set Stackage snapshot before locking (e.g., lts-24.64, nightly)
         #[arg(long)]
         snapshot: Option<String>,
+
+        /// Verify hx.lock against hx.toml, the .cabal files, the Hackage index
+        /// and cached sources without changing it
+        #[arg(long, conflicts_with_all = ["cabal", "update", "snapshot"])]
+        check: bool,
     },
 
-    /// Pre-fetch dependencies in parallel
+    /// Download and verify locked sources for offline builds
+    ///
+    /// With a lockfile, every locked Hackage tarball is downloaded in parallel
+    /// into hx's source cache, checked against its pinned SHA-256, and made
+    /// available to cabal. A hash mismatch is a hard error.
+    #[command(verbatim_doc_comment)]
     Fetch {
         /// Number of parallel download jobs
         #[arg(short, long)]
@@ -276,10 +294,23 @@ pub enum Commands {
     },
 
     /// Build with locked dependencies
+    ///
+    /// Examples:
+    ///   hx sync             # Build with the versions pinned in hx.lock
+    ///   hx sync --offline   # Same, without network (run `hx fetch` first)
+    #[command(verbatim_doc_comment)]
     Sync {
         /// Force sync even if lock is outdated
         #[arg(long)]
         force: bool,
+
+        /// Build without network access, using only cached sources
+        #[arg(
+            long,
+            env = EnvVars::HX_OFFLINE,
+            value_parser = clap::builder::BoolishValueParser::new()
+        )]
+        offline: bool,
     },
 
     /// Clean build artifacts

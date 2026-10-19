@@ -200,6 +200,7 @@ pub async fn run(
         package_count: Some(package_count),
         project_name: Some(project.name().to_string()),
         toolchain_bin_dirs,
+        extra_args: Vec::new(),
     };
 
     let build_dir = project.cabal_build_dir();

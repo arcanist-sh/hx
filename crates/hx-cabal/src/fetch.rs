@@ -46,10 +46,11 @@ pub async fn fetch(
     let store_dir_str = store_dir.to_string_lossy().to_string();
 
     // Build command arguments
+    // Global options must come before the subcommand
     let mut args = vec![
+        format!("--store-dir={}", store_dir_str),
         "fetch".to_string(),
         format!("--builddir={}", build_dir_str),
-        format!("--store-dir={}", store_dir_str),
     ];
 
     // Add parallel jobs flag (default to 8 for good parallel throughput)

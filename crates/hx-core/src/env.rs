@@ -70,6 +70,13 @@ impl EnvVars {
     /// Enable release mode builds.
     pub const HX_RELEASE: &'static str = "HX_RELEASE";
 
+    /// Build without network access, using only cached sources (`hx sync`).
+    pub const HX_OFFLINE: &'static str = "HX_OFFLINE";
+
+    /// Base URL of the Hackage mirror `hx fetch` downloads sources from
+    /// (default `https://hackage.haskell.org`; `file://` mirrors work too).
+    pub const HX_HACKAGE_URL: &'static str = "HX_HACKAGE_URL";
+
     // ─── Format/Lint Settings ────────────────────────────────────────────────
 
     /// Formatter to use (fourmolu or ormolu).

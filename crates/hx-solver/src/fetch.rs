@@ -27,7 +27,7 @@ pub enum FetchError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
-    #[error("hash mismatch for {package}: expected {expected}, got {actual}")]
+    #[error("hash mismatch for {package}: expected sha256 {expected}, got {actual}")]
     HashMismatch {
         package: String,
         expected: String,
@@ -36,6 +36,9 @@ pub enum FetchError {
 
     #[error("package not found: {0}")]
     NotFound(String),
+
+    #[error("invalid package version {version} for {package}")]
+    InvalidVersion { package: String, version: String },
 }
 
 /// Result of fetching a package.
@@ -64,6 +67,10 @@ pub struct FetchOptions {
     pub verify_hashes: bool,
     /// HTTP timeout in seconds
     pub timeout: u64,
+    /// Base URL of the Hackage mirror to download from. `file://` URLs
+    /// (a local mirror with Hackage's `package/<id>/<id>.tar.gz` layout)
+    /// are read directly from disk.
+    pub base_url: String,
 }
 
 impl Default for FetchOptions {
@@ -73,6 +80,7 @@ impl Default for FetchOptions {
             cache_dir: default_package_cache_dir().unwrap_or_else(|| PathBuf::from(".hx/packages")),
             verify_hashes: true,
             timeout: 60,
+            base_url: HACKAGE_BASE_URL.to_string(),
         }
     }
 }
@@ -81,6 +89,9 @@ impl Default for FetchOptions {
 pub fn default_package_cache_dir() -> Option<PathBuf> {
     hx_cache::package_store_dir().ok()
 }
+
+/// Default package download location.
+pub const HACKAGE_BASE_URL: &str = "https://hackage.haskell.org";
 
 /// Hackage package URL.
 fn hackage_url(name: &str, version: &Version) -> String {
@@ -332,9 +343,308 @@ async fn fetch_expected_hash(
     Ok(hash)
 }
 
-/// Compute SHA256 hash of a file.
-fn compute_file_hash(path: &Path) -> Result<String, FetchError> {
+/// Compute SHA256 hash of a file (lowercase hex).
+pub fn compute_file_hash(path: &Path) -> Result<String, FetchError> {
     Ok(sha256_file(path)?)
+}
+
+/// Compute the SHA256 hash of a byte slice (lowercase hex).
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    to_hex(hasher.finalize())
+}
+
+/// A source tarball to fetch, optionally with the hash it must have
+/// (from the lockfile).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSpec {
+    /// Package name
+    pub name: String,
+    /// Exact package version
+    pub version: String,
+    /// Expected SHA256 of the tarball (lowercase hex). `None` = not pinned.
+    pub sha256: Option<String>,
+}
+
+impl SourceSpec {
+    /// `name-version`.
+    pub fn package_id(&self) -> String {
+        format!("{}-{}", self.name, self.version)
+    }
+}
+
+/// Where hx caches the tarball for `name-version` inside `cache_dir`.
+pub fn cached_tarball_path(cache_dir: &Path, name: &str, version: &str) -> PathBuf {
+    cache_dir.join(format!("{}-{}.tar.gz", name, version))
+}
+
+/// Where cabal-install keeps (and, with `--offline`, expects) the tarball for
+/// `name-version` inside its repository cache (see
+/// [`crate::index::cabal_repo_cache_dir`]).
+pub fn cabal_cached_tarball_path(repo_dir: &Path, name: &str, version: &str) -> PathBuf {
+    repo_dir
+        .join(name)
+        .join(version)
+        .join(format!("{}-{}.tar.gz", name, version))
+}
+
+/// State of one source in a cache, as checked against its pinned hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceStatus {
+    /// Present and matching the pinned hash.
+    Verified { path: PathBuf, sha256: String },
+    /// Present, but there is no pinned hash to compare against.
+    Unpinned { path: PathBuf, sha256: String },
+    /// Not in the cache.
+    Missing { path: PathBuf },
+    /// Present with different content than the pinned hash.
+    Mismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+}
+
+impl SourceStatus {
+    /// Whether the cached tarball can be used.
+    pub fn is_usable(&self) -> bool {
+        matches!(
+            self,
+            SourceStatus::Verified { .. } | SourceStatus::Unpinned { .. }
+        )
+    }
+}
+
+/// Check a cached tarball at `path` against `expected` (lowercase hex).
+pub fn check_source_file(path: &Path, expected: Option<&str>) -> Result<SourceStatus, FetchError> {
+    if !path.is_file() {
+        return Ok(SourceStatus::Missing {
+            path: path.to_path_buf(),
+        });
+    }
+    let actual = compute_file_hash(path)?;
+    Ok(match expected {
+        Some(expected) if expected != actual => SourceStatus::Mismatch {
+            path: path.to_path_buf(),
+            expected: expected.to_string(),
+            actual,
+        },
+        Some(_) => SourceStatus::Verified {
+            path: path.to_path_buf(),
+            sha256: actual,
+        },
+        None => SourceStatus::Unpinned {
+            path: path.to_path_buf(),
+            sha256: actual,
+        },
+    })
+}
+
+/// Fetch source tarballs into `options.cache_dir`, verifying each against
+/// its pinned hash.
+///
+/// Already-cached tarballs are re-hashed rather than trusted. A hash
+/// mismatch is reported as [`FetchError::HashMismatch`] and never leaves a
+/// file behind for a fresh download; a mismatching *cached* file is left in
+/// place for inspection. Results are returned per spec, in input order, so
+/// callers can report every failure at once.
+pub async fn fetch_sources(
+    specs: &[SourceSpec],
+    options: &FetchOptions,
+) -> Vec<(SourceSpec, Result<FetchResult, FetchError>)> {
+    if let Err(e) = fs::create_dir_all(&options.cache_dir) {
+        let msg = e.to_string();
+        return specs
+            .iter()
+            .map(|s| {
+                (
+                    s.clone(),
+                    Err(FetchError::CreateDir(io::Error::other(msg.clone()))),
+                )
+            })
+            .collect();
+    }
+
+    let client = match hx_core::http::builder()
+        .timeout(Duration::from_secs(options.timeout))
+        .build()
+    {
+        Ok(c) => Arc::new(c),
+        Err(e) => {
+            let msg = e.to_string();
+            return specs
+                .iter()
+                .map(|s| (s.clone(), Err(FetchError::NotFound(msg.clone()))))
+                .collect();
+        }
+    };
+
+    let jobs = options.jobs.max(1);
+    stream::iter(specs.iter().cloned())
+        .map(|spec| {
+            let client = Arc::clone(&client);
+            async move {
+                let result = fetch_source(&client, &spec, options).await;
+                (spec, result)
+            }
+        })
+        .buffered(jobs)
+        .collect()
+        .await
+}
+
+/// Fetch (or re-verify) a single source tarball.
+async fn fetch_source(
+    client: &Client,
+    spec: &SourceSpec,
+    options: &FetchOptions,
+) -> Result<FetchResult, FetchError> {
+    let version: Version = spec
+        .version
+        .parse()
+        .map_err(|_| FetchError::InvalidVersion {
+            package: spec.name.clone(),
+            version: spec.version.clone(),
+        })?;
+    let tarball_path = cached_tarball_path(&options.cache_dir, &spec.name, &spec.version);
+    let expected = spec.sha256.as_deref();
+
+    match check_source_file(&tarball_path, expected)? {
+        SourceStatus::Verified { path, sha256 } | SourceStatus::Unpinned { path, sha256 } => {
+            debug!("Package {} already cached", spec.package_id());
+            return Ok(FetchResult {
+                name: spec.name.clone(),
+                version,
+                path,
+                hash: sha256,
+                cached: true,
+            });
+        }
+        SourceStatus::Mismatch {
+            expected, actual, ..
+        } => {
+            return Err(FetchError::HashMismatch {
+                package: spec.package_id(),
+                expected,
+                actual,
+            });
+        }
+        SourceStatus::Missing { .. } => {}
+    }
+
+    let id = spec.package_id();
+    let temp_path = options
+        .cache_dir
+        .join(format!(".{}.tar.gz.{}.tmp", id, std::process::id()));
+    let hash = match download_to(client, &options.base_url, spec, &temp_path).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            let _ = fs::remove_file(&temp_path);
+            return Err(e);
+        }
+    };
+
+    if let Some(expected) = expected
+        && hash != expected
+    {
+        let _ = fs::remove_file(&temp_path);
+        return Err(FetchError::HashMismatch {
+            package: id,
+            expected: expected.to_string(),
+            actual: hash,
+        });
+    }
+
+    fs::rename(&temp_path, &tarball_path)?;
+    info!("Downloaded {}", id);
+
+    Ok(FetchResult {
+        name: spec.name.clone(),
+        version,
+        path: tarball_path,
+        hash,
+        cached: false,
+    })
+}
+
+/// Download `spec`'s tarball from `base_url` into `dest`, returning its hash.
+async fn download_to(
+    client: &Client,
+    base_url: &str,
+    spec: &SourceSpec,
+    dest: &Path,
+) -> Result<String, FetchError> {
+    let id = spec.package_id();
+    let relative = format!("package/{id}/{id}.tar.gz");
+
+    if let Some(root) = base_url.strip_prefix("file://") {
+        let src = Path::new(root).join(&relative);
+        if !src.is_file() {
+            return Err(FetchError::NotFound(format!("{} ({})", id, src.display())));
+        }
+        fs::copy(&src, dest)?;
+        return compute_file_hash(dest);
+    }
+
+    let url = format!("{}/{}", base_url.trim_end_matches('/'), relative);
+    debug!("Fetching {} from {}", id, url);
+    let response = client.get(&url).send().await?;
+    if !response.status().is_success() {
+        return Err(FetchError::NotFound(format!(
+            "{} (HTTP {} from {})",
+            id,
+            response.status(),
+            url
+        )));
+    }
+
+    let mut file = File::create(dest)?;
+    let mut hasher = Sha256::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        file.write_all(&chunk)?;
+        hasher.update(&chunk);
+    }
+    file.flush()?;
+    Ok(to_hex(hasher.finalize()))
+}
+
+/// What [`seed_cabal_cache`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedOutcome {
+    /// Copied into cabal's cache.
+    Added,
+    /// cabal already had an identical copy.
+    AlreadyPresent,
+    /// cabal had a *different* copy, which was replaced by the verified one.
+    Replaced,
+}
+
+/// Make a verified tarball available to cabal-install by copying it into
+/// cabal's repository cache (`repo_dir`), so `cabal build --offline` can use
+/// it.
+pub fn seed_cabal_cache(
+    tarball: &Path,
+    sha256: &str,
+    repo_dir: &Path,
+    name: &str,
+    version: &str,
+) -> Result<SeedOutcome, FetchError> {
+    let dest = cabal_cached_tarball_path(repo_dir, name, version);
+    let outcome = match check_source_file(&dest, Some(sha256))? {
+        SourceStatus::Verified { .. } => return Ok(SeedOutcome::AlreadyPresent),
+        SourceStatus::Missing { .. } => SeedOutcome::Added,
+        _ => SeedOutcome::Replaced,
+    };
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp = dest.with_extension(format!("gz.{}.tmp", std::process::id()));
+    fs::copy(tarball, &temp)?;
+    fs::rename(&temp, &dest)?;
+    Ok(outcome)
 }
 
 /// Summary of fetch operation.
@@ -470,6 +780,150 @@ mod tests {
             summary.hashes.get("pkg2-2.0.0"),
             Some(&"def456".to_string())
         );
+    }
+
+    /// A local `file://` mirror containing `pkg-1.0.tar.gz` with `content`.
+    fn mirror_with(content: &[u8]) -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("package").join("pkg-1.0");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("pkg-1.0.tar.gz"), content).unwrap();
+        let url = format!("file://{}", dir.path().display());
+        (dir, url)
+    }
+
+    fn spec(sha256: Option<String>) -> SourceSpec {
+        SourceSpec {
+            name: "pkg".into(),
+            version: "1.0".into(),
+            sha256,
+        }
+    }
+
+    fn options(cache: &Path, base_url: String) -> FetchOptions {
+        FetchOptions {
+            cache_dir: cache.to_path_buf(),
+            base_url,
+            ..FetchOptions::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_sources_verifies_hash() {
+        let content = b"fake sdist tarball";
+        let (_mirror, url) = mirror_with(content);
+        let cache = tempfile::tempdir().unwrap();
+        let opts = options(cache.path(), url);
+
+        let results = fetch_sources(&[spec(Some(sha256_hex(content)))], &opts).await;
+        let fetched = results[0].1.as_ref().unwrap();
+        assert!(!fetched.cached);
+        assert_eq!(fetched.hash, sha256_hex(content));
+        assert_eq!(fs::read(&fetched.path).unwrap(), content);
+
+        // Second run re-verifies the cached copy without the mirror.
+        let offline = options(cache.path(), "file:///nonexistent".into());
+        let results = fetch_sources(&[spec(Some(sha256_hex(content)))], &offline).await;
+        assert!(results[0].1.as_ref().unwrap().cached);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_sources_rejects_mismatch() {
+        let (_mirror, url) = mirror_with(b"tampered tarball");
+        let cache = tempfile::tempdir().unwrap();
+        let opts = options(cache.path(), url);
+        let expected = sha256_hex(b"original tarball");
+
+        let results = fetch_sources(&[spec(Some(expected.clone()))], &opts).await;
+        match &results[0].1 {
+            Err(FetchError::HashMismatch {
+                package,
+                expected: e,
+                actual,
+            }) => {
+                assert_eq!(package, "pkg-1.0");
+                assert_eq!(e, &expected);
+                assert_eq!(actual, &sha256_hex(b"tampered tarball"));
+            }
+            other => panic!("expected hash mismatch, got {other:?}"),
+        }
+        // Nothing unverified is left in the cache.
+        assert_eq!(fs::read_dir(cache.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_check_source_file_states() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pkg-1.0.tar.gz");
+        assert!(matches!(
+            check_source_file(&path, Some("00")).unwrap(),
+            SourceStatus::Missing { .. }
+        ));
+        fs::write(&path, b"abc").unwrap();
+        let good = sha256_hex(b"abc");
+        assert!(check_source_file(&path, Some(&good)).unwrap().is_usable());
+        assert!(matches!(
+            check_source_file(&path, None).unwrap(),
+            SourceStatus::Unpinned { .. }
+        ));
+        assert!(matches!(
+            check_source_file(&path, Some("00")).unwrap(),
+            SourceStatus::Mismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_seed_cabal_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let tarball = dir.path().join("pkg-1.0.tar.gz");
+        fs::write(&tarball, b"verified").unwrap();
+        let sha = sha256_hex(b"verified");
+        let repo = dir.path().join("repo");
+
+        let seed = |t: &Path| seed_cabal_cache(t, &sha, &repo, "pkg", "1.0").unwrap();
+        assert_eq!(seed(&tarball), SeedOutcome::Added);
+        assert_eq!(seed(&tarball), SeedOutcome::AlreadyPresent);
+        let dest = cabal_cached_tarball_path(&repo, "pkg", "1.0");
+        assert!(dest.ends_with("pkg/1.0/pkg-1.0.tar.gz"));
+        fs::write(&dest, b"corrupt").unwrap();
+        assert_eq!(seed(&tarball), SeedOutcome::Replaced);
+        assert_eq!(fs::read(&dest).unwrap(), b"verified");
+    }
+
+    /// Locks-and-fetches a tiny real package from Hackage end to end.
+    #[tokio::test]
+    #[ignore = "requires network access to hackage.haskell.org"]
+    async fn test_fetch_real_package_from_hackage() {
+        let cache = tempfile::tempdir().unwrap();
+        let opts = options(cache.path(), HACKAGE_BASE_URL.to_string());
+        let unpinned = SourceSpec {
+            name: "hello".into(),
+            version: "1.0.0.2".into(),
+            sha256: None,
+        };
+        let results = fetch_sources(std::slice::from_ref(&unpinned), &opts).await;
+        let first = results[0].1.as_ref().expect("download hello");
+        // Published Hackage tarballs are immutable, so this hash is stable.
+        assert_eq!(
+            first.hash,
+            "a7c0b5a2a9e29b07f36904944e47ad6796db6af3b9431cba6b92b0bcb23bd8f4"
+        );
+
+        // Pinning the observed hash verifies the cached copy...
+        let pinned = SourceSpec {
+            sha256: Some(first.hash.clone()),
+            ..unpinned.clone()
+        };
+        let results = fetch_sources(std::slice::from_ref(&pinned), &opts).await;
+        assert!(results[0].1.as_ref().unwrap().cached);
+
+        // ...and a wrong pin is rejected.
+        let wrong = SourceSpec {
+            sha256: Some("0".repeat(64)),
+            ..unpinned
+        };
+        let results = fetch_sources(&[wrong], &opts).await;
+        assert!(matches!(results[0].1, Err(FetchError::HashMismatch { .. })));
     }
 
     #[test]

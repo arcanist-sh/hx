@@ -47,12 +47,14 @@ pub async fn freeze(project_root: &Path, build_dir: &Path) -> Result<String> {
     let build_dir_str = build_dir.to_string_lossy().to_string();
     let store_dir_str = store_dir.to_string_lossy().to_string();
 
+    // `--store-dir` is a global option: it must precede the subcommand, or
+    // cabal rejects it as an unknown `freeze` option.
     let args = vec![
+        "--store-dir",
+        &store_dir_str,
         "freeze",
         "--builddir",
         &build_dir_str,
-        "--store-dir",
-        &store_dir_str,
     ];
 
     info!("Running cabal freeze in {}", project_root.display());
@@ -97,13 +99,14 @@ pub async fn dry_run(project_root: &Path, build_dir: &Path) -> Result<String> {
     let build_dir_str = build_dir.to_string_lossy().to_string();
     let store_dir_str = store_dir.to_string_lossy().to_string();
 
+    // Global options must come before the subcommand
     let args = [
+        "--store-dir",
+        &store_dir_str as &str,
         "build",
         "--dry-run",
         "--builddir",
         &build_dir_str as &str,
-        "--store-dir",
-        &store_dir_str as &str,
     ];
 
     info!("Running cabal build --dry-run");

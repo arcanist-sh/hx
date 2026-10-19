@@ -56,9 +56,15 @@ pub use extract::{
     extract_package, is_extracted, sources_dir,
 };
 pub use fetch::{
-    FetchError, FetchOptions, FetchResult, FetchSummary, default_package_cache_dir, fetch_packages,
+    FetchError, FetchOptions, FetchResult, FetchSummary, HACKAGE_BASE_URL, SeedOutcome, SourceSpec,
+    SourceStatus, cabal_cached_tarball_path, cached_tarball_path, check_source_file,
+    compute_file_hash, default_package_cache_dir, fetch_packages, fetch_sources, seed_cabal_cache,
+    sha256_hex,
 };
-pub use index::{IndexError, IndexOptions, default_index_path, load_index};
+pub use index::{
+    IndexError, IndexMetadata, IndexOptions, IndexPackageMeta, cabal_repo_cache_dir,
+    default_index_path, load_index, scan_index_metadata,
+};
 pub use mirror::{
     IndexState, IndexStatus, MirrorError, MirrorOptions, UpdateResult, best_index_path,
     clear_index, index_dir, index_is_current, index_path, index_state_path, index_status,

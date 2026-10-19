@@ -31,6 +31,9 @@ pub struct BuildOptions {
     pub project_name: Option<String>,
     /// Additional bin directories to prepend to PATH (for hx-managed toolchains)
     pub toolchain_bin_dirs: Vec<PathBuf>,
+    /// Extra `cabal build` arguments, e.g. the `--constraint`/`--index-state`
+    /// pins from a lockfile and `--offline`
+    pub extra_args: Vec<String>,
 }
 
 /// Result of a build operation.
@@ -76,6 +79,8 @@ pub async fn build(
     if let Some(ref target) = options.target {
         args.push(format!("--target={}", target));
     }
+
+    args.extend(options.extra_args.iter().cloned());
 
     // Add package targets for workspace builds
     args.extend(options.targets.iter().cloned());

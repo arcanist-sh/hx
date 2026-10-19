@@ -30,8 +30,10 @@ fn test_load_hackage_index() {
     require_hackage_index!();
 
     let index_path = default_index_path().unwrap();
+    // Only load `base` for speed. (A `max_packages` limit would load the
+    // oldest tar entries, which need not include any particular package.)
     let options = IndexOptions {
-        max_packages: 100, // Limit for faster testing
+        filter_packages: vec!["base".to_string()],
         ..Default::default()
     };
 
@@ -68,10 +70,11 @@ fn test_resolve_real_package_text() {
         "text should be in the plan"
     );
 
-    // base should be in the plan (dependency)
+    // Reinstallable dependencies are resolved from Hackage. (`base` is
+    // toolchain-provided and only appears when seeded as installed.)
     assert!(
-        plan.get_version("base").is_some(),
-        "base should be in the plan"
+        plan.get_version("bytestring").is_some(),
+        "bytestring should be in the plan"
     );
 }
 

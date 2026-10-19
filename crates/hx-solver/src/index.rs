@@ -267,30 +267,182 @@ fn load_from_tar<R: Read>(reader: R, options: &IndexOptions) -> Result<PackageIn
     Ok(index)
 }
 
-/// Get the default Hackage index path.
-pub fn default_index_path() -> Option<std::path::PathBuf> {
-    let home = hx_cache::home_dir().ok()?;
-    let path = home
-        .join(".cabal")
-        .join("packages")
-        .join("hackage.haskell.org")
-        .join("01-index.tar.gz");
-
-    if path.exists() {
-        Some(path)
+/// Cabal's per-repository download cache for Hackage
+/// (`<cabal packages dir>/hackage.haskell.org`).
+///
+/// This is where `cabal` keeps `01-index.tar` and where it looks for
+/// downloaded sdists (`<pkg>/<ver>/<pkg>-<ver>.tar.gz`), including when run
+/// with `--offline`. Mirrors cabal-install's own lookup: `$CABAL_DIR/packages`
+/// if set, else `~/.cabal/packages` if `~/.cabal` exists, else the XDG cache
+/// (`$XDG_CACHE_HOME/cabal/packages`, default `~/.cache/cabal/packages`).
+/// A custom `remote-repo-cache` in the cabal config is not consulted.
+pub fn cabal_repo_cache_dir() -> Option<std::path::PathBuf> {
+    let packages = if let Some(dir) = std::env::var_os("CABAL_DIR").filter(|d| !d.is_empty()) {
+        std::path::PathBuf::from(dir).join("packages")
     } else {
-        // Try uncompressed version
-        let uncompressed = home
-            .join(".cabal")
-            .join("packages")
-            .join("hackage.haskell.org")
-            .join("01-index.tar");
-        if uncompressed.exists() {
-            Some(uncompressed)
+        let home = hx_cache::home_dir().ok()?;
+        let dot_cabal = home.join(".cabal");
+        if dot_cabal.exists() {
+            dot_cabal.join("packages")
         } else {
-            None
+            std::env::var_os("XDG_CACHE_HOME")
+                .filter(|d| !d.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| home.join(".cache"))
+                .join("cabal")
+                .join("packages")
+        }
+    };
+    Some(packages.join("hackage.haskell.org"))
+}
+
+/// Get the default Hackage index path (cabal's copy of the index).
+pub fn default_index_path() -> Option<std::path::PathBuf> {
+    let repo = cabal_repo_cache_dir()?;
+    ["01-index.tar.gz", "01-index.tar"]
+        .iter()
+        .map(|name| repo.join(name))
+        .find(|path| path.exists())
+}
+
+/// Source and metadata hashes the Hackage index records for one
+/// package version.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IndexPackageMeta {
+    /// SHA-256 of the sdist tarball, from the index's signed
+    /// `package.json` (TUF targets) entry.
+    pub sdist_sha256: Option<String>,
+    /// Size of the sdist tarball in bytes, from the same entry.
+    pub sdist_length: Option<u64>,
+    /// SHA-256 of every `.cabal` revision, oldest (revision 0) first.
+    pub cabal_revisions: Vec<String>,
+}
+
+impl IndexPackageMeta {
+    /// The latest revision number and its `.cabal` hash.
+    pub fn latest_revision(&self) -> Option<(u32, &str)> {
+        let last = self.cabal_revisions.last()?;
+        Some(((self.cabal_revisions.len() - 1) as u32, last.as_str()))
+    }
+}
+
+/// What a pass over the Hackage index learned about a set of packages.
+#[derive(Debug, Clone, Default)]
+pub struct IndexMetadata {
+    /// Timestamp of the newest index entry considered: the `index-state`
+    /// that reproduces this view of the index.
+    pub index_state: Option<chrono::DateTime<chrono::Utc>>,
+    /// Metadata keyed by `(name, version)`.
+    pub packages: HashMap<(String, String), IndexPackageMeta>,
+}
+
+impl IndexMetadata {
+    /// Metadata for `name-version`, if the index has it.
+    pub fn get(&self, name: &str, version: &str) -> Option<&IndexPackageMeta> {
+        self.packages.get(&(name.to_string(), version.to_string()))
+    }
+
+    /// `index_state` formatted the way Cabal's `--index-state` expects.
+    pub fn index_state_string(&self) -> Option<String> {
+        self.index_state
+            .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    }
+}
+
+/// Scan a Hackage index for the sdist hashes and `.cabal` revisions of
+/// `wanted` packages (`(name, version)` pairs).
+///
+/// With `cutoff` (a Unix timestamp), entries newer than it are ignored,
+/// which is exactly how Cabal applies an `index-state`: the result then
+/// describes the revisions a build pinned to that index state will see.
+pub fn scan_index_metadata(
+    path: &Path,
+    wanted: &std::collections::HashSet<(String, String)>,
+    cutoff: Option<i64>,
+) -> Result<IndexMetadata, IndexError> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    if path.extension().map(|e| e == "gz").unwrap_or(false) {
+        scan_metadata_from_tar(GzDecoder::new(reader), wanted, cutoff)
+    } else {
+        scan_metadata_from_tar(reader, wanted, cutoff)
+    }
+}
+
+fn scan_metadata_from_tar<R: Read>(
+    reader: R,
+    wanted: &std::collections::HashSet<(String, String)>,
+    cutoff: Option<i64>,
+) -> Result<IndexMetadata, IndexError> {
+    let mut archive = Archive::new(reader);
+    let mut meta = IndexMetadata::default();
+    let mut newest: Option<i64> = None;
+
+    let entries = archive
+        .entries()
+        .map_err(|e| IndexError::TarRead(e.to_string()))?;
+    for entry in entries {
+        let mut entry = entry.map_err(|e| IndexError::TarRead(e.to_string()))?;
+        let mtime = entry.header().mtime().unwrap_or(0) as i64;
+        if cutoff.is_some_and(|c| mtime > c) {
+            continue;
+        }
+        newest = Some(newest.map_or(mtime, |n| n.max(mtime)));
+
+        let path = match entry.path() {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(_) => continue,
+        };
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let key = (parts[0].to_string(), parts[1].to_string());
+        if !wanted.contains(&key) {
+            continue;
+        }
+
+        let mut content = Vec::new();
+        entry
+            .read_to_end(&mut content)
+            .map_err(|e| IndexError::TarRead(format!("failed to read {}: {}", path, e)))?;
+
+        if parts[2].ends_with(".cabal") {
+            meta.packages
+                .entry(key)
+                .or_default()
+                .cabal_revisions
+                .push(crate::fetch::sha256_hex(&content));
+        } else if parts[2] == "package.json" {
+            let tarball = format!("{}-{}.tar.gz", key.0, key.1);
+            if let Some((sha, len)) = parse_package_json_target(&content, &tarball) {
+                let pkg = meta.packages.entry(key).or_default();
+                pkg.sdist_sha256 = Some(sha);
+                pkg.sdist_length = len;
+            }
         }
     }
+
+    meta.index_state = newest.and_then(|t| chrono::DateTime::from_timestamp(t, 0));
+    Ok(meta)
+}
+
+/// Extract the sdist hash from an index `package.json` (TUF targets file).
+fn parse_package_json_target(content: &[u8], tarball: &str) -> Option<(String, Option<u64>)> {
+    let json: serde_json::Value = serde_json::from_slice(content).ok()?;
+    let targets = json.get("signed")?.get("targets")?.as_object()?;
+    let suffix = format!("/{}", tarball);
+    let target = targets
+        .iter()
+        .find(|(k, _)| k.ends_with(&suffix) || k.as_str() == tarball)
+        .map(|(_, v)| v)?;
+    let sha = target
+        .get("hashes")?
+        .get("sha256")?
+        .as_str()?
+        .to_ascii_lowercase();
+    let len = target.get("length").and_then(|l| l.as_u64());
+    Some((sha, len))
 }
 
 #[cfg(test)]
@@ -334,6 +486,99 @@ library
         builder.append(&header2, &cabal_content2[..]).unwrap();
 
         builder.into_inner().unwrap()
+    }
+
+    fn append(builder: &mut Builder<Vec<u8>>, path: &str, content: &[u8], mtime: u64) {
+        let mut header = tar::Header::new_gnu();
+        header.set_path(path).unwrap();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(mtime);
+        header.set_cksum();
+        builder.append(&header, content).unwrap();
+    }
+
+    fn package_json(tarball: &str, sha: &str, len: u64) -> Vec<u8> {
+        format!(
+            r#"{{"signatures":[],"signed":{{"_type":"Targets","expires":null,"targets":{{"<repo>/package/{tarball}":{{"hashes":{{"md5":"00","sha256":"{sha}"}},"length":{len}}}}},"version":0}}}}"#
+        )
+        .into_bytes()
+    }
+
+    /// An index where `foo-1.0` has two `.cabal` revisions and a signed
+    /// sdist hash, plus an unrelated package.
+    fn create_revisioned_index() -> Vec<u8> {
+        let mut builder = Builder::new(Vec::new());
+        append(
+            &mut builder,
+            "foo/1.0/foo.cabal",
+            b"name: foo\nversion: 1.0\n",
+            1_000,
+        );
+        append(
+            &mut builder,
+            "foo/1.0/package.json",
+            &package_json("foo-1.0.tar.gz", "ABCD", 42),
+            1_000,
+        );
+        append(
+            &mut builder,
+            "bar/2.0/bar.cabal",
+            b"name: bar\nversion: 2.0\n",
+            2_000,
+        );
+        append(
+            &mut builder,
+            "foo/1.0/foo.cabal",
+            b"name: foo\nversion: 1.0\nx-revision: 1\n",
+            3_000,
+        );
+        builder.into_inner().unwrap()
+    }
+
+    fn wanted(pairs: &[(&str, &str)]) -> std::collections::HashSet<(String, String)> {
+        pairs
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_scan_metadata_revisions_and_sdist_hash() {
+        let data = create_revisioned_index();
+        let meta =
+            scan_metadata_from_tar(std::io::Cursor::new(data), &wanted(&[("foo", "1.0")]), None)
+                .unwrap();
+        let foo = meta.get("foo", "1.0").unwrap();
+        assert_eq!(foo.sdist_sha256.as_deref(), Some("abcd"));
+        assert_eq!(foo.sdist_length, Some(42));
+        assert_eq!(foo.cabal_revisions.len(), 2);
+        assert_eq!(
+            foo.cabal_revisions[0],
+            crate::fetch::sha256_hex(b"name: foo\nversion: 1.0\n")
+        );
+        assert_eq!(foo.latest_revision().unwrap().0, 1);
+        // Unwanted packages are not collected, but still count for the state.
+        assert!(meta.get("bar", "2.0").is_none());
+        assert_eq!(
+            meta.index_state_string().as_deref(),
+            Some("1970-01-01T00:50:00Z")
+        );
+    }
+
+    #[test]
+    fn test_scan_metadata_respects_index_state_cutoff() {
+        let data = create_revisioned_index();
+        let meta = scan_metadata_from_tar(
+            std::io::Cursor::new(data),
+            &wanted(&[("foo", "1.0")]),
+            Some(2_500),
+        )
+        .unwrap();
+        // The revision published at t=3000 is invisible at index-state 2500.
+        let foo = meta.get("foo", "1.0").unwrap();
+        assert_eq!(foo.cabal_revisions.len(), 1);
+        assert_eq!(meta.index_state.unwrap().timestamp(), 2_000);
     }
 
     #[test]

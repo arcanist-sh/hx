@@ -3,18 +3,22 @@
 use anyhow::{Context, Result};
 use hx_cabal::freeze;
 use hx_config::{LOCKFILE_FILENAME, MANIFEST_FILENAME, Manifest, Project, find_project_root};
-use hx_lock::{LockedPackage, Lockfile, WorkspacePackageInfo, parse_freeze_file};
+use hx_lock::{
+    LOCK_VERSION, LockedPackage, Lockfile, WorkspacePackageInfo, parse_freeze_file,
+    parse_freeze_index_state,
+};
 use hx_plugins::HookEvent;
 use hx_solver::{
     CabalContext, Dependency, IndexOptions, MirrorOptions, Resolver, ResolverConfig, SnapshotId,
-    best_index_path, compute_deps_fingerprint, index_is_current, load_cached_index,
-    load_cached_resolution, load_index, load_snapshot, parse_cabal_ctx, save_index_cache,
-    save_resolution_cache, update_index,
+    best_index_path, compute_deps_fingerprint, default_index_path, index_is_current,
+    load_cached_index, load_cached_resolution, load_index, load_snapshot, parse_cabal_ctx,
+    save_index_cache, save_resolution_cache, update_index,
 };
 use hx_toolchain::Toolchain;
 use hx_ui::{Output, Spinner};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use super::sources::{self, IndexFinding};
 use crate::plugins::PluginHooks;
 
 /// Run the lock command.
@@ -22,8 +26,13 @@ pub async fn run(
     use_cabal: bool,
     update: Option<Vec<String>>,
     snapshot: Option<String>,
+    check: bool,
     output: &Output,
 ) -> Result<i32> {
+    if check {
+        return run_check(output).await;
+    }
+
     // Handle --snapshot flag: set snapshot in manifest before locking
     if let Some(snapshot_str) = snapshot {
         let project_root = find_project_root(".")?;
@@ -147,33 +156,26 @@ pub async fn run(
         }
     }
 
-    // Calculate fingerprint
-    let fingerprint = lockfile.fingerprint();
-    lockfile.plan.hash = Some(fingerprint);
+    lockfile.plan.compiler_id = lockfile.toolchain.ghc.as_ref().map(|v| format!("ghc-{v}"));
+    apply_project_context(&mut lockfile, &project);
+    spinner.finish_success("Collected locked versions");
 
-    // Detect platform
-    lockfile.plan.platform = Some(detect_platform());
+    // cabal resolved against its own index; pin hashes from that index, as of
+    // the index-state the freeze file recorded (if any).
+    let index_path = default_index_path().or_else(best_index_path);
+    record_hashes(
+        &mut lockfile,
+        index_path,
+        parse_freeze_index_state(&freeze_content),
+        &project,
+        output,
+    );
 
-    // Write lockfile
+    let spinner = Spinner::new("Writing lockfile...");
     let lockfile_path = project.lockfile_path();
-    lockfile.to_file(&lockfile_path)?;
+    let write = write_lockfile(&mut lockfile, &lockfile_path)?;
 
-    if project.is_workspace() {
-        spinner.finish_success(format!(
-            "Created {} with {} workspace packages and {} external dependencies",
-            LOCKFILE_FILENAME,
-            lockfile.workspace.packages.len(),
-            lockfile.packages.len()
-        ));
-    } else {
-        spinner.finish_success(format!(
-            "Created {} with {} packages",
-            LOCKFILE_FILENAME,
-            lockfile.packages.len()
-        ));
-    }
-
-    output.info(&format!("Lockfile: {}", lockfile_path.display()));
+    finish_write(spinner, &lockfile, &project, write, output);
 
     // Run post-lock hooks
     if let Some(ref mut h) = hooks {
@@ -246,55 +248,12 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         output.status("Locking", project.name());
     }
 
-    // Build the context for evaluating `.cabal` conditionals: the GHC version
-    // we're locking for (manifest pin, else detected, else a sensible default)
-    // plus the host platform. This keeps platform/compiler-specific deps
-    // (e.g. `Win32` on Windows, `semigroups` on old GHC) out of the lockfile.
-    let cabal_ctx = {
-        let ghc: hx_solver::Version = match project
-            .manifest
-            .toolchain
-            .ghc
-            .as_deref()
-            .and_then(|s| s.parse().ok())
-        {
-            Some(v) => v,
-            None => Toolchain::detect()
-                .await
-                .ghc
-                .status
-                .version()
-                .and_then(|v| v.to_string().parse().ok())
-                .unwrap_or_else(|| "9.8.2".parse().expect("valid default GHC version")),
-        };
-        CabalContext::host(ghc)
-    };
+    let cabal_ctx = lock_context(&project).await;
 
     // Collect dependencies from project .cabal files first
     // (so we can check the resolution cache before loading the index)
     let spinner = Spinner::new("Collecting project dependencies...");
-    let mut all_deps: Vec<Dependency> = Vec::new();
-    let workspace_names: Vec<String> = project
-        .package_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-    // Scan every project `.cabal` file. `cabal_files()` covers both workspace
-    // members and single-package projects; iterating `workspace_packages`
-    // directly skipped single-package projects entirely (empty lockfile).
-    for cabal_file in project.cabal_files() {
-        let content = std::fs::read_to_string(&cabal_file)
-            .with_context(|| format!("Failed to read {}", cabal_file.display()))?;
-        let cabal = parse_cabal_ctx(&content, &cabal_ctx);
-        for dep in cabal.all_dependencies() {
-            // Skip workspace packages
-            if !workspace_names.contains(&dep.name) && !all_deps.iter().any(|d| d.name == dep.name)
-            {
-                all_deps.push(dep);
-            }
-        }
-    }
+    let all_deps = collect_project_deps(&project, &cabal_ctx)?;
     spinner.finish_success(format!("Found {} dependencies", all_deps.len()));
 
     // Check for Stackage snapshot configuration
@@ -360,6 +319,15 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         .collect();
     if let Some((ref snapshot_name, _)) = snapshot {
         deps_for_fingerprint.push(("__snapshot__".to_string(), snapshot_name.clone()));
+    }
+
+    // Versions the installed GHC fixes (see `toolchain_fixed_packages`); they
+    // shape the plan, so they are part of the resolution cache key.
+    let direct_names: Vec<String> = all_deps.iter().map(|d| d.name.clone()).collect();
+    let toolchain_pins =
+        toolchain_fixed_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
+    for (name, version) in &toolchain_pins {
+        deps_for_fingerprint.push((format!("__ghc__{name}"), version.clone()));
     }
     let deps_fingerprint = compute_deps_fingerprint(&deps_for_fingerprint);
 
@@ -474,6 +442,14 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
                         pinned_count
                     ));
                 }
+            }
+        }
+
+        // Packages fixed by the installed GHC override everything else: a
+        // plan that disagrees with them cannot be built.
+        for (name, version) in &toolchain_pins {
+            if let Ok(v) = version.parse() {
+                config.installed.insert(name.clone(), v);
             }
         }
 
@@ -593,8 +569,14 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
             }
         }
 
-        // Determine the source - stackage if package came from snapshot, otherwise hackage
-        let source = if snapshot
+        // Determine the source: the installed GHC's copy if the toolchain
+        // fixes it, stackage if it came from the snapshot, otherwise hackage
+        let source = if toolchain_pins
+            .get(&pkg.name)
+            .is_some_and(|v| *v == pkg.version.to_string())
+        {
+            "ghc".to_string()
+        } else if snapshot
             .as_ref()
             .is_some_and(|(_, s)| s.packages.contains_key(&pkg.name))
         {
@@ -603,12 +585,9 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
             "hackage".to_string()
         };
 
-        lockfile.add_package(LockedPackage {
-            name: pkg.name.clone(),
-            version: pkg.version.to_string(),
-            source,
-            hash: None,
-        });
+        lockfile.add_package(
+            LockedPackage::hackage(pkg.name.clone(), pkg.version.to_string()).with_source(source),
+        );
     }
 
     // Show updated packages
@@ -621,33 +600,18 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         output.info("No package updates available");
     }
 
-    // Calculate fingerprint
-    let fingerprint = lockfile.fingerprint();
-    lockfile.plan.hash = Some(fingerprint);
+    // The plan was resolved for this compiler and platform: record both, so
+    // a build elsewhere can tell it is using a plan made for another context.
+    lockfile.plan.compiler_id = Some(format!("ghc-{}", cabal_ctx.ghc_version));
+    apply_project_context(&mut lockfile, &project);
+    spinner.finish_success("Collected locked versions");
 
-    // Detect platform
-    lockfile.plan.platform = Some(detect_platform());
+    record_hashes(&mut lockfile, best_index_path(), None, &project, output);
 
-    // Write lockfile
+    let spinner = Spinner::new("Writing lockfile...");
     let lockfile_path = project.lockfile_path();
-    lockfile.to_file(&lockfile_path)?;
-
-    if project.is_workspace() {
-        spinner.finish_success(format!(
-            "Created {} with {} workspace packages and {} external dependencies",
-            LOCKFILE_FILENAME,
-            lockfile.workspace.packages.len(),
-            lockfile.packages.len()
-        ));
-    } else {
-        spinner.finish_success(format!(
-            "Created {} with {} packages",
-            LOCKFILE_FILENAME,
-            lockfile.packages.len()
-        ));
-    }
-
-    output.info(&format!("Lockfile: {}", lockfile_path.display()));
+    let write = write_lockfile(&mut lockfile, &lockfile_path)?;
+    finish_write(spinner, &lockfile, &project, write, output);
 
     // Run post-lock hooks
     if let Some(ref mut h) = hooks {
@@ -655,6 +619,500 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
     }
 
     Ok(0)
+}
+
+/// The context `.cabal` conditionals are evaluated in when locking: the GHC
+/// version we're locking for (manifest pin, else detected, else a sensible
+/// default) plus the host platform. This keeps platform/compiler-specific deps
+/// (e.g. `Win32` on Windows, `semigroups` on old GHC) out of the lockfile.
+async fn lock_context(project: &Project) -> CabalContext {
+    let ghc: hx_solver::Version = match project
+        .manifest
+        .toolchain
+        .ghc
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+    {
+        Some(v) => v,
+        None => Toolchain::detect()
+            .await
+            .ghc
+            .status
+            .version()
+            .and_then(|v| v.to_string().parse().ok())
+            .unwrap_or_else(|| "9.8.2".parse().expect("valid default GHC version")),
+    };
+    CabalContext::host(ghc)
+}
+
+/// Package versions the installed GHC fixes for any build: its
+/// compiler-internal packages (`base`, `template-haskell`, ...) and every
+/// package they depend on in the global package database (e.g. `deepseq`,
+/// `pretty`). Cabal cannot pick other versions of these, because the installed
+/// compiler-internal libraries were built against exactly these instances.
+///
+/// Empty when `ghc-pkg` is unavailable or belongs to a different GHC than the
+/// one being locked for (the plan then cannot account for installed versions).
+async fn toolchain_fixed_packages(
+    ghc: &hx_solver::Version,
+    direct_deps: &[String],
+    output: &Output,
+) -> std::collections::BTreeMap<String, String> {
+    let mut fixed = std::collections::BTreeMap::new();
+    let runner = hx_core::CommandRunner::new();
+    let version_ok = match runner.run("ghc-pkg", ["--version"]).await {
+        Ok(out) if out.success() => out
+            .stdout
+            .split_whitespace()
+            .last()
+            .is_some_and(|v| v == ghc.to_string()),
+        _ => false,
+    };
+    if !version_ok {
+        output.verbose(&format!(
+            "ghc-pkg for GHC {ghc} not found; installed package versions are not pinned"
+        ));
+        return fixed;
+    }
+
+    let packages = hx_cabal::query_all_packages(&[]).await;
+    let by_id: std::collections::HashMap<&str, &hx_cabal::PackageInfo> =
+        packages.iter().map(|p| (p.id.as_str(), p)).collect();
+    // Roots: the compiler-internal packages every plan may use, plus any
+    // compiler-API package (`ghc`, `ghci`, ...) the project depends on
+    // directly. Pinning the closure of `ghc` unconditionally would freeze
+    // half of the boot packages for projects that never use the GHC API.
+    let mut stack: Vec<&hx_cabal::PackageInfo> = packages
+        .iter()
+        .filter(|p| hx_solver::resolver::is_ghc_builtin(&p.name))
+        .filter(|p| !is_compiler_api(&p.name) || direct_deps.iter().any(|d| d == &p.name))
+        .collect();
+    while let Some(pkg) = stack.pop() {
+        if fixed
+            .insert(pkg.name.clone(), pkg.version.clone())
+            .is_some()
+        {
+            continue;
+        }
+        stack.extend(pkg.depends.iter().filter_map(|id| by_id.get(id.as_str())));
+    }
+    if !fixed.is_empty() {
+        output.verbose(&format!(
+            "Pinning {} packages fixed by the installed GHC {}",
+            fixed.len(),
+            ghc
+        ));
+    }
+    fixed
+}
+
+/// GHC-API packages that only constrain a plan when it actually uses them.
+fn is_compiler_api(name: &str) -> bool {
+    matches!(
+        name,
+        "ghc" | "ghci" | "ghc-boot" | "ghc-heap" | "ghc-experimental" | "libiserv"
+    )
+}
+
+/// Collect the direct dependencies declared by the project's `.cabal` files
+/// (excluding workspace members), deduplicated by name.
+fn collect_project_deps(project: &Project, cabal_ctx: &CabalContext) -> Result<Vec<Dependency>> {
+    let mut all_deps: Vec<Dependency> = Vec::new();
+    let workspace_names: Vec<String> = project
+        .package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    // Scan every project `.cabal` file. `cabal_files()` covers both workspace
+    // members and single-package projects; iterating `workspace_packages`
+    // directly skipped single-package projects entirely (empty lockfile).
+    for cabal_file in project.cabal_files() {
+        let content = std::fs::read_to_string(&cabal_file)
+            .with_context(|| format!("Failed to read {}", cabal_file.display()))?;
+        let cabal = parse_cabal_ctx(&content, cabal_ctx);
+        for dep in cabal.all_dependencies() {
+            // Skip workspace packages
+            if !workspace_names.contains(&dep.name) && !all_deps.iter().any(|d| d.name == dep.name)
+            {
+                all_deps.push(dep);
+            }
+        }
+    }
+    Ok(all_deps)
+}
+
+/// Record the platform, the BHC toolchain/profile and the BHC Platform
+/// snapshot (for BHC projects) in the lockfile.
+fn apply_project_context(lockfile: &mut Lockfile, project: &Project) {
+    lockfile.plan.platform = Some(detect_platform());
+
+    let manifest = &project.manifest;
+    if manifest.compiler.backend == hx_config::CompilerBackend::Bhc {
+        lockfile.toolchain.bhc = manifest
+            .compiler
+            .version
+            .clone()
+            .or_else(|| hx_toolchain::detect_bhc().map(|b| b.version));
+        lockfile.toolchain.bhc_profile = Some(manifest.compiler.bhc.profile.as_str().to_string());
+        lockfile.plan.bhc_platform = manifest.bhc_platform.snapshot.clone();
+    }
+}
+
+/// Pin source hashes and `.cabal` revisions from the Hackage index.
+///
+/// Pins for unchanged versions are first carried over from the existing
+/// lockfile, so a missing index never silently drops them.
+fn record_hashes(
+    lockfile: &mut Lockfile,
+    index_path: Option<PathBuf>,
+    index_state: Option<String>,
+    project: &Project,
+    output: &Output,
+) {
+    let previous = Lockfile::from_file(project.lockfile_path()).ok();
+    if let Some(ref prev) = previous {
+        for pkg in &mut lockfile.packages {
+            if let Some(old) = prev.package(&pkg.name)
+                && old.version == pkg.version
+                && old.source == pkg.source
+            {
+                pkg.sha256 = old.sha256.clone();
+                pkg.revision = old.revision;
+                pkg.cabal_sha256 = old.cabal_sha256.clone();
+            }
+        }
+    }
+
+    let Some(index_path) = index_path else {
+        lockfile.plan.index_state =
+            index_state.or_else(|| previous.as_ref().and_then(|p| p.plan.index_state.clone()));
+        output.warn("No Hackage index found, so source hashes could not be recorded");
+        output.info("fix: Run `hx index update` and then `hx lock` again");
+        return;
+    };
+
+    let spinner = Spinner::new("Recording source hashes...");
+    match sources::record_source_hashes(lockfile, &index_path, index_state) {
+        Ok(recording) => {
+            let state = lockfile
+                .plan
+                .index_state
+                .as_deref()
+                .map(|s| format!(" (index-state {s})"))
+                .unwrap_or_default();
+            spinner.finish_success(format!(
+                "Pinned {} source hash{}{}",
+                recording.hashed,
+                if recording.hashed == 1 { "" } else { "es" },
+                state
+            ));
+            if !recording.missing.is_empty() {
+                output.warn(&format!(
+                    "no source hash in the Hackage index for: {}",
+                    recording.missing.join(", ")
+                ));
+                output.info("fix: Run `hx index update` and then `hx lock` again");
+            }
+        }
+        Err(e) => {
+            spinner.finish_warning("Could not record source hashes");
+            output.warn(&format!("{:#}", e));
+        }
+    }
+}
+
+/// What writing the lockfile changed.
+enum WriteOutcome {
+    /// No lockfile existed before.
+    Created,
+    /// The content changed.
+    Updated,
+    /// An older-format lockfile was rewritten in the current format.
+    Upgraded(u32),
+    /// Nothing changed; the file was left untouched.
+    Unchanged,
+}
+
+/// Finalize (fingerprint) and write the lockfile, keeping the previous
+/// `created_at` and leaving the file untouched when nothing changed.
+fn write_lockfile(lockfile: &mut Lockfile, path: &Path) -> Result<WriteOutcome> {
+    lockfile.plan.hash = None;
+    lockfile.plan.hash = Some(lockfile.fingerprint());
+
+    let previous = if path.exists() {
+        Lockfile::from_file(path).ok()
+    } else {
+        None
+    };
+    let outcome = match previous {
+        None if path.exists() => WriteOutcome::Updated,
+        None => WriteOutcome::Created,
+        Some(prev) if prev.needs_upgrade() => WriteOutcome::Upgraded(prev.version),
+        Some(prev) if prev.same_content(lockfile) => {
+            lockfile.created_at = prev.created_at;
+            return Ok(WriteOutcome::Unchanged);
+        }
+        Some(_) => WriteOutcome::Updated,
+    };
+    lockfile.to_file(path)?;
+    Ok(outcome)
+}
+
+/// Report a lockfile write.
+fn finish_write(
+    spinner: Spinner,
+    lockfile: &Lockfile,
+    project: &Project,
+    write: WriteOutcome,
+    output: &Output,
+) {
+    let contents = if project.is_workspace() {
+        format!(
+            "{} workspace packages and {} external dependencies",
+            lockfile.workspace.packages.len(),
+            lockfile.packages.len()
+        )
+    } else {
+        format!("{} packages", lockfile.packages.len())
+    };
+    match write {
+        WriteOutcome::Created => {
+            spinner.finish_success(format!("Created {} with {}", LOCKFILE_FILENAME, contents))
+        }
+        WriteOutcome::Updated => {
+            spinner.finish_success(format!("Updated {} with {}", LOCKFILE_FILENAME, contents))
+        }
+        WriteOutcome::Upgraded(from) => spinner.finish_success(format!(
+            "Upgraded {} from format v{} to v{} ({})",
+            LOCKFILE_FILENAME, from, LOCK_VERSION, contents
+        )),
+        WriteOutcome::Unchanged => spinner.finish_success(format!(
+            "{} is up to date ({})",
+            LOCKFILE_FILENAME, contents
+        )),
+    }
+    output.info(&format!("Lockfile: {}", project.lockfile_path().display()));
+}
+
+/// `hx lock --check`: verify the lockfile without changing it.
+///
+/// Checks that hx.lock is current-format, matches hx.toml and the `.cabal`
+/// files, pins every source, agrees with the Hackage index (as of its
+/// `index_state`), and that every cached tarball matches its pin. Intended
+/// for CI; exits non-zero on any mismatch.
+async fn run_check(output: &Output) -> Result<i32> {
+    let project_root = find_project_root(".")?;
+    let project = Project::load(&project_root)?;
+    let started = std::time::Instant::now();
+    let lockfile_path = project.lockfile_path();
+    output.status("Checking", LOCKFILE_FILENAME);
+
+    if !lockfile_path.exists() {
+        output.error(&format!("{} not found", LOCKFILE_FILENAME));
+        output.info("fix: Run `hx lock` to create it, and commit it");
+        return Ok(3);
+    }
+    let lockfile = match Lockfile::from_file(&lockfile_path) {
+        Ok(lock) => lock,
+        Err(e) => {
+            output.error(&format!("{} could not be read: {}", LOCKFILE_FILENAME, e));
+            output.info("fix: Run `hx lock` to regenerate it");
+            return Ok(3);
+        }
+    };
+
+    let mut problems: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+
+    if lockfile.needs_upgrade() {
+        problems.push(format!(
+            "lockfile uses format v{} (current is v{}) and has no source hashes",
+            lockfile.version, LOCK_VERSION
+        ));
+    }
+
+    // Consistency with hx.toml and the .cabal files.
+    let ctx = lock_context(&project).await;
+    for dep in collect_project_deps(&project, &ctx)? {
+        if hx_lock::is_non_reinstallable(&dep.name) {
+            continue;
+        }
+        match lockfile.package(&dep.name) {
+            None => problems.push(format!(
+                "dependency `{}` (from the .cabal file) is not in {}",
+                dep.name, LOCKFILE_FILENAME
+            )),
+            Some(locked) => {
+                if let Ok(v) = locked.version.parse::<hx_solver::Version>()
+                    && !dep.constraint.matches(&v)
+                {
+                    problems.push(format!(
+                        "`{}` is locked at {}, which does not satisfy `{}`",
+                        dep.name, locked.version, dep.constraint
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut current: Vec<String> = project
+        .package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut locked: Vec<String> = lockfile
+        .workspace_package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    current.sort();
+    locked.sort();
+    if project.is_workspace() != lockfile.is_workspace()
+        || (project.is_workspace() && current != locked)
+    {
+        problems.push("workspace packages changed since the lock was created".to_string());
+    }
+
+    let manifest = &project.manifest;
+    if manifest.stackage.snapshot != lockfile.plan.snapshot {
+        problems.push(format!(
+            "Stackage snapshot is {} in hx.toml but {} in {}",
+            manifest.stackage.snapshot.as_deref().unwrap_or("unset"),
+            lockfile.plan.snapshot.as_deref().unwrap_or("unset"),
+            LOCKFILE_FILENAME
+        ));
+    }
+    if let (Some(pin), Some(id)) = (&manifest.toolchain.ghc, &lockfile.plan.compiler_id)
+        && id != &format!("ghc-{pin}")
+    {
+        problems.push(format!(
+            "hx.toml pins GHC {pin}, but the lock was resolved for {id}"
+        ));
+    }
+    if manifest.compiler.backend == hx_config::CompilerBackend::Bhc
+        && lockfile.toolchain.bhc_profile.as_deref() != Some(manifest.compiler.bhc.profile.as_str())
+    {
+        problems.push(format!(
+            "BHC profile is {} in hx.toml but {} in {}",
+            manifest.compiler.bhc.profile.as_str(),
+            lockfile.toolchain.bhc_profile.as_deref().unwrap_or("unset"),
+            LOCKFILE_FILENAME
+        ));
+    }
+
+    // Every sdist must be pinned.
+    let unpinned: Vec<String> = lockfile
+        .fetchable_sdists()
+        .iter()
+        .filter(|p| p.sha256.is_none())
+        .map(|p| p.package_id())
+        .collect();
+    if !unpinned.is_empty() && !lockfile.needs_upgrade() {
+        problems.push(format!(
+            "{} package(s) have no source hash: {}",
+            unpinned.len(),
+            unpinned.join(", ")
+        ));
+    }
+    for pkg in &lockfile.packages {
+        if pkg.source_kind() == hx_lock::SourceKind::Git
+            && !pkg
+                .rev
+                .as_deref()
+                .is_some_and(|r| r.len() == 40 && r.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            problems.push(format!(
+                "git package `{}` is not pinned to a full commit hash",
+                pkg.name
+            ));
+        }
+    }
+
+    // Agreement with the Hackage index (the one cabal will build from).
+    if let Some(index) = default_index_path().or_else(best_index_path) {
+        let spinner = Spinner::new("Verifying pins against the Hackage index...");
+        match sources::verify_against_index(&lockfile, &index) {
+            Ok(findings) => {
+                spinner.finish_clear();
+                for finding in findings {
+                    match finding {
+                        IndexFinding::Mismatch(m) => problems.push(m),
+                        IndexFinding::Unverifiable(m) => notes.push(m),
+                    }
+                }
+            }
+            Err(e) => {
+                spinner.finish_warning("Could not read the Hackage index");
+                notes.push(format!("{:#}", e));
+            }
+        }
+    } else {
+        notes.push("no Hackage index available; pins were not checked against it".to_string());
+    }
+
+    // Cached tarballs must match their pins.
+    let mut mismatches = Vec::new();
+    let mut verified = 0;
+    let caches: Vec<(PathBuf, bool)> = [
+        hx_solver::default_package_cache_dir().map(|d| (d, false)),
+        hx_solver::cabal_repo_cache_dir().map(|d| (d, true)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    for spec in sources::source_specs(&lockfile) {
+        for (dir, cabal_layout) in &caches {
+            let path = if *cabal_layout {
+                hx_solver::cabal_cached_tarball_path(dir, &spec.name, &spec.version)
+            } else {
+                hx_solver::cached_tarball_path(dir, &spec.name, &spec.version)
+            };
+            match hx_solver::check_source_file(&path, spec.sha256.as_deref())? {
+                hx_solver::SourceStatus::Verified { .. } => verified += 1,
+                hx_solver::SourceStatus::Mismatch {
+                    path,
+                    expected,
+                    actual,
+                } => mismatches.push(sources::Mismatch {
+                    id: spec.package_id(),
+                    path: Some(path),
+                    expected,
+                    actual,
+                }),
+                _ => {}
+            }
+        }
+    }
+
+    for note in &notes {
+        output.warn(note);
+    }
+    for m in &mismatches {
+        sources::report_mismatch(output, m);
+    }
+    if problems.is_empty() && mismatches.is_empty() {
+        output.success_summary(
+            &format!(
+                "{} is consistent ({} packages, {} cached tarball{} verified)",
+                LOCKFILE_FILENAME,
+                lockfile.packages.len(),
+                verified,
+                if verified == 1 { "" } else { "s" }
+            ),
+            started.elapsed(),
+        );
+        return Ok(0);
+    }
+
+    if !problems.is_empty() {
+        output.error(&format!("{} is out of date", LOCKFILE_FILENAME));
+        for p in &problems {
+            output.info(&format!("  - {}", p));
+        }
+        output.info("fix: Run `hx lock` to update the lockfile, and commit the result");
+    }
+    Ok(3)
 }
 
 /// Collect workspace package information from the project.
@@ -694,7 +1152,12 @@ fn parse_cabal_version(cabal_path: &Path) -> Option<String> {
 }
 
 /// Run the sync command.
-pub async fn sync(force: bool, output: &Output) -> Result<i32> {
+///
+/// Builds with the dependency versions, flags and Hackage index state pinned
+/// in hx.lock. With `offline`, every locked sdist must already be cached and
+/// verified (see `hx fetch`) and cabal's index present, so the build needs no
+/// network access; otherwise sync fails up front, listing what is missing.
+pub async fn sync(force: bool, offline: bool, output: &Output) -> Result<i32> {
     // Find project root
     let project_root = find_project_root(".")?;
     let project = Project::load(&project_root)?;
@@ -718,6 +1181,71 @@ pub async fn sync(force: bool, output: &Output) -> Result<i32> {
 
     // Load lockfile
     let lockfile = Lockfile::from_file(&lockfile_path)?;
+
+    if lockfile.needs_upgrade() {
+        if offline {
+            output.error(&format!(
+                "{} uses format v{}, which has no source hashes to build offline from",
+                LOCKFILE_FILENAME, lockfile.version
+            ));
+            output.info("fix: Run `hx lock` (online) to upgrade it, then `hx fetch`");
+            return Ok(3);
+        }
+        output.warn(&format!(
+            "{} uses format v{}; sources are not hash-verified",
+            LOCKFILE_FILENAME, lockfile.version
+        ));
+        output.info("Run `hx lock` to upgrade it and pin source hashes");
+    }
+
+    // Make sure cabal will build exactly the pinned sources. Tarballs already
+    // in cabal's cache must match their pins (a mismatch is never ignored);
+    // verified copies from hx's cache are handed over when cabal lacks them.
+    let extra_args = lockfile.cabal_args();
+    if let (Some(hx_cache), Some(cabal_repo)) = (
+        hx_solver::default_package_cache_dir(),
+        hx_solver::cabal_repo_cache_dir(),
+    ) {
+        let report = sources::prepare_cabal_cache(&lockfile, &hx_cache, &cabal_repo)?;
+        if !report.mismatched.is_empty() {
+            for m in &report.mismatched {
+                sources::report_mismatch(output, m);
+            }
+            return Ok(1);
+        }
+        if report.seeded > 0 {
+            output.verbose(&format!(
+                "Copied {} verified source tarball(s) into {}",
+                report.seeded,
+                cabal_repo.display()
+            ));
+        }
+        if offline {
+            if !report.missing.is_empty() {
+                sources::report_missing_offline(output, &report.missing);
+                return Ok(1);
+            }
+            if default_index_path().is_none() {
+                output.error("cabal's Hackage index is missing, so cabal cannot plan offline");
+                output.list_item(
+                    "expected",
+                    &cabal_repo.join("01-index.tar").display().to_string(),
+                );
+                output.info("fix: Run `hx fetch` (or `cabal update`) while online");
+                return Ok(1);
+            }
+        }
+    } else if offline {
+        output.error("could not determine the package cache directories (no home directory)");
+        output.info("fix: Set HOME (or CABAL_DIR) and run `hx fetch`");
+        return Ok(1);
+    }
+    // Deliberately no `cabal --offline` here: cabal-install (verified with
+    // 3.12.1.0) refuses *every* not-yet-built Hackage package under
+    // `--offline`, even when its tarball is already cached, so first builds
+    // would always fail. The preflight above already guarantees that every
+    // source is cached and verified and that the index is present; with
+    // `--index-state` pinned, cabal then builds without touching the network.
 
     // Verify toolchain if not forcing
     if !force {
@@ -807,6 +1335,7 @@ pub async fn sync(force: bool, output: &Output) -> Result<i32> {
         package_count: None,
         project_name: None,
         toolchain_bin_dirs,
+        extra_args,
     };
 
     match hx_cabal::build::build(&project.root, &build_dir, &options, output).await {
