@@ -10,13 +10,12 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn sha256(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
+    hx_core::hash::sha256_hex(bytes)
 }
 
 /// A project plus isolated home, cabal dir and Hackage mirror.

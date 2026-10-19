@@ -352,7 +352,7 @@ pub fn compute_file_hash(path: &Path) -> Result<String, FetchError> {
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 /// A source tarball to fetch, optionally with the hash it must have
@@ -466,7 +466,7 @@ pub async fn fetch_sources(
             .collect();
     }
 
-    let client = match Client::builder()
+    let client = match hx_core::http::builder()
         .timeout(Duration::from_secs(options.timeout))
         .build()
     {
@@ -608,7 +608,7 @@ async fn download_to(
         hasher.update(&chunk);
     }
     file.flush()?;
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(to_hex(hasher.finalize()))
 }
 
 /// What [`seed_cabal_cache`] did.

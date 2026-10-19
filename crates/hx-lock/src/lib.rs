@@ -645,37 +645,6 @@ fn parse_constraint(s: &str) -> Option<(String, String)> {
     None
 }
 
-#[cfg(test)]
-mod hash_golden_tests {
-    //! Lockfile fingerprints decide whether the lockfile is current. Pinned to exact output so a hashing-library upgrade cannot
-    //! silently change them.
-    use super::*;
-
-    #[test]
-    fn fingerprint_is_stable() {
-        let mut lock = Lockfile::new();
-        lock.set_toolchain(Some("9.8.2".to_string()), Some("3.12.1.0".to_string()));
-        lock.plan.platform = Some("aarch64-osx".to_string());
-        lock.plan.index_state = Some("2026-01-01T00:00:00Z".to_string());
-        lock.plan.snapshot = Some("lts-24.0".to_string());
-        lock.set_workspace(vec![WorkspacePackageInfo {
-            name: "mylib".to_string(),
-            version: "0.1.0".to_string(),
-            path: "packages/mylib".to_string(),
-        }]);
-        for (name, version) in [("text", "2.1.1"), ("aeson", "2.2.3.0")] {
-            lock.add_package(LockedPackage {
-                name: name.to_string(),
-                version: version.to_string(),
-                source: "hackage".to_string(),
-                hash: None,
-            });
-        }
-        assert_eq!(
-            lock.fingerprint(),
-            "sha256:bed5e795c2c9c945b4fc1efd2acd769e4d79db2477da9ad7d83190a2bc37e1c0"
-        );
-
 fn parse_flag_constraint(s: &str) -> Option<(String, BTreeMap<String, bool>)> {
     // Parse "pkg +flag -other" (optionally "any.pkg ...")
     let mut tokens = s.split_whitespace();
@@ -696,6 +665,31 @@ fn parse_flag_constraint(s: &str) -> Option<(String, BTreeMap<String, bool>)> {
     }
 }
 
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Lockfile fingerprints decide whether the lockfile is current. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn fingerprint_is_stable() {
+        let mut lock = Lockfile::new();
+        lock.set_toolchain(Some("9.8.2".to_string()), Some("3.12.1.0".to_string()));
+        lock.plan.platform = Some("aarch64-osx".to_string());
+        lock.plan.index_state = Some("2026-01-01T00:00:00Z".to_string());
+        lock.plan.snapshot = Some("lts-24.0".to_string());
+        lock.set_workspace(vec![WorkspacePackageInfo {
+            name: "mylib".to_string(),
+            version: "0.1.0".to_string(),
+            path: "packages/mylib".to_string(),
+        }]);
+        for (name, version) in [("text", "2.1.1"), ("aeson", "2.2.3.0")] {
+            lock.add_package(LockedPackage::hackage(name, version));
+        }
+        assert_eq!(
+            lock.fingerprint(),
+            "sha256:bed5e795c2c9c945b4fc1efd2acd769e4d79db2477da9ad7d83190a2bc37e1c0"
+        );
     }
 }
 
