@@ -1,0 +1,33 @@
+name: Cross-target builds
+
+# Builds every release target (see build-targets.yml) before a tag does. PR CI
+# otherwise only builds for the runner's host, so a dependency or toolchain
+# bump that breaks musl, aarch64 Linux, Intel macOS or Windows would first
+# surface as a failed release. Pull requests run it only when the dependency
+# or toolchain surface changes; main runs it on every push (which also keeps
+# the per-target caches warm for PRs).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - rust-toolchain.toml
+      - .github/workflows/**
+      - .github/actions/**
+  workflow_dispatch:
+
+concurrency:
+  group: cross-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-targets.yml
+    with:
+      package: false
+      cache: true
