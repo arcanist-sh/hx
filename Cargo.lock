@@ -1608,6 +1608,7 @@ dependencies = [
 name = "hx-config"
 version = "0.9.3"
 dependencies = [
+ "glob",
  "hx-cache",
  "hx-core",
  "serde",

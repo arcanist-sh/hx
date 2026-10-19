@@ -7,12 +7,14 @@
 //! - Locating `.cabal` files
 //! - Merging configuration defaults
 //! - IDE/HLS configuration (hie.yaml generation)
+//! - Multi-package workspaces (`cabal.project` membership, member graph)
 
 pub mod combine;
 pub mod global;
 pub mod ide;
 pub mod manifest;
 pub mod project;
+pub mod workspace;
 
 pub use combine::Combine;
 pub use global::{
@@ -28,7 +30,7 @@ pub use manifest::{
     FormatConfig, GhcConfig, LintConfig, Manifest, PluginConfig, PluginHookConfig, ProjectConfig,
     ProjectKind, StackageConfig, ToolchainConfig,
 };
-pub use project::{Project, WorkspacePackage, find_project_root};
+pub use project::{AffectedMembers, Project, WorkspacePackage, find_project_root};
 
 /// The manifest filename.
 pub const MANIFEST_FILENAME: &str = "hx.toml";
