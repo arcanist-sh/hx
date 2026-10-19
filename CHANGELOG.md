@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Clears every open RustSec vulnerability (12 advisories across 5 crates).**
+  `cargo audit` had gone from clean to 12 findings since 0.9.2 without any
+  change on our side. The lockfile refresh picks up patched `rustls` (0.23.40 →
+  0.23.46; TLS 1.3 handshake confusion, a ServerHello downgrade, an
+  unauthenticated 1 GiB brotli allocation) and `quinn-proto`. `zip` moves 2 → 9
+  (SUID/SGID preservation and symlink handling in `extract()`). hx's own Cabal
+  zip extractor never called `extract()` and already rejected `..` paths;
+  the bump keeps it on a maintained line, and it now has tests for both
+  properties. `self_update` moves 0.42 → 1.3, which drops `quick-xml`
+  (two DoS advisories) from the tree; hx only uses its extract-and-replace
+  helpers, so it now builds without self_update's release-backend features,
+  and on its ureq backend (rustls + ring): its reqwest backend would have
+  switched every rustls in the build to aws-lc-rs, a C dependency the
+  cross-compiled release targets do not need.
+- Replaced the unmaintained, unsound `atty` with `std::io::IsTerminal`.
+
 ## [0.9.2] - 2026-09-04
 
 ### Changed

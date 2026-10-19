@@ -26,10 +26,9 @@ reqwest = { workspace = true, features = ["stream"] }
 sha2.workspace = true
 hex.workspace = true
 flate2.workspace = true
-atty = "0.2"
 xz2 = "0.1"
 tar = "0.4"
-zip = "2.2"
+zip.workspace = true
 futures-util = "0.3"
 tempfile.workspace = true
 dirs = "5.0"
