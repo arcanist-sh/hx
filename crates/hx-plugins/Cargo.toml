@@ -13,7 +13,7 @@ readme.workspace = true
 
 [dependencies]
 # Steel Scheme interpreter
-steel-core = "0.7"
+steel-core = "0.8"
 
 # Workspace dependencies
 hx-core = { workspace = true }
