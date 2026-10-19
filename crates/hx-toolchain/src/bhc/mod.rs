@@ -7,7 +7,6 @@
 
 use futures_util::StreamExt;
 use hx_ui::{Progress, Spinner};
-use reqwest::Client;
 use std::fs::{self, File};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -442,7 +441,7 @@ pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult
 /// alongside the release; previously downloaded archives are re-verified
 /// before being reused.
 async fn download_bhc_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
-    let client = Client::builder()
+    let client = hx_core::http::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|e| BhcError::Network(format!("Failed to create HTTP client: {}", e)))?;

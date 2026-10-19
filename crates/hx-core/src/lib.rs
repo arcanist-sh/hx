@@ -8,6 +8,8 @@ pub mod diagnostic;
 pub mod env;
 pub mod error;
 pub mod fsutil;
+pub mod hash;
+pub mod http;
 pub mod version;
 
 pub use command::{CommandOutput, CommandRunner, OutputStream};

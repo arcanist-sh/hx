@@ -58,14 +58,21 @@ console = "0.16"
 owo-colors = "4"
 anstream = "1"
 
-# Hashing
-sha2 = "0.10"
+# Hashing (used through `hx_core::hash`)
+sha2 = "0.11"
 
 # Paths
 directories = "5"
 
 # HTTP
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Every client is built by `hx_core::http`. reqwest's `rustls` feature selects
+# aws-lc-rs, a C build the cross-compiled release targets would then need, so
+# hx takes `rustls-no-provider` and installs rustls's pure-Rust `ring` provider
+# itself. Roots: the platform verifier (OS trust store) merged with the Mozilla
+# bundle from webpki-root-certs, so minimal containers without a CA store work.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-root-certs = "1"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }

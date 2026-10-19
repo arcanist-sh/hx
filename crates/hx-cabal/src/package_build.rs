@@ -4,10 +4,10 @@
 //! using direct GHC invocation, without relying on Cabal.
 
 use crate::native::{CCompileOptions, CCompilerConfig, GhcConfig, compile_c_sources};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_core::{CommandRunner, Error, Fix, Result};
 use hx_solver::{ExtractedPackage, LibraryConfig};
 use hx_ui::Output;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::{debug, info};
@@ -462,7 +462,7 @@ fn compute_package_id(
     }
 
     let hash = hasher.finalize();
-    let hash_prefix = &format!("{:x}", hash)[..12];
+    let hash_prefix = &to_hex(hash)[..12];
 
     format!("{}-{}-{}", name, version, hash_prefix)
 }
@@ -928,6 +928,22 @@ fn generate_registration_file(
     })?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Package IDs name store directories and package-db entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn package_id_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            compute_package_id("aeson", "2.2.3.0", "9.8.2", &deps),
+            "aeson-2.2.3.0-05d9ce3fe729"
+        );
+    }
 }
 
 #[cfg(test)]

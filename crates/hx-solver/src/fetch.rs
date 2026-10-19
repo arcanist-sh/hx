@@ -6,9 +6,9 @@
 use crate::package::InstallPlan;
 use crate::version::Version;
 use futures::stream::{self, StreamExt};
+use hx_core::hash::{Digest, Sha256, sha256_file, to_hex};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -109,7 +109,7 @@ pub async fn fetch_packages(
     // Ensure cache directory exists
     fs::create_dir_all(&options.cache_dir)?;
 
-    let client = Client::builder()
+    let client = hx_core::http::builder()
         .timeout(Duration::from_secs(options.timeout))
         .build()?;
 
@@ -279,7 +279,7 @@ async fn fetch_single_package(
     pb.finish_and_clear();
 
     // Compute hash
-    let hash = format!("{:x}", hasher.finalize());
+    let hash = to_hex(hasher.finalize());
 
     // Verify hash if enabled
     if options.verify_hashes
@@ -335,10 +335,7 @@ async fn fetch_expected_hash(
 
 /// Compute SHA256 hash of a file.
 fn compute_file_hash(path: &Path) -> Result<String, FetchError> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(sha256_file(path)?)
 }
 
 /// Summary of fetch operation.
@@ -372,6 +369,29 @@ impl FetchSummary {
         }
 
         summary
+    }
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Tarball hashes are compared with the index. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn file_hash_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pkg.tar.gz");
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            compute_file_hash(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
     }
 }
 

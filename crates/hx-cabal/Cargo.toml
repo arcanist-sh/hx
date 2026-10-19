@@ -19,7 +19,6 @@ hx-compiler.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 async-trait.workspace = true

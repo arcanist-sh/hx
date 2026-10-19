@@ -5,8 +5,8 @@
 
 use crate::global_cache_dir;
 use hx_core::error::{Error, Result};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -405,7 +405,7 @@ pub fn calculate_package_cache_key(
     }
 
     let result = hasher.finalize();
-    format!("sha256:{}", hex::encode(result))
+    format!("sha256:{}", to_hex(result))
 }
 
 /// Get the path to the store index file.
@@ -441,7 +441,7 @@ pub fn calculate_fingerprint(
     }
 
     let result = hasher.finalize();
-    format!("sha256:{}", hex::encode(result))
+    format!("sha256:{}", to_hex(result))
 }
 
 /// Get the size of the Cabal store on disk.
@@ -478,13 +478,31 @@ fn dir_size(path: &Path) -> Result<u64> {
     Ok(size)
 }
 
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Store cache keys and build fingerprints name cache entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn package_cache_key_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            calculate_package_cache_key("aeson", "2.2.3.0", "9.8.2", &deps),
+            "sha256:05d9ce3fe729f49c442a4eb90efab17117588f913aca99ec14161736bb5e4004"
+        );
+    }
+
+    #[test]
+    fn fingerprint_is_stable() {
+        let packages = vec![
+            ("text".to_string(), "2.1.1".to_string()),
+            ("aeson".to_string(), "2.2.3.0".to_string()),
+        ];
+        assert_eq!(
+            calculate_fingerprint(Some("9.8.2"), Some("3.12.1.0"), "aarch64-osx", &packages),
+            "sha256:50384536da9d8ba012e2f374ac11bfec1760818564e5c2fb0ffd9ac6f5b75043"
+        );
     }
 }
 

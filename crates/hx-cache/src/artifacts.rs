@@ -9,11 +9,11 @@
 //! This enables sharing compiled artifacts across projects with identical inputs.
 
 use hx_core::error::{Error, Result};
+use hx_core::hash::{Digest, Sha256, sha256_reader, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -185,35 +185,21 @@ pub fn compute_artifact_hash(
         hasher.update(b";");
     }
 
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 /// Compute hash of a file's contents.
 pub fn hash_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).map_err(|e| Error::Io {
+    let file = File::open(path).map_err(|e| Error::Io {
         message: "failed to open file for hashing".to_string(),
         path: Some(path.to_path_buf()),
         source: e,
     })?;
-
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer).map_err(|e| Error::Io {
-            message: "failed to read file for hashing".to_string(),
-            path: Some(path.to_path_buf()),
-            source: e,
-        })?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
+    sha256_reader(file).map_err(|e| Error::Io {
+        message: "failed to read file for hashing".to_string(),
+        path: Some(path.to_path_buf()),
+        source: e,
+    })
 }
 
 /// Store artifacts for a module.
@@ -439,6 +425,41 @@ fn format_size(bytes: u64) -> String {
         format!("{:.2} KB", bytes as f64 / 1_000.0)
     } else {
         format!("{} bytes", bytes)
+    }
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Artifact hashes are build-cache keys. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn artifact_hash_is_stable() {
+        let mut deps = HashMap::new();
+        deps.insert("text".to_string(), "2.1.1".to_string());
+        deps.insert("base".to_string(), "4.19.0.0".to_string());
+        let flags = vec!["-O2".to_string(), "-Wall".to_string()];
+        assert_eq!(
+            compute_artifact_hash("sha256:src", "9.8.2", &flags, &deps),
+            "5d932f7abb4916e1ffcd021cbcead8266998f883045ed65b5a401748fa55eb82"
+        );
+    }
+
+    #[test]
+    fn file_hash_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Main.o");
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            hash_file(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
     }
 }
 

@@ -1103,7 +1103,7 @@ async fn fetch_hackage_metadata(package: &str) -> Option<HackageMetadata> {
         package, package
     );
 
-    let response = reqwest::get(&url).await.ok()?;
+    let response = hx_core::http::client().ok()?.get(&url).send().await.ok()?;
     if !response.status().is_success() {
         return None;
     }

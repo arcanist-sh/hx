@@ -6,9 +6,9 @@
 
 use crate::compile::compile_module;
 use crate::native::{BhcCompilerConfig, BhcNativeBuildOptions, BhcNativeError};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_solver::{ExtractedPackage, build_module_graph};
 use hx_ui::Output;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -436,7 +436,7 @@ pub fn compute_package_id(
         hasher.update(b"-");
         hasher.update(dep.as_bytes());
     }
-    let hash = hex::encode(hasher.finalize());
+    let hash = to_hex(hasher.finalize());
     format!("{}-{}-{}", name, version, &hash[..12])
 }
 
@@ -473,6 +473,22 @@ pub fn generate_registration_file(
         depends_str = depends_str,
         modules_str = modules_str,
     )
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Package IDs name store directories and package-db entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn package_id_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            compute_package_id("aeson", "2.2.3.0", "0.2.17", "numeric", &deps),
+            "aeson-2.2.3.0-5e17d5555c02"
+        );
+    }
 }
 
 #[cfg(test)]

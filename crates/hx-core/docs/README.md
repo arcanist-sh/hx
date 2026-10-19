@@ -21,6 +21,8 @@ Core types, error handling, and command execution utilities for the hx toolchain
 | `version` | Semantic version parsing |
 | `diagnostic` | GHC diagnostic structures |
 | `env` | Environment variable utilities |
+| `hash` | SHA-256 helpers (`sha256_hex`, streaming `sha256_file`/`sha256_reader`, `to_hex`) and the re-exported `Sha256`/`Digest` every crate hashes with |
+| `http` | The shared HTTP client builder (rustls + ring, trust roots, User-Agent, timeouts); every crate builds its clients here |
 
 ## Quick Start
 

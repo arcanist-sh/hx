@@ -473,6 +473,8 @@ delegation to Cabal.
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
 | `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
 | `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Route hx's downloads through a proxy (system proxy settings are also honoured) |
+| `SSL_CERT_FILE` / `SSL_CERT_DIR` | On Linux, read CA certificates from these locations instead of the system store. hx trusts the operating system's certificate store plus a bundled Mozilla root set, so a CA installed system-wide (for example a corporate TLS proxy's) is trusted on every platform |
 
 ## Exit Codes
 

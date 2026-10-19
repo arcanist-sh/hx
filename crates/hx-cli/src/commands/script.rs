@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use hx_core::CommandRunner;
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_ui::{Output, Spinner};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -183,7 +183,7 @@ fn compute_script_hash(content: &str, deps: &[String]) -> String {
         hasher.update(dep.as_bytes());
     }
     let result = hasher.finalize();
-    format!("{:x}", result)[..16].to_string()
+    to_hex(result)[..16].to_string()
 }
 
 /// Get the script cache directory.
@@ -207,4 +207,20 @@ async fn run_executable(exe: &Path, args: &[String], output: &Output) -> Result<
         .with_context(|| format!("Failed to execute {}", exe.display()))?;
 
     Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Script hashes name cached script environments. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn script_hash_is_stable() {
+        let deps = vec!["text".to_string(), "aeson >= 2".to_string()];
+        assert_eq!(
+            compute_script_hash("main = putStrLn \"hi\"\n", &deps),
+            "8c6ca178d9879ca2"
+        );
+    }
 }

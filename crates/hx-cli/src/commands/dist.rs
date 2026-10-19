@@ -5,7 +5,7 @@
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
 use clap_complete::{Shell, generate};
-use sha2::{Digest, Sha256};
+use hx_core::hash::sha256_reader;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -347,20 +347,8 @@ fn create_zip(staging_dir: &Path, archive_path: &Path, output: &Output) -> Resul
 fn generate_checksum(archive_path: &Path, output: &Output) -> Result<PathBuf> {
     output.verbose("Generating SHA256 checksum...");
 
-    let mut file = File::open(archive_path).context("Failed to open archive for checksum")?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
+    let file = File::open(archive_path).context("Failed to open archive for checksum")?;
+    let hash_hex = sha256_reader(file).context("Failed to read archive for checksum")?;
 
     let archive_name = archive_path
         .file_name()
@@ -742,4 +730,28 @@ main "$@"
     }
 
     Ok(0)
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Release checksums are published next to the archives. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn checksum_file_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("hx-demo.tar.gz");
+        std::fs::write(&archive, large_input()).unwrap();
+        let path = generate_checksum(&archive, &Output::new()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb  hx-demo.tar.gz\n"
+        );
+    }
 }

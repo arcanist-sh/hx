@@ -5,8 +5,8 @@
 
 use crate::snapshot::{Snapshot, SnapshotError, SnapshotId, SnapshotMetadata, SnapshotPackage};
 use ed25519_dalek::{Signature, VerifyingKey};
+use hx_core::hash::sha256_hex;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -173,10 +173,7 @@ pub fn snapshot_cache_path(id: &str) -> Option<PathBuf> {
 
 /// Verify SHA256 hash of content.
 pub fn verify_sha256(content: &[u8], expected: &str) -> bool {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    let result = format!("{:x}", hasher.finalize());
-    result == expected
+    sha256_hex(content) == expected
 }
 
 /// Verify an Ed25519 signature over content.
@@ -232,9 +229,7 @@ fn registry_url_from(override_url: Option<String>) -> String {
 pub async fn fetch_snapshot_registry() -> Result<SnapshotRegistry, SnapshotError> {
     info!("Fetching BHC Platform snapshot registry");
 
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.6.0")
-        .build()
+    let client = hx_core::http::client()
         .map_err(|e| SnapshotError::FetchError(format!("failed to create HTTP client: {}", e)))?;
 
     let url = registry_url();
@@ -312,9 +307,7 @@ pub async fn fetch_remote_snapshot(
 
     info!("Fetching remote snapshot: {}", id);
 
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.6.0")
-        .build()
+    let client = hx_core::http::client()
         .map_err(|e| SnapshotError::FetchError(format!("failed to create HTTP client: {}", e)))?;
 
     let response = client.get(&entry.url).send().await.map_err(|e| {
@@ -626,6 +619,34 @@ pub async fn load_bhc_platform_with_overlays(
     }
 
     Ok(apply_overlays(base, &overlays))
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Snapshot hashes are published in the registry. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn sha256_verification_is_stable() {
+        assert!(verify_sha256(
+            b"abc",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        ));
+        assert!(!verify_sha256(
+            b"abc",
+            "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+        ));
+        assert!(verify_sha256(
+            &large_input(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        ));
+    }
 }
 
 #[cfg(test)]

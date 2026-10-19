@@ -204,7 +204,7 @@ fn topological_sort(graph: &HashMap<String, Vec<String>>) -> Result<Vec<String>,
 
 /// Compute a fingerprint for the build plan.
 fn compute_plan_fingerprint(packages: &[BuildUnit], compiler_id: &str, platform: &str) -> String {
-    use sha2::{Digest, Sha256};
+    use hx_core::hash::{Digest, Sha256, to_hex};
 
     let mut hasher = Sha256::new();
     hasher.update(format!("compiler:{}", compiler_id));
@@ -218,7 +218,7 @@ fn compute_plan_fingerprint(packages: &[BuildUnit], compiler_id: &str, platform:
     }
 
     let result = hasher.finalize();
-    format!("{:x}", result)
+    to_hex(result)
 }
 
 /// Detect the compiler ID.
@@ -303,6 +303,34 @@ impl PlanSummary {
         }
 
         summary
+    }
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Plan fingerprints are cache keys. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn plan_fingerprint_is_stable() {
+        let unit = |name: &str, version: &str, hash: Option<&str>| BuildUnit {
+            name: name.to_string(),
+            version: version.parse().unwrap(),
+            hash: hash.map(str::to_string),
+            flags: HashMap::new(),
+            pre_installed: false,
+            style: BuildStyle::Source,
+            depends: vec![],
+        };
+        let packages = vec![
+            unit("text", "2.1.1", Some("abc")),
+            unit("aeson", "2.2.3.0", None),
+        ];
+        assert_eq!(
+            compute_plan_fingerprint(&packages, "ghc-9.8.2", "aarch64-osx"),
+            "ea5a9320cc56971bdd60efb45c889b1010a9db17b4430692a51c302282f1fe7f"
+        );
     }
 }
 

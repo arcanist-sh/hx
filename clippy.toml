@@ -1,0 +1,7 @@
+# HTTP clients must come from `hx_core::http`, which installs the rustls
+# crypto provider (reqwest panics without one) and sets hx's defaults.
+disallowed-methods = [
+    { path = "reqwest::Client::new", reason = "use hx_core::http::client()" },
+    { path = "reqwest::Client::builder", reason = "use hx_core::http::builder()" },
+    { path = "reqwest::get", reason = "use hx_core::http::client()?.get(..)" },
+]

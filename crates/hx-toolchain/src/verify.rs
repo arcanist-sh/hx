@@ -4,11 +4,10 @@
 //! checksum manifests published alongside the archives (e.g. `SHA256SUMS` on
 //! downloads.haskell.org, or `<file>.sha256` release assets).
 
+use hx_core::hash::sha256_reader;
 use hx_core::{Error, Result};
 use reqwest::Client;
-use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -108,25 +107,16 @@ pub async fn fetch_expected_sha256(
 
 /// Compute the SHA-256 of a file (streaming).
 pub fn sha256_of_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).map_err(|e| Error::Io {
+    let file = File::open(path).map_err(|e| Error::Io {
         message: "Failed to open file for checksum verification".into(),
         path: Some(path.to_path_buf()),
         source: e,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| Error::Io {
-            message: "Failed to read file for checksum verification".into(),
-            path: Some(path.to_path_buf()),
-            source: e,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    sha256_reader(file).map_err(|e| Error::Io {
+        message: "Failed to read file for checksum verification".into(),
+        path: Some(path.to_path_buf()),
+        source: e,
+    })
 }
 
 /// Verify a file against an expected SHA-256 digest.
@@ -154,6 +144,34 @@ pub fn require_checksum_or_opt_out(label: &str, url: &str) -> Result<()> {
     Err(Error::config(format!(
         "No published SHA-256 checksum found for {label}\n  url: {url}\n\nRefusing to install an unverified download.\nfix: Retry later, or set {ALLOW_UNVERIFIED_ENV}=1 to proceed without verification."
     )))
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Checksums are compared with published `.sha256` files. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn file_checksum_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ghc.tar.xz");
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_of_file(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            sha256_of_file(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
+    }
 }
 
 #[cfg(test)]

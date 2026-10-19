@@ -4,7 +4,7 @@
 //! a project's code has changed, enabling skip-build optimizations.
 
 use hx_core::error::{Error, Result};
-use sha2::{Digest, Sha256};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -52,7 +52,7 @@ pub fn compute_source_fingerprint(project_root: &Path) -> Result<SourceFingerpri
         file_count += 1;
     }
 
-    let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
+    let hash = format!("sha256:{}", to_hex(hasher.finalize()));
 
     debug!(
         "Computed source fingerprint: {} ({} files)",
@@ -161,14 +161,26 @@ pub fn save_source_fingerprint(project_root: &Path, fingerprint: &SourceFingerpr
     Ok(())
 }
 
-/// Hex encoding helper.
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Source fingerprints decide whether a build is up to date. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn source_fingerprint_is_stable() {
+        // Root-level files only, so relative paths have no separator and the
+        // fingerprint is the same on every OS.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hx.toml"), b"[project]\nname = \"demo\"\n").unwrap();
+        std::fs::write(dir.path().join("demo.cabal"), b"name: demo\n").unwrap();
+        std::fs::write(dir.path().join("Main.hs"), b"main = pure ()\n").unwrap();
+        let fp = compute_source_fingerprint(dir.path()).unwrap();
+        assert_eq!(fp.file_count, 3);
+        assert_eq!(
+            fp.hash,
+            "sha256:ebc8cdfa4f3263cf60e75f53f86f93a94f7b7fc639d3113e8dc8223246a20ad5"
+        );
     }
 }
 

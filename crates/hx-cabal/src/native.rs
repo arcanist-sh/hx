@@ -4,11 +4,11 @@
 //! without going through Cabal. It uses module dependency analysis to compile
 //! modules in the correct order with parallel compilation support.
 
+use hx_core::hash::{Digest, Sha256, sha256_file, sha256_hex, to_hex};
 use hx_core::{CommandOutput, CommandRunner, Error, Fix, Result};
 use hx_solver::{ModuleGraph, ModuleInfo, build_module_graph};
 use hx_ui::{Output, Progress, Spinner};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -507,12 +507,14 @@ impl BuildState {
     }
 }
 
+/// Cache key for a detected [`GhcConfig`]: SHA-256 of `<ghc path>|<version>`.
+fn ghc_config_cache_key(ghc_path: &Path, version: &str) -> String {
+    sha256_hex(format!("{}|{}", ghc_path.display(), version))
+}
+
 /// Compute SHA256 hash of a file.
 fn compute_file_hash(path: &Path) -> std::io::Result<String> {
-    let content = std::fs::read(path)?;
-    let mut hasher = Sha256::new();
-    hasher.update(&content);
-    Ok(format!("{:x}", hasher.finalize()))
+    sha256_file(path)
 }
 
 /// Cheap source-change signal: `(mtime_nanos, size_bytes)` from a single
@@ -537,7 +539,7 @@ fn compute_deps_hash(deps: &[String], module_states: &HashMap<String, ModuleStat
             hasher.update(state.compiled_at.to_le_bytes());
         }
     }
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 /// Compute hash of build flags.
@@ -549,7 +551,7 @@ pub fn compute_flags_hash(options: &NativeBuildOptions) -> String {
     for flag in &options.extra_flags {
         hasher.update(flag.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 // ============================================================================
@@ -640,12 +642,7 @@ impl GhcConfig {
     /// The cache is invalidated automatically when the GHC path or version
     /// changes (both are part of the cache key).
     pub async fn detect_with_path_cached(ghc_path: &Path, cache_dir: &Path, version: &str) -> Self {
-        let key = format!(
-            "{:x}",
-            <sha2::Sha256 as sha2::Digest>::digest(
-                format!("{}|{}", ghc_path.display(), version).as_bytes()
-            )
-        );
+        let key = ghc_config_cache_key(ghc_path, version);
         // `v3`: schema bump so caches predating `boot_packages` are ignored.
         let cache_file = cache_dir.join(format!("ghc-config-v3-{key}.json"));
 
@@ -2117,6 +2114,72 @@ pub async fn compile_c_sources(
         warnings: all_warnings,
         errors: all_errors,
     })
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! These hashes are native-build cache keys. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn file_hash_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Main.hs");
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            compute_file_hash(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
+    }
+
+    #[test]
+    fn deps_hash_is_stable() {
+        let mut states = HashMap::new();
+        states.insert(
+            "Data.Foo".to_string(),
+            ModuleState {
+                source_hash: "x".to_string(),
+                mtime: 1,
+                size: 2,
+                deps_hash: "y".to_string(),
+                compiled_at: 1_700_000_000,
+            },
+        );
+        let deps = vec!["Data.Foo".to_string(), "Missing".to_string()];
+        assert_eq!(
+            compute_deps_hash(&deps, &states),
+            "ec85ac130647c4c0624a2c053019acbc566f7b1c64bc3606d586fe5bdf6585af"
+        );
+    }
+
+    #[test]
+    fn flags_hash_is_stable() {
+        let options = NativeBuildOptions {
+            optimization: 2,
+            warnings: true,
+            werror: false,
+            extra_flags: vec!["-threaded".to_string(), "-rtsopts".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(
+            compute_flags_hash(&options),
+            "12822da9f897b52d60cc0be3d08ef796c5e98b7fb24ce851a29ef3f7cb0d4168"
+        );
+    }
+
+    #[test]
+    fn ghc_config_cache_key_is_stable() {
+        assert_eq!(
+            ghc_config_cache_key(Path::new("ghc-9.8.2"), "9.8.2"),
+            "958ac7689719ccd766cf8b9ba5fa9fd3e06f7f8b71f3c2ea350a6268dcf5b7ee"
+        );
+    }
 }
 
 #[cfg(test)]
