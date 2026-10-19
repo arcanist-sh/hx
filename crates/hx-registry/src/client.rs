@@ -213,9 +213,9 @@ pub struct RegistryClient {
 impl RegistryClient {
     /// Create a client for `base_url` (normalized, without trailing slash).
     pub fn new(base_url: &str, token: Option<String>) -> Result<Self, RegistryError> {
-        let http = reqwest::Client::builder()
-            .user_agent(format!("hx/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(15))
+        // Shared builder: TLS provider, `hx/<version>` user agent, proxies.
+        // Uploads can be large, so allow a generous overall timeout.
+        let http = hx_core::http::builder()
             .timeout(Duration::from_secs(300))
             .build()
             .map_err(|e| RegistryError::Http {

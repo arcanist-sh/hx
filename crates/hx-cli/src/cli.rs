@@ -450,7 +450,7 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
 
-        /// Publish to this registry (name from [registries] or a URL) instead of Hackage
+        /// Publish to this registry (a configured registry name or a URL) instead of Hackage
         #[arg(long, value_name = "NAME|URL")]
         registry: Option<String>,
 
@@ -580,7 +580,7 @@ pub enum Commands {
         /// Search query
         query: String,
 
-        /// Search this registry (name from [registries] or a URL) instead of Hackage
+        /// Search this registry (a configured registry name or a URL) instead of Hackage
         #[arg(long, value_name = "NAME|URL")]
         registry: Option<String>,
 
