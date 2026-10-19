@@ -418,6 +418,22 @@ pub fn latest_platform() -> Option<BhcPlatformInfo> {
     list_platforms().into_iter().last()
 }
 
+/// Return the newest embedded platform that a released BHC can use, together
+/// with the newest such release.
+///
+/// A platform may be curated ahead of the compiler release it targets;
+/// `released` (ascending, e.g. hx-toolchain's known BHC versions) keeps hx from
+/// recommending a BHC that cannot be installed yet.
+pub fn latest_installable_platform<'a>(released: &[&'a str]) -> Option<(BhcPlatformInfo, &'a str)> {
+    list_platforms().into_iter().rev().find_map(|platform| {
+        released
+            .iter()
+            .rev()
+            .find(|v| version_compatible(v, platform.bhc_version))
+            .map(|v| (platform, *v))
+    })
+}
+
 /// List all available BHC platform snapshots.
 pub fn list_platforms() -> Vec<BhcPlatformInfo> {
     let mut platforms = Vec::new();
@@ -759,6 +775,20 @@ mod tests {
             content,
             "0000000000000000000000000000000000000000000000000000000000000000"
         ));
+    }
+
+    #[test]
+    fn test_latest_installable_platform_skips_unreleased_bhc() {
+        // 2026.2 targets BHC 0.3, which is not released in this list
+        let (platform, bhc) = latest_installable_platform(&["0.2.0", "0.2.21", "0.2.22"]).unwrap();
+        assert_eq!(platform.id, "bhc-platform-2026.1");
+        assert_eq!(bhc, "0.2.22");
+
+        let (platform, bhc) = latest_installable_platform(&["0.2.22", "0.3.0", "0.3.1"]).unwrap();
+        assert_eq!(platform.id, "bhc-platform-2026.2");
+        assert_eq!(bhc, "0.3.1");
+
+        assert!(latest_installable_platform(&[]).is_none());
     }
 
     #[test]
