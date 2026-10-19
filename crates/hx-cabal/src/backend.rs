@@ -174,7 +174,7 @@ impl CompilerBackend for GhcBackend {
             release: options.release,
             jobs: options.jobs,
             target: options.target.clone(),
-            package: options.package.clone(),
+            targets: options.package.clone().into_iter().collect(),
             verbose: options.verbose,
             fingerprint: None,
             ghc_version: None,

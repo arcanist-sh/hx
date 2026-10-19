@@ -16,8 +16,9 @@ pub struct BuildOptions {
     pub jobs: Option<usize>,
     /// Target triple
     pub target: Option<String>,
-    /// Specific package to build (for workspaces)
-    pub package: Option<String>,
+    /// Cabal targets to build (package names, or `all`); empty builds the
+    /// package in the project root
+    pub targets: Vec<String>,
     /// Verbose output
     pub verbose: bool,
     /// Build fingerprint (for cache tracking)
@@ -76,10 +77,8 @@ pub async fn build(
         args.push(format!("--target={}", target));
     }
 
-    // Add package filter for workspace builds
-    if let Some(ref pkg) = options.package {
-        args.push(pkg.clone());
-    }
+    // Add package targets for workspace builds
+    args.extend(options.targets.iter().cloned());
 
     info!("Running cabal build in {}", project_root.display());
     debug!("Args: {:?}", args);
@@ -166,7 +165,7 @@ pub async fn test(
     project_root: &Path,
     build_dir: &Path,
     pattern: Option<&str>,
-    package: Option<&str>,
+    targets: &[String],
     target: Option<&str>,
     toolchain_bin_dirs: &[PathBuf],
     output: &Output,
@@ -185,15 +184,9 @@ pub async fn test(
         args.push(format!("--target={}", t));
     }
 
-    // Add package filter for workspace tests. `all` is a project-wide target
-    // (every test suite), not a package, so it must not get the `:test` suffix.
-    if let Some(pkg) = package {
-        if pkg == "all" {
-            args.push("all".to_string());
-        } else {
-            args.push(format!("{}:test", pkg));
-        }
-    }
+    // Add package targets for workspace tests. A package target runs every
+    // test suite in that package; `all` runs every suite in the project.
+    args.extend(targets.iter().cloned());
 
     if let Some(p) = pattern {
         args.push(format!("--test-option=--pattern={}", p));

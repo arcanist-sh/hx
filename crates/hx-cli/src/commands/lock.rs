@@ -795,7 +795,12 @@ pub async fn sync(force: bool, output: &Output) -> Result<i32> {
         release: false,
         jobs: None,
         target: None,
-        package: None,
+        // A workspace has no package in its root; build every member.
+        targets: if project.is_workspace() {
+            vec!["all".to_string()]
+        } else {
+            Vec::new()
+        },
         verbose: output.is_verbose(),
         fingerprint: None,
         ghc_version: None,

@@ -142,9 +142,15 @@ pub enum Commands {
         #[arg(long)]
         target: Option<String>,
 
-        /// Build specific package (in workspace)
+        /// Build specific package(s) in a workspace (repeatable)
         #[arg(short, long)]
-        package: Option<String>,
+        package: Vec<String>,
+
+        /// Build only workspace members affected by changes since BASE
+        /// (default: HEAD, i.e. uncommitted changes), plus members that
+        /// depend on them
+        #[arg(long, value_name = "BASE", num_args = 0..=1, default_missing_value = "HEAD")]
+        changed: Option<String>,
 
         /// Use native build (experimental)
         #[arg(long)]
@@ -161,9 +167,15 @@ pub enum Commands {
         #[arg(short, long)]
         pattern: Option<String>,
 
-        /// Test specific package (in workspace); with BHC, also a single test suite
+        /// Test specific package(s) in a workspace (repeatable); with BHC, also a single test suite
         #[arg(long)]
-        package: Option<String>,
+        package: Vec<String>,
+
+        /// Test only workspace members affected by changes since BASE
+        /// (default: HEAD, i.e. uncommitted changes), plus members that
+        /// depend on them
+        #[arg(long, value_name = "BASE", num_args = 0..=1, default_missing_value = "HEAD")]
+        changed: Option<String>,
 
         /// Target triple for cross-compilation
         #[arg(long)]
@@ -210,6 +222,15 @@ pub enum Commands {
 
     /// Type-check the project (fast build)
     Check {
+        /// Check specific package(s) in a workspace (repeatable)
+        #[arg(short, long)]
+        package: Vec<String>,
+
+        /// Check only workspace members affected by changes since BASE
+        /// (default: HEAD), plus members that depend on them
+        #[arg(long, value_name = "BASE", num_args = 0..=1, default_missing_value = "HEAD")]
+        changed: Option<String>,
+
         /// Compiler backend to use (ghc or bhc)
         #[arg(long, value_parser = parse_compiler_backend)]
         backend: Option<hx_config::CompilerBackend>,
@@ -661,6 +682,18 @@ pub enum Commands {
         /// Watch specific package (in workspace)
         #[arg(short, long)]
         package: Option<String>,
+    },
+
+    /// Manage a multi-package workspace (members live in cabal.project)
+    ///
+    /// Examples:
+    ///   hx workspace init              # Make the current directory a workspace root
+    ///   hx workspace add ./lib-a       # Add a member
+    ///   hx workspace list              # Members, versions, local dependencies
+    ///   hx build --changed origin/main # Build only what a branch affects
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommands,
     },
 
     /// Dependency management and visualization
@@ -1215,6 +1248,50 @@ pub enum ToolchainCommands {
         /// GHC version to activate
         #[arg(id = "ghc_version")]
         version: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WorkspaceCommands {
+    /// Create a workspace root (hx.toml + cabal.project), adopting any
+    /// package directories already below it
+    Init {
+        /// Directory to make a workspace root (default: current directory)
+        path: Option<String>,
+
+        /// Workspace name (default: directory name)
+        #[arg(long)]
+        name: Option<String>,
+    },
+
+    /// Add package directories to the workspace
+    Add {
+        /// Package directories (each containing a .cabal file)
+        #[arg(required = true)]
+        paths: Vec<String>,
+    },
+
+    /// Remove members from the workspace (files are left in place)
+    #[command(alias = "remove")]
+    Rm {
+        /// Member names or directories
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+
+    /// List members with their versions and dependencies on each other
+    #[command(alias = "ls")]
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Print the members affected by changes since BASE (what --changed selects)
+    Affected {
+        /// Git revision to compare against (default: HEAD)
+        #[arg(default_value = "HEAD")]
+        base: String,
     },
 }
 

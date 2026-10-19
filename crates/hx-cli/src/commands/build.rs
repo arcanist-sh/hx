@@ -21,7 +21,17 @@ use hx_ui::Output;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use crate::commands::workspace::{self, Selection};
 use crate::plugins::PluginHooks;
+
+/// Workspace member selection flags shared by build, test and check.
+#[derive(Debug, Clone, Default)]
+pub struct PackageArgs {
+    /// `--package` values (empty: decide from `changed` / the current directory).
+    pub package: Vec<String>,
+    /// `--changed[=BASE]`: select members affected by changes since BASE.
+    pub changed: Option<String>,
+}
 
 /// Run the build command.
 #[allow(clippy::too_many_arguments)]
@@ -29,7 +39,7 @@ pub async fn run(
     release: bool,
     jobs: Option<usize>,
     target: Option<String>,
-    package: Option<String>,
+    packages: PackageArgs,
     native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
@@ -46,6 +56,21 @@ pub async fn run(
     if backend == CompilerBackend::Bhc {
         return run_bhc_build(&project, release, jobs, target, native, output).await;
     }
+
+    // Decide which workspace members to build (all, `--package`, `--changed`,
+    // or the member containing the current directory).
+    let selection = match workspace::select(
+        &project,
+        &packages.package,
+        packages.changed.as_deref(),
+        output,
+    )
+    .await
+    {
+        Ok(Selection::Nothing) => return Ok(0),
+        Ok(selection) => selection,
+        Err(code) => return Ok(code),
+    };
 
     // Check toolchain requirements and get toolchain info
     let mut toolchain = Toolchain::detect().await;
@@ -66,26 +91,7 @@ pub async fn run(
         toolchain = Toolchain::detect().await;
     }
 
-    // Validate package selection for workspaces
-    if let Some(ref pkg_name) = package {
-        if project.is_workspace() {
-            if project.get_package(pkg_name).is_none() {
-                output.error(&format!("Package '{}' not found in workspace", pkg_name));
-                output.info(&format!(
-                    "Available packages: {}",
-                    project.package_names().join(", ")
-                ));
-                return Ok(1);
-            }
-        } else {
-            output.warn("--package flag ignored (not a workspace project)");
-        }
-    }
-
-    let build_target = match &package {
-        Some(pkg) if project.is_workspace() => pkg.as_str(),
-        _ => project.name(),
-    };
+    let build_target = project.name();
 
     // Use native build if requested.
     if native {
@@ -131,12 +137,19 @@ pub async fn run(
     // Check lockfile for fingerprint
     let (lock_fingerprint, package_count) = get_build_fingerprint(&project);
 
-    // Compute source fingerprint for incremental build detection
-    let source_fingerprint = match compute_source_fingerprint(&project.root) {
-        Ok(fp) => Some(fp),
-        Err(e) => {
-            output.verbose(&format!("Could not compute source fingerprint: {}", e));
-            None
+    // Compute source fingerprint for incremental build detection. The
+    // fingerprint covers the whole project, so it is only consulted (and
+    // recorded) when the whole project is built: a partial workspace build
+    // must neither be skipped nor mark unbuilt members as fresh.
+    let source_fingerprint = if !selection.is_everything() {
+        None
+    } else {
+        match compute_source_fingerprint(&project.root) {
+            Ok(fp) => Some(fp),
+            Err(e) => {
+                output.verbose(&format!("Could not compute source fingerprint: {}", e));
+                None
+            }
         }
     };
 
@@ -158,23 +171,7 @@ pub async fn run(
         output.verbose("Dependencies cached, build should be fast");
     }
 
-    if project.is_workspace() {
-        output.status(
-            "Building",
-            &format!(
-                "{} ({}/{} packages)",
-                build_target,
-                if package.is_some() {
-                    1
-                } else {
-                    project.package_count()
-                },
-                project.package_count()
-            ),
-        );
-    } else {
-        output.status("Building", build_target);
-    }
+    output.status("Building", &selection.label(&project));
 
     // Collect toolchain bin directories for PATH
     let mut toolchain_bin_dirs = Vec::new();
@@ -195,10 +192,8 @@ pub async fn run(
         target,
         // A workspace has no package in the root directory, so `cabal build`
         // with no target fails (Cabal-7134). Build every member with the `all`
-        // target unless a specific package was requested.
-        package: package
-            .clone()
-            .or_else(|| project.is_workspace().then(|| "all".to_string())),
+        // target unless specific members were selected.
+        targets: selection.targets(),
         verbose: output.is_verbose(),
         fingerprint: lock_fingerprint.clone(),
         ghc_version: ghc_version.clone(),
@@ -283,7 +278,7 @@ fn get_build_fingerprint(project: &Project) -> (Option<String>, usize) {
 /// Run the test command.
 pub async fn test(
     pattern: Option<String>,
-    package: Option<String>,
+    packages: PackageArgs,
     target: Option<String>,
     _native: bool,
     backend_override: Option<CompilerBackend>,
@@ -301,7 +296,28 @@ pub async fn test(
     // BHC has no `test` subcommand; hx builds and runs each test suite. A BHC
     // compile is always native, so `--native` does not change the BHC path.
     if backend == CompilerBackend::Bhc {
+        let package = packages.package.first().cloned();
         return run_bhc_test(&project, pattern, package, target, output).await;
+    }
+
+    // Decide which members to test, then drop those without a test suite:
+    // `cabal test <pkg>` fails for a package that has none.
+    let selection = match workspace::select(
+        &project,
+        &packages.package,
+        packages.changed.as_deref(),
+        output,
+    )
+    .await
+    {
+        Ok(selection) => workspace::members_with_tests(&project, selection, output),
+        Err(code) => return Ok(code),
+    };
+    if selection == Selection::Nothing {
+        if packages.changed.is_none() {
+            output.info("No test suites in the selected workspace members");
+        }
+        return Ok(0);
     }
 
     // Check toolchain requirements
@@ -323,27 +339,6 @@ pub async fn test(
         toolchain = Toolchain::detect().await;
     }
 
-    // Validate package selection for workspaces
-    if let Some(ref pkg_name) = package {
-        if project.is_workspace() {
-            if project.get_package(pkg_name).is_none() {
-                output.error(&format!("Package '{}' not found in workspace", pkg_name));
-                output.info(&format!(
-                    "Available packages: {}",
-                    project.package_names().join(", ")
-                ));
-                return Ok(1);
-            }
-        } else {
-            output.warn("--package flag ignored (not a workspace project)");
-        }
-    }
-
-    let test_target = match &package {
-        Some(pkg) if project.is_workspace() => pkg.as_str(),
-        _ => project.name(),
-    };
-
     // Get GHC version for plugin context
     let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
 
@@ -363,7 +358,7 @@ pub async fn test(
         }
     }
 
-    output.status("Testing", test_target);
+    output.status("Testing", &selection.label(&project));
 
     // Collect toolchain bin directories for PATH
     let mut toolchain_bin_dirs = Vec::new();
@@ -381,17 +376,15 @@ pub async fn test(
     let build_dir = project.cabal_build_dir();
 
     // A workspace has no package in the root, so an untargeted `cabal test`
-    // fails. Default to the `all` target (every test suite) unless a specific
-    // package was requested.
-    let test_package = package
-        .clone()
-        .or_else(|| project.is_workspace().then(|| "all".to_string()));
+    // fails. Default to the `all` target (every test suite) unless specific
+    // members were selected.
+    let test_targets = selection.targets();
 
     match cabal_build::test(
         &project.root,
         &build_dir,
         pattern.as_deref(),
-        test_package.as_deref(),
+        &test_targets,
         target.as_deref(),
         &toolchain_bin_dirs,
         output,
@@ -1533,6 +1526,40 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn collect_project_deps_spans_members_and_skips_local_packages() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("hx.toml"), "[project]\nname = \"ws\"\n").unwrap();
+        std::fs::write(
+            root.join("cabal.project"),
+            "packages: ./lib-a ./lib-b ./app\n",
+        )
+        .unwrap();
+        for (name, deps) in [
+            ("lib-a", "base, text"),
+            ("lib-b", "base, lib-a, containers"),
+            ("app", "base, lib-b, lib-a, aeson"),
+        ] {
+            std::fs::create_dir_all(root.join(name)).unwrap();
+            std::fs::write(
+                root.join(name).join(format!("{name}.cabal")),
+                format!("name: {name}\nversion: 0.1\n\nlibrary\n  build-depends: {deps}\n"),
+            )
+            .unwrap();
+        }
+        let project = hx_config::Project::load(root).unwrap();
+        let ctx = hx_solver::CabalContext::host("9.8.2".parse().unwrap());
+        let mut names: Vec<String> = super::collect_project_deps(&project, &ctx)
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        names.sort();
+        // Every member contributes; members themselves are never sent to the
+        // Hackage solver.
+        assert_eq!(names, vec!["aeson", "base", "containers", "text"]);
+    }
+
+    #[test]
     fn resolve_main_source_finds_file_under_src_dir() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("src")).unwrap();
@@ -1577,6 +1604,10 @@ mod tests {
                     name: name.to_string(),
                     path: PathBuf::from(name),
                     cabal_file: PathBuf::from(format!("{name}/{name}.cabal")),
+                    version: None,
+                    dependencies: Vec::new(),
+                    executables: Vec::new(),
+                    test_suites: Vec::new(),
                 })
                 .collect(),
         }

@@ -53,21 +53,12 @@ pub async fn run(
         toolchain = Toolchain::detect().await;
     }
 
-    // Validate package selection for workspaces
-    if let Some(ref pkg_name) = package {
-        if project.is_workspace() {
-            if project.get_package(pkg_name).is_none() {
-                output.error(&format!("Package '{}' not found in workspace", pkg_name));
-                output.info(&format!(
-                    "Available packages: {}",
-                    project.package_names().join(", ")
-                ));
-                return Ok(1);
-            }
-        } else {
-            output.warn("--package flag ignored (not a workspace project)");
-        }
-    }
+    // Validate package selection for workspaces, and pick a default member
+    // when none was given.
+    let package = match select_run_package(&project, package, output) {
+        Ok(package) => package,
+        Err(code) => return Ok(code),
+    };
 
     let run_target = match &package {
         Some(pkg) if project.is_workspace() => pkg.as_str(),
@@ -327,6 +318,65 @@ async fn run_bhc_repl(project: &Project, output: &Output) -> Result<i32> {
         Err(e) => {
             output.error(&format!("BHC REPL failed: {}", e));
             Ok(1)
+        }
+    }
+}
+
+/// Decide which workspace member `hx run` runs.
+///
+/// An explicit `--package` is validated. Without one, a workspace runs the
+/// member containing the current directory, else its only member with an
+/// executable; with several candidates the user has to choose. Returns
+/// `Err(exit_code)` after reporting a problem.
+fn select_run_package(
+    project: &Project,
+    package: Option<String>,
+    output: &Output,
+) -> std::result::Result<Option<String>, i32> {
+    if !project.is_workspace() {
+        if package.is_some() {
+            output.warn("--package flag ignored (not a workspace project)");
+        }
+        return Ok(package);
+    }
+
+    if let Some(name) = package {
+        if project.get_package(&name).is_none() {
+            output.error(&format!("Package '{}' not found in workspace", name));
+            output.info(&format!(
+                "Available packages: {}",
+                project.package_names().join(", ")
+            ));
+            return Err(1);
+        }
+        return Ok(Some(name));
+    }
+
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(member) = project.member_at(&cwd)
+    {
+        return Ok(Some(member.name.clone()));
+    }
+
+    let runnable: Vec<&str> = project
+        .workspace_packages
+        .iter()
+        .filter(|m| !m.executables.is_empty())
+        .map(|m| m.name.as_str())
+        .collect();
+    match runnable.as_slice() {
+        [only] => Ok(Some(only.to_string())),
+        [] => {
+            output.error("No workspace member has an executable to run");
+            Err(1)
+        }
+        _ => {
+            output.error(&format!(
+                "Several workspace members have executables: {}",
+                runnable.join(", ")
+            ));
+            output.info(&format!("Choose one with: hx run -p {}", runnable[0]));
+            Err(1)
         }
     }
 }
