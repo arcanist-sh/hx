@@ -2,11 +2,15 @@
 //!
 //! Downloads GHC binaries directly from downloads.haskell.org and extracts them
 //! to the hx toolchain directory.
+//!
+//! The bindist (URL, unpack directory, SHA-256) comes from ghcup metadata
+//! when it lists this version for this machine, which also picks the build
+//! for the detected Linux distribution. Otherwise hx's own URL scheme is used.
 
 use crate::ghc::{
-    InstallSource, InstalledGhc, Platform, ToolchainManifest, ghc_archive_filename,
-    ghc_download_url, is_valid_version,
+    InstallSource, InstalledGhc, Platform, ToolchainManifest, ghc_download_url, is_valid_version,
 };
+use crate::metadata::{self, Tool};
 use crate::verify;
 use futures_util::StreamExt;
 use hx_core::{CommandRunner, Error, Result};
@@ -101,11 +105,23 @@ pub async fn download_and_install_ghc(options: &DownloadOptions) -> Result<Insta
     })?;
 
     // Download the archive
-    let archive_name = ghc_archive_filename(&options.version, platform);
-    let archive_path = download_dir.join(&archive_name);
-    let url = ghc_download_url(&options.version, platform);
+    let artifact = metadata::resolve_install_download(
+        Tool::Ghc,
+        &options.version,
+        platform,
+        ghc_download_url(&options.version, platform),
+    )
+    .await;
+    let archive_path = download_dir.join(&artifact.file_name);
 
-    download_ghc_archive(&url, &archive_path, &options.version, options.timeout).await?;
+    download_ghc_archive(
+        &artifact.url,
+        &archive_path,
+        &options.version,
+        artifact.sha256.as_deref(),
+        options.timeout,
+    )
+    .await?;
 
     // Use a temp directory for extraction and building to avoid spaces in paths
     // (GHC's configure doesn't support paths with spaces)
@@ -122,7 +138,12 @@ pub async fn download_and_install_ghc(options: &DownloadOptions) -> Result<Insta
     extract_ghc_archive(&archive_path, temp_dir.path(), &options.version)?;
 
     // Run configure and make install
-    let extracted_dir = find_extracted_dir(temp_dir.path(), &options.version, platform)?;
+    let extracted_dir = find_extracted_dir(
+        temp_dir.path(),
+        &options.version,
+        platform,
+        artifact.subdir.as_deref(),
+    )?;
     install_ghc_bindist(&extracted_dir, &install_dir).await?;
 
     // Verify installation
@@ -153,10 +174,17 @@ pub async fn download_and_install_ghc(options: &DownloadOptions) -> Result<Insta
 
 /// Download a GHC archive with progress display.
 ///
-/// The archive's SHA-256 is verified against the `SHA256SUMS` manifest
+/// The archive's SHA-256 is verified against `known_sha256` (from ghcup
+/// metadata) when given, otherwise against the `SHA256SUMS` manifest
 /// published alongside it; previously downloaded archives are re-verified
 /// before being reused.
-async fn download_ghc_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
+async fn download_ghc_archive(
+    url: &str,
+    dest: &Path,
+    version: &str,
+    known_sha256: Option<&str>,
+    timeout: u64,
+) -> Result<()> {
     let client = hx_core::http::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
@@ -167,7 +195,10 @@ async fn download_ghc_archive(url: &str, dest: &Path, version: &str, timeout: u6
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    let expected = verify::fetch_expected_sha256(&client, url, archive_name).await?;
+    let expected = match known_sha256 {
+        Some(hash) => Some(hash.to_string()),
+        None => verify::fetch_expected_sha256(&client, url, archive_name).await?,
+    };
     if expected.is_none() {
         verify::require_checksum_or_opt_out(&label, url)?;
     }
@@ -465,25 +496,42 @@ pub fn set_active(toolchain_dir: &Path, version: &str) -> Result<()> {
 
 /// Locate the directory a GHC bindist unpacked into.
 ///
-/// Since 9.4 this is `ghc-{version}-{target}` (e.g.
-/// `ghc-9.10.3-x86_64-unknown-linux`, regardless of which distribution's
-/// bindist was downloaded); 9.2 and earlier unpack into plain `ghc-{version}`.
-fn find_extracted_dir(root: &Path, version: &str, platform: Platform) -> Result<PathBuf> {
-    let candidates = [
-        root.join(format!("ghc-{}-{}", version, platform.url_suffix())),
-        root.join(format!("ghc-{}", version)),
-    ];
-    candidates
+/// ghcup metadata names it (`subdir`). Without metadata: since 9.4 this is
+/// `ghc-{version}-{target}` (e.g. `ghc-9.10.3-x86_64-unknown-linux`,
+/// regardless of which distribution's bindist was downloaded); 9.2 and
+/// earlier unpack into plain `ghc-{version}`.
+fn find_extracted_dir(
+    root: &Path,
+    version: &str,
+    platform: Platform,
+    subdir: Option<&str>,
+) -> Result<PathBuf> {
+    let mut candidates = subdir
+        .filter(|s| is_relative_subdir(s))
+        .map(|s| root.join(s))
         .into_iter()
-        .find(|dir| dir.is_dir())
-        .ok_or_else(|| {
-            Error::config(format!(
-                "GHC {} archive did not contain the expected ghc-{}-{} directory",
-                version,
-                version,
-                platform.url_suffix()
-            ))
-        })
+        .chain([
+            root.join(format!("ghc-{}-{}", version, platform.url_suffix())),
+            root.join(format!("ghc-{}", version)),
+        ]);
+    candidates.find(|dir| dir.is_dir()).ok_or_else(|| {
+        Error::config(format!(
+            "GHC {} archive did not contain the expected ghc-{}-{} directory",
+            version,
+            version,
+            platform.url_suffix()
+        ))
+    })
+}
+
+/// Whether a metadata-provided unpack directory stays inside the extraction
+/// root (no absolute paths or `..`).
+fn is_relative_subdir(subdir: &str) -> bool {
+    let path = Path::new(subdir);
+    !subdir.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 #[cfg(test)]
@@ -493,21 +541,60 @@ mod tests {
     #[test]
     fn test_find_extracted_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux).is_err());
+        assert!(find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux, None).is_err());
 
         let modern = tmp.path().join("ghc-9.10.3-x86_64-unknown-linux");
         fs::create_dir(&modern).unwrap();
         assert_eq!(
-            find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux).unwrap(),
+            find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux, None).unwrap(),
             modern
         );
 
         let legacy = tmp.path().join("ghc-9.2.8");
         fs::create_dir(&legacy).unwrap();
         assert_eq!(
-            find_extracted_dir(tmp.path(), "9.2.8", Platform::X86_64Linux).unwrap(),
+            find_extracted_dir(tmp.path(), "9.2.8", Platform::X86_64Linux, None).unwrap(),
             legacy
         );
+    }
+
+    #[test]
+    fn test_find_extracted_dir_prefers_metadata_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Alpine aarch64 bindists unpack into a non-standard directory
+        let alpine = tmp.path().join("ghc-9.10.3-aarch64-alpine-linux");
+        fs::create_dir(&alpine).unwrap();
+        assert!(find_extracted_dir(tmp.path(), "9.10.3", Platform::Aarch64Linux, None).is_err());
+        assert_eq!(
+            find_extracted_dir(
+                tmp.path(),
+                "9.10.3",
+                Platform::Aarch64Linux,
+                Some("ghc-9.10.3-aarch64-alpine-linux")
+            )
+            .unwrap(),
+            alpine
+        );
+
+        // A subdir that is missing or escapes the root falls back to the usual names
+        let modern = tmp.path().join("ghc-9.10.3-aarch64-unknown-linux");
+        fs::create_dir(&modern).unwrap();
+        for bad in ["missing", "../escape", "/abs"] {
+            assert_eq!(
+                find_extracted_dir(tmp.path(), "9.10.3", Platform::Aarch64Linux, Some(bad))
+                    .unwrap(),
+                modern
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_relative_subdir() {
+        assert!(is_relative_subdir("ghc-9.10.3-x86_64-unknown-linux"));
+        assert!(is_relative_subdir("ghc-9.10.3/testsuite"));
+        assert!(!is_relative_subdir(""));
+        assert!(!is_relative_subdir("../x"));
+        assert!(!is_relative_subdir("/x"));
     }
 
     #[test]
