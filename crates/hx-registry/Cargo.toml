@@ -1,0 +1,30 @@
+[package]
+name = "hx-registry"
+description = "Client for hx package registries (arcanist.sh registry)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+# Exposes `hx_registry::mock`, a tiny std-only HTTP server for tests.
+test-util = []
+
+[dependencies]
+hx-config.workspace = true
+hx-cache.workspace = true
+hx-core.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

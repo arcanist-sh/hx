@@ -403,13 +403,18 @@ tests passing, and formatting applied. No Stack. No Cabal. No GHCup.
 Just `hx`.
 
 ### hx-native Package Registry
-- [ ] `hx publish` to raskell.io registry (BHC-verified packages)
-  - [ ] Package upload with BHC build verification
+Server: the `arcanist-sh/registry` repo (Cloudflare Workers + D1 + R2), design in
+docs/REGISTRY.md. Implemented and tested locally; not deployed yet.
+- [x] `hx publish --registry arcanist` to the arcanist.sh registry (opt-in; Hackage stays default)
+  - [x] Package upload with server-side sdist validation
+  - [x] BHC verification as signed attestations (data model + endpoint; verifier workflow is a template)
   - [ ] Automated doc generation and hosting
-  - [ ] Provenance attestation (who built, when, from which source)
-- [ ] `hx search` against raskell.io registry
-- [ ] `hx add <package>` resolves from raskell.io first, Hackage fallback
-- [ ] Yanking, ownership transfer, team-based permissions
+  - [ ] Provenance attestation (who built, when, from which source); GitHub OIDC trusted publishing
+- [x] `hx search --registry arcanist`
+- [x] Plain cabal consumes the registry (hackage-security repository; `hx registry add`)
+- [ ] `hx add <package>` resolves from the registry first, Hackage fallback (cabal already does via the stanza; hx-solver does not)
+- [x] Yanking, ownership (add/remove owners), scoped API tokens
+- [ ] Ownership transfer requests, team-based permissions
 
 ### hx-native Resolver
 - [ ] Replace hx-solver's Hackage-based resolution with BHC Platform-aware resolver

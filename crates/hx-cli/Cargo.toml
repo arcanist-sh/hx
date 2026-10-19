@@ -30,6 +30,7 @@ hx-ls.workspace = true
 hx-plugins.workspace = true
 hx-compiler.workspace = true
 hx-bhc.workspace = true
+hx-registry.workspace = true
 
 clap.workspace = true
 clap_complete.workspace = true
@@ -58,6 +59,7 @@ regex = "1.10"
 tempfile.workspace = true
 
 [dev-dependencies]
+hx-registry = { workspace = true, features = ["test-util"] }
 assert_cmd.workspace = true
 predicates.workspace = true
 insta.workspace = true

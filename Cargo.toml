@@ -17,6 +17,7 @@ members = [
     "crates/hx-plugins",
     "crates/hx-compiler",
     "crates/hx-bhc",
+    "crates/hx-registry",
 ]
 
 [workspace.package]
@@ -113,6 +114,7 @@ hx-ls = { version = "0.9.3", path = "crates/hx-lsp" }
 hx-plugins = { version = "0.9.3", path = "crates/hx-plugins" }
 hx-compiler = { version = "0.9.3", path = "crates/hx-compiler" }
 hx-bhc = { version = "0.9.3", path = "crates/hx-bhc" }
+hx-registry = { version = "0.9.3", path = "crates/hx-registry" }
 
 # Async trait
 async-trait = "0.1"

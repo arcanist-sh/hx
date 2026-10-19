@@ -441,11 +441,18 @@ pub enum Commands {
         save_history: bool,
     },
 
-    /// Publish package to Hackage
+    /// Publish package to Hackage (or a registry with --registry)
+    #[command(
+        after_help = "Examples:\n  hx publish --dry-run\n  hx publish                      # Hackage\n  hx publish --registry arcanist  # the arcanist.sh registry"
+    )]
     Publish {
         /// Perform a dry run without uploading
         #[arg(long)]
         dry_run: bool,
+
+        /// Publish to this registry (name from [registries] or a URL) instead of Hackage
+        #[arg(long, value_name = "NAME|URL")]
+        registry: Option<String>,
 
         /// Hackage username
         #[arg(long, env = "HACKAGE_USERNAME")]
@@ -464,6 +471,12 @@ pub enum Commands {
     Ide {
         #[command(subcommand)]
         command: IdeCommands,
+    },
+
+    /// Log in to, configure and manage packages on a package registry
+    Registry {
+        #[command(subcommand)]
+        command: RegistryCommands,
     },
 
     /// Manage the Hackage package index
@@ -562,10 +575,14 @@ pub enum Commands {
         path: Option<String>,
     },
 
-    /// Search for packages on Hackage
+    /// Search for packages on Hackage (or a registry with --registry)
     Search {
         /// Search query
         query: String,
+
+        /// Search this registry (name from [registries] or a URL) instead of Hackage
+        #[arg(long, value_name = "NAME|URL")]
+        registry: Option<String>,
 
         /// Maximum results to show
         #[arg(long, default_value = "10")]
@@ -1117,6 +1134,173 @@ pub enum NewCommands {
     },
 }
 
+/// `--registry` for `hx registry` subcommands (defaults to the arcanist.sh registry).
+#[derive(Args, Debug, Clone)]
+pub struct RegistryArg {
+    /// Registry name (from [registries]) or URL
+    #[arg(long, value_name = "NAME|URL", default_value = "arcanist")]
+    pub registry: String,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RegistryCommands {
+    /// Store an API token for a registry (verified against the registry)
+    #[command(
+        after_help = "Examples:\n  hx registry login                       # prompts for the token\n  echo \"$TOKEN\" | hx registry login --token-stdin\n  hx registry login --registry http://localhost:8787 --token-stdin"
+    )]
+    Login {
+        #[command(flatten)]
+        registry: RegistryArg,
+
+        /// Read the token from stdin instead of prompting
+        #[arg(long)]
+        token_stdin: bool,
+    },
+
+    /// Remove the stored token for a registry
+    Logout {
+        #[command(flatten)]
+        registry: RegistryArg,
+
+        /// Also revoke the token on the registry
+        #[arg(long)]
+        revoke: bool,
+    },
+
+    /// List known registries and whether you are logged in
+    List,
+
+    /// Add the registry as a cabal `repository` in cabal.project
+    #[command(
+        after_help = "Plain cabal then resolves packages from the registry (and Hackage).\nRun `cabal update` afterwards."
+    )]
+    Add {
+        #[command(flatten)]
+        registry: RegistryArg,
+
+        /// Directory containing (or to contain) cabal.project
+        #[arg(long, default_value = ".")]
+        dir: std::path::PathBuf,
+    },
+
+    /// Show a package's versions, owners and BHC verification
+    Info {
+        /// Package name
+        package: String,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// Yank a version (cabal avoids it; existing pins keep working)
+    Yank {
+        /// Package name
+        package: String,
+
+        /// Version to yank
+        #[arg(value_name = "VERSION")]
+        pkg_version: String,
+
+        /// Undo a previous yank
+        #[arg(long)]
+        undo: bool,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// Manage package owners
+    Owner {
+        #[command(subcommand)]
+        command: RegistryOwnerCommands,
+    },
+
+    /// Manage API tokens
+    Token {
+        #[command(subcommand)]
+        command: RegistryTokenCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RegistryOwnerCommands {
+    /// List owners of a package
+    List {
+        /// Package name
+        package: String,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// Add an owner
+    Add {
+        /// Package name
+        package: String,
+
+        /// Login of the user to add
+        login: String,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// Remove an owner (the last owner cannot be removed)
+    Remove {
+        /// Package name
+        package: String,
+
+        /// Login of the user to remove
+        login: String,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RegistryTokenCommands {
+    /// Create a new token (printed once)
+    #[command(
+        after_help = "Example:\n  hx registry token create ci --scope publish --package my-lib --expires-in-days 90"
+    )]
+    Create {
+        /// Token name
+        name: String,
+
+        /// Scope to grant (publish, yank, owners, tokens); repeatable.
+        /// Default: publish, yank, owners
+        #[arg(long = "scope", value_name = "SCOPE")]
+        scopes: Vec<String>,
+
+        /// Restrict the token to this package; repeatable
+        #[arg(long = "package", value_name = "NAME")]
+        packages: Vec<String>,
+
+        /// Expire the token after this many days
+        #[arg(long)]
+        expires_in_days: Option<u32>,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// List your active tokens
+    List {
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+
+    /// Revoke a token by id
+    Revoke {
+        /// Token id (tok_...)
+        id: String,
+
+        #[command(flatten)]
+        registry: RegistryArg,
+    },
+}
+
 #[derive(Subcommand, Debug)]
 pub enum IndexCommands {
     /// Update the package index from Hackage
@@ -1428,5 +1612,41 @@ mod tests {
     #[test]
     fn default_name_matches_command_attribute() {
         assert_eq!(Cli::command().get_name(), DEFAULT_NAME);
+    }
+
+    /// clap's own consistency checks (duplicate argument ids, a positional
+    /// named `version` clashing with `--version`, ...) only run when a
+    /// command is built, so a broken subcommand would otherwise surface as a
+    /// runtime panic.
+    #[test]
+    fn cli_definition_is_consistent() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn registry_flags_parse() {
+        let cli =
+            Cli::try_parse_from(["hx", "publish", "--registry", "arcanist", "--dry-run"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Publish { registry: Some(ref r), dry_run: true, .. }) if r == "arcanist"
+        ));
+        let cli = Cli::try_parse_from(["hx", "registry", "yank", "foo", "1.0", "--undo"]).unwrap();
+        match cli.command {
+            Some(Commands::Registry {
+                command:
+                    RegistryCommands::Yank {
+                        pkg_version,
+                        undo,
+                        registry,
+                        ..
+                    },
+            }) => {
+                assert_eq!(pkg_version, "1.0");
+                assert!(undo);
+                assert_eq!(registry.registry, "arcanist");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }
