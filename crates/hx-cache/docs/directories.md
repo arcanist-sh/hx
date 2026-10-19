@@ -31,35 +31,37 @@ let store = cabal_store_dir()?;
 
 ## Platform Paths
 
-### Linux
+The user-facing table of every location (with all three platforms and the
+override variables) is the "Where hx Stores Things" section of the top-level
+`README.md`; `hx config path --all` prints the effective values.
 
-| Function | Path |
-|----------|------|
+All locations are computed in one place, `hx_cache::paths`. Other crates must
+call these functions instead of building `~/.cache/hx/...` themselves, so the
+overrides apply everywhere:
+
+| Function | Default (Linux) |
+|----------|-----------------|
 | `global_cache_dir()` | `~/.cache/hx` |
-| `global_config_dir()` | `~/.config/hx` |
-| `toolchain_dir()` | `~/.hx/toolchains` |
-| `toolchain_bin_dir()` | `~/.hx/bin` |
-| `cabal_store_dir()` | `~/.cache/hx/cabal/store` |
+| `cabal_store_dir()` | `<cache>/cabal/store` |
+| `solver_cache_dir()` | `~/.cache/hx/solver` |
+| `package_store_dir()` | `~/.cache/hx/packages` |
+| `index_mirror_dir()` | `~/.cache/hx/index` |
+| `stackage_cache_dir()` | `~/.cache/hx/stackage` |
+| `bhc_platform_cache_dir()` | `~/.cache/hx/bhc-platform` |
+| `script_cache_dir()` | `~/.cache/hx/scripts` |
+| `global_config_dir()` / `global_config_file()` | `~/.config/hx` / `.../config.toml` |
+| `global_plugin_dirs()` | `~/.config/hx/plugins` (+ legacy dir on macOS/Windows) |
+| `hx_home_dir()`, `toolchain_dir()`, `toolchain_bin_dir()` | `~/.hx`, `~/.hx/toolchains`, `~/.hx/bin` |
+| `bhc_home_dir()` | `~/.bhc` |
 
-### macOS
+On macOS and Windows, `solver`/`packages`/`index` default to `~/.cache/hx/...`
+and `stackage`/`bhc-platform`/`scripts` to `<platform cache>/hx/...`, the
+locations earlier releases used (`LegacyRoot`). Once `HX_CACHE_DIR` or
+`XDG_CACHE_HOME` is set, all of them live under the one cache root.
 
-| Function | Path |
-|----------|------|
-| `global_cache_dir()` | `~/Library/Caches/io.raskell.hx` |
-| `global_config_dir()` | `~/Library/Application Support/io.raskell.hx` |
-| `toolchain_dir()` | `~/.hx/toolchains` |
-| `toolchain_bin_dir()` | `~/.hx/bin` |
-| `cabal_store_dir()` | `~/Library/Caches/io.raskell.hx/cabal/store` |
-
-### Windows
-
-| Function | Path |
-|----------|------|
-| `global_cache_dir()` | `%LOCALAPPDATA%\raskell\hx\cache` |
-| `global_config_dir()` | `%APPDATA%\raskell\hx\config` |
-| `toolchain_dir()` | `%USERPROFILE%\.hx\toolchains` |
-| `toolchain_bin_dir()` | `%USERPROFILE%\.hx\bin` |
-| `cabal_store_dir()` | `%USERPROFILE%\.hx\store` |
+For tests, `HxPaths::resolve(env, &base)` takes an environment lookup closure
+and hand-built `BaseLocations`, so layouts for every platform can be checked
+without touching the process environment.
 
 ## Why `~/.hx` for Toolchains?
 
@@ -75,7 +77,7 @@ Toolchains use `~/.hx/toolchains` instead of platform-specific directories becau
 use hx_cache::ensure_dir;
 
 // Create directory if it doesn't exist
-let cache = ensure_dir(&global_cache_dir()?)?;
+ensure_dir(&global_cache_dir()?)?;
 ```
 
 ## Cleaning Caches
@@ -152,6 +154,9 @@ let index = PackageCacheIndex::load()?;
 
 | Variable | Purpose |
 |----------|---------|
-| `HX_HOME` | Override `~/.hx` location |
-| `HX_CACHE_DIR` | Override cache directory |
+| `HX_HOME` | Override `~/.hx` location (toolchains, tool symlinks) |
+| `HX_CACHE_DIR` | Override the cache root (used as-is) |
+| `XDG_CACHE_HOME` | Cache root becomes `$XDG_CACHE_HOME/hx` |
 | `HX_STORE_DIR` | Override Cabal store |
+| `XDG_CONFIG_HOME` | Config dir becomes `$XDG_CONFIG_HOME/hx` |
+| `HX_CONFIG_FILE` | Override the config file |

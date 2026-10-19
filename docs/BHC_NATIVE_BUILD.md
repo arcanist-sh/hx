@@ -213,8 +213,9 @@ test/Main.hs   test/Spec.hs   tests/Main.hs   tests/Spec.hs
 | `<cache>/bhc-<version>/lib/<id>/lib/` | A package's installed `.bhi` interfaces and `libHS<id>.a` |
 | `<project>/.hx/bhc-native-build/` | The project's own build output |
 
-`<cache>` is the platform cache directory (e.g. `~/Library/Caches/io.raskell.hx` on macOS,
-`~/.cache/hx` on Linux).
+`<cache>` is hx's native package store, `~/.cache/hx/packages` by default on every platform
+(`$HX_CACHE_DIR/packages` or `$XDG_CACHE_HOME/hx/packages` when either is set). Run
+`hx config path --all` to see the effective value.
 
 ## REPL
 

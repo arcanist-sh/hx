@@ -823,7 +823,7 @@ async fn detect_package_dbs(ghc_version: &str) -> Vec<PathBuf> {
     }
 
     // Add cabal store package database
-    if let Some(home) = dirs::home_dir() {
+    if let Ok(home) = hx_cache::home_dir() {
         // Standard cabal store location
         let cabal_store = home
             .join(".cabal")
@@ -834,13 +834,11 @@ async fn detect_package_dbs(ghc_version: &str) -> Vec<PathBuf> {
             debug!("Found cabal store db: {}", cabal_store.display());
             dbs.push(cabal_store);
         }
+    }
 
-        // hx-managed store location
-        let hx_store = home
-            .join(".cache")
-            .join("hx")
-            .join("cabal")
-            .join("store")
+    // hx-managed store location (wherever `hx build` puts it)
+    if let Ok(store) = hx_cache::cabal_store_dir() {
+        let hx_store = store
             .join(format!("ghc-{}", ghc_version))
             .join("package.db");
         if hx_store.exists() {

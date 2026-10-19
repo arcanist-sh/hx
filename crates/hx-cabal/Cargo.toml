@@ -23,7 +23,6 @@ tracing.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
 num_cpus = "1.16"
-dirs = "5.0"
 regex = "1"
 
 [target.'cfg(unix)'.dependencies]

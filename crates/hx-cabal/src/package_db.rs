@@ -33,7 +33,8 @@ pub struct PackageDb {
 impl PackageDb {
     /// Open or create a package database for the given GHC version.
     ///
-    /// The database is stored at `~/.cache/hx/ghc-<version>/package.db/`.
+    /// The database is stored at `<cache_dir>/ghc-<version>/package.db/`;
+    /// hx passes its native package store (see [`default_cache_dir`]).
     /// If the database doesn't exist, it will be initialized.
     pub async fn open(ghc_version: &str, cache_dir: &Path) -> Result<Self> {
         let db_path = cache_dir
@@ -448,11 +449,10 @@ pub async fn clear_package_db(cache_dir: &Path, ghc_version: &str) -> Result<()>
     Ok(())
 }
 
-/// Get the default cache directory for hx.
+/// The default `cache_dir` to pass to [`PackageDb::open`]: hx's native
+/// package store (see [`hx_cache::package_store_dir`]).
 pub fn default_cache_dir() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from(".cache"))
-        .join("hx")
+    hx_cache::package_store_dir().unwrap_or_else(|_| PathBuf::from(".hx").join("native-store"))
 }
 
 #[cfg(test)]
@@ -485,7 +485,7 @@ version:              2.1.1
     #[test]
     fn test_default_cache_dir() {
         let dir = default_cache_dir();
-        assert!(dir.ends_with("hx"));
+        assert_eq!(dir, hx_cache::package_store_dir().unwrap());
     }
 
     #[test]

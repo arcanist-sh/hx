@@ -75,10 +75,8 @@ impl PluginConfig {
             paths.push(PathBuf::from(expanded.as_ref()));
         }
 
-        // Global plugins last
-        if let Some(config_dir) = dirs::config_dir() {
-            paths.push(config_dir.join("hx").join("plugins"));
-        }
+        // Global plugins last (hx's config dir, then the pre-0.9.3 location)
+        paths.extend(hx_cache::global_plugin_dirs().unwrap_or_default());
 
         paths
     }
@@ -173,24 +171,15 @@ impl HookConfig {
     }
 }
 
-// Use dirs crate for platform-independent config directory
-mod dirs {
-    use std::path::PathBuf;
-
-    pub fn config_dir() -> Option<PathBuf> {
-        directories::BaseDirs::new().map(|dirs| dirs.config_dir().to_path_buf())
-    }
-}
-
 // Simple tilde expansion
 mod shellexpand {
     use std::borrow::Cow;
 
     pub fn tilde(path: &str) -> Cow<'_, str> {
         if path.starts_with("~/")
-            && let Some(home) = directories::BaseDirs::new()
+            && let Ok(home) = hx_cache::home_dir()
         {
-            let home_str = home.home_dir().to_string_lossy();
+            let home_str = home.to_string_lossy();
             return Cow::Owned(format!("{}{}", home_str, &path[1..]));
         }
         Cow::Borrowed(path)

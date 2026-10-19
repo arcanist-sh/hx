@@ -683,7 +683,8 @@ pub enum Commands {
     /// Manage global configuration
     ///
     /// Global config provides defaults for all projects.
-    /// Located at ~/.config/hx/config.toml (or platform equivalent).
+    /// Located at ~/.config/hx/config.toml (or platform equivalent);
+    /// `hx config path --all` shows every location hx uses.
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
@@ -760,7 +761,16 @@ pub enum ConfigCommands {
     Show,
 
     /// Show path to global config file
-    Path,
+    ///
+    /// With --all, list every location hx reads or writes (config, plugins,
+    /// caches, stores, toolchains) and which setting chose it. Honours
+    /// HX_CONFIG_FILE, HX_CACHE_DIR, HX_STORE_DIR, HX_HOME, XDG_CONFIG_HOME
+    /// and XDG_CACHE_HOME.
+    Path {
+        /// List every hx location, not just the config file
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Open global config in editor
     Edit,

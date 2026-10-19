@@ -269,7 +269,7 @@ fn load_from_tar<R: Read>(reader: R, options: &IndexOptions) -> Result<PackageIn
 
 /// Get the default Hackage index path.
 pub fn default_index_path() -> Option<std::path::PathBuf> {
-    let home = dirs_next::home_dir()?;
+    let home = hx_cache::home_dir().ok()?;
     let path = home
         .join(".cabal")
         .join("packages")

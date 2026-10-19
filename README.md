@@ -417,6 +417,7 @@ hlint = true
 ```bash
 hx config show           # Show current global configuration
 hx config path           # Show path to global config file
+hx config path --all     # Show every location hx uses, and why
 hx config edit           # Open config file in your $EDITOR
 hx config init           # Create default config file
 hx config set <key> <val> # Set a configuration value
@@ -427,6 +428,57 @@ hx config set toolchain.ghc 9.8.2
 hx config set build.optimization 2
 hx config set format.formatter ormolu
 ```
+
+## Where hx Stores Things
+
+`hx config path --all` prints every location below as it applies on your
+machine, with the setting that chose it (`default`, `$XDG_CACHE_HOME`,
+`$HX_HOME`, ...).
+
+### Defaults
+
+| What | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| Global config file | `~/.config/hx/config.toml` | `~/Library/Application Support/io.raskell.hx/config.toml` | `%APPDATA%\raskell\hx\config\config.toml` |
+| Global plugins | `~/.config/hx/plugins` | `~/Library/Application Support/io.raskell.hx/plugins` | `%APPDATA%\raskell\hx\config\plugins` |
+| Cache root (artifacts, store indexes) | `~/.cache/hx` | `~/Library/Caches/io.raskell.hx` | `%LOCALAPPDATA%\raskell\hx\cache` |
+| Cabal store | `~/.cache/hx/cabal/store` | `<cache root>/cabal/store` | `<cache root>\cabal\store` |
+| Resolution cache | `~/.cache/hx/solver` | `~/.cache/hx/solver` | `%USERPROFILE%\.cache\hx\solver` |
+| Package sources and native package store | `~/.cache/hx/packages` | `~/.cache/hx/packages` | `%USERPROFILE%\.cache\hx\packages` |
+| Hackage index mirror | `~/.cache/hx/index` | `~/.cache/hx/index` | `%USERPROFILE%\.cache\hx\index` |
+| Stackage snapshots | `~/.cache/hx/stackage` | `~/Library/Caches/hx/stackage` | `%LOCALAPPDATA%\hx\stackage` |
+| BHC Platform snapshots | `~/.cache/hx/bhc-platform` | `~/Library/Caches/hx/bhc-platform` | `%LOCALAPPDATA%\hx\bhc-platform` |
+| `hx script` builds | `~/.cache/hx/scripts` | `~/Library/Caches/hx/scripts` | `%LOCALAPPDATA%\hx\scripts` |
+| GHC / Cabal / HLS installs | `~/.hx/toolchains` | `~/.hx/toolchains` | `%USERPROFILE%\.hx\toolchains` |
+| Active tool symlinks | `~/.hx/bin` | `~/.hx/bin` | `%USERPROFILE%\.hx\bin` |
+| BHC installs | `~/.bhc` | `~/.bhc` | `%USERPROFILE%\.bhc` |
+| Per-project build state | `<project>/.hx/` | `<project>/.hx/` | `<project>\.hx\` |
+
+On macOS and Windows a few caches keep the location earlier releases used, so
+upgrading never strands downloaded or built data. Plugins in the pre-0.9.3
+global location (`~/Library/Application Support/hx/plugins`,
+`%APPDATA%\hx\plugins`) are still loaded. Toolchains live under `~/.hx`
+on every platform because GHC's build system cannot handle the space in
+`Application Support`.
+
+### Overrides
+
+| Variable | Moves |
+|----------|-------|
+| `HX_CACHE_DIR` | Every cache location, which then lives directly under it (`$HX_CACHE_DIR/solver`, `$HX_CACHE_DIR/cabal/store`, ...) |
+| `XDG_CACHE_HOME` | Same as `HX_CACHE_DIR`, rooted at `$XDG_CACHE_HOME/hx` (any platform) |
+| `HX_STORE_DIR` | The Cabal store only |
+| `XDG_CONFIG_HOME` | Config file and global plugins, to `$XDG_CONFIG_HOME/hx` (any platform) |
+| `HX_CONFIG_FILE` / `--config-file` | The global config file only |
+| `HX_HOME` | `~/.hx`: toolchains and tool symlinks |
+
+`HX_*` variables take precedence over `XDG_*` ones. Empty values, and
+`XDG_*` values that are not absolute paths, are ignored. `XDG_DATA_HOME`
+does not move `~/.hx`, so existing toolchain installs stay where they are;
+set `HX_HOME` to relocate them, and move the directory yourself.
+
+`hx cache clean` removes every cache location listed above, including the
+older-layout ones.
 
 ## Lockfile
 
@@ -467,7 +519,10 @@ delegation to Cabal.
 | `HX_QUIET` | Suppress output |
 | `HX_NO_COLOR` | Disable colored output |
 | `HX_CONFIG_FILE` | Path to config file |
-| `HX_CACHE_DIR` | Cache directory location |
+| `HX_CACHE_DIR` | Cache directory location (see [Where hx Stores Things](#where-hx-stores-things)) |
+| `HX_STORE_DIR` | Cabal store location |
+| `HX_HOME` | hx home (default `~/.hx`: toolchains and tool symlinks) |
+| `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` | Honoured on every platform |
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |

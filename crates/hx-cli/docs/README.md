@@ -247,7 +247,9 @@ CLI respects environment variables:
 |----------|--------|
 | `NO_COLOR` | Disable colored output |
 | `CLICOLOR` | Control color output |
-| `HX_HOME` | Override hx home directory |
+| `HX_HOME` | Override hx home directory (`~/.hx`) |
+| `HX_CACHE_DIR`, `XDG_CACHE_HOME` | Move every cache location |
+| `XDG_CONFIG_HOME`, `HX_CONFIG_FILE` | Move the global config |
 | `RUST_LOG` | Set log level |
 
 ## Shell Completion

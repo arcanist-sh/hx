@@ -72,6 +72,15 @@ pub async fn run(cli: Cli) -> Result<i32> {
         Verbosity::Normal
     });
 
+    // `--config-file` (clap also fills it from $HX_CONFIG_FILE, which
+    // hx_cache reads on its own; only record a real flag as such).
+    if let Some(file) = &cli.global.config_file
+        && std::env::var_os(hx_core::env::EnvVars::HX_CONFIG_FILE).as_deref()
+            != Some(file.as_os_str())
+    {
+        hx_cache::set_config_file_override(file.clone());
+    }
+
     let policy = auto_install_policy(&cli.global);
 
     let result = match cli.command {
@@ -331,7 +340,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
         },
         Some(Commands::Config { command }) => match command {
             ConfigCommands::Show => config::show(&output).await,
-            ConfigCommands::Path => config::path(&output).await,
+            ConfigCommands::Path { all } => config::path(all, &output).await,
             ConfigCommands::Edit => config::edit(&output).await,
             ConfigCommands::Set { key, value } => config::set(&key, &value, &output).await,
             ConfigCommands::Get { key } => config::get(&key, &output).await,

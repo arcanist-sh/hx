@@ -118,12 +118,15 @@ fn generate_completions(shell: &Shell) -> Vec<u8> {
 
 /// Get the installation path and optional source instruction for the shell.
 fn get_install_path(shell: &Shell, name: &str) -> Result<(PathBuf, Option<String>)> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    // These are the shells' own locations, not hx's (see `hx_cache::paths`).
+    let base = directories::BaseDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let home = base.home_dir().to_path_buf();
 
     match shell {
         Shell::Bash => {
             // Try XDG first, then fallback to ~/.local/share
-            let data_dir = dirs::data_local_dir().unwrap_or_else(|| home.join(".local/share"));
+            let data_dir = base.data_local_dir().to_path_buf();
             let completions_dir = data_dir.join("bash-completion/completions");
             let path = completions_dir.join(name);
 
@@ -149,9 +152,7 @@ fn get_install_path(shell: &Shell, name: &str) -> Result<(PathBuf, Option<String
             let fpath_dirs = [
                 home.join(".zsh/completions"),
                 home.join(".local/share/zsh/site-functions"),
-                dirs::data_local_dir()
-                    .unwrap_or_else(|| home.join(".local/share"))
-                    .join("zsh/site-functions"),
+                base.data_local_dir().join("zsh/site-functions"),
             ];
 
             // Use the first one, create if needed
@@ -178,7 +179,7 @@ fn get_install_path(shell: &Shell, name: &str) -> Result<(PathBuf, Option<String
         }
         Shell::Fish => {
             // Fish has a standard completions directory
-            let config_dir = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
+            let config_dir = base.config_dir().to_path_buf();
             let path = config_dir
                 .join("fish/completions")
                 .join(format!("{name}.fish"));
@@ -187,14 +188,16 @@ fn get_install_path(shell: &Shell, name: &str) -> Result<(PathBuf, Option<String
             Ok((path, None))
         }
         Shell::Elvish => {
-            let config_dir = dirs::config_dir().unwrap_or_else(|| home.join(".config"));
+            let config_dir = base.config_dir().to_path_buf();
             let path = config_dir.join("elvish/lib").join(format!("{name}.elv"));
 
             Ok((path, Some(format!("use {name}"))))
         }
         Shell::PowerShell => {
             // PowerShell profile location varies
-            let documents = dirs::document_dir().unwrap_or_else(|| home.join("Documents"));
+            let documents = directories::UserDirs::new()
+                .and_then(|u| u.document_dir().map(PathBuf::from))
+                .unwrap_or_else(|| home.join("Documents"));
             let path = documents
                 .join("PowerShell/Modules")
                 .join(name)

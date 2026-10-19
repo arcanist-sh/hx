@@ -118,10 +118,9 @@ pub struct UpdateResult {
     pub state: IndexState,
 }
 
-/// Get the hx-managed index directory.
+/// Get the hx-managed index directory (see [`hx_cache::index_mirror_dir`]).
 pub fn index_dir() -> Option<PathBuf> {
-    let home = dirs_next::home_dir()?;
-    Some(home.join(".cache").join("hx").join("index"))
+    hx_cache::index_mirror_dir().ok()
 }
 
 /// Get the path to the mirrored index file.

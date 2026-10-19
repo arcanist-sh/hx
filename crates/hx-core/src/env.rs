@@ -12,8 +12,14 @@ impl EnvVars {
     /// Path to the hx configuration file.
     pub const HX_CONFIG_FILE: &'static str = "HX_CONFIG_FILE";
 
-    /// Directory for hx cache storage.
+    /// Directory for hx cache storage (used as-is; overrides `XDG_CACHE_HOME`).
     pub const HX_CACHE_DIR: &'static str = "HX_CACHE_DIR";
+
+    /// Directory for the Cabal store used by hx builds.
+    pub const HX_STORE_DIR: &'static str = "HX_STORE_DIR";
+
+    /// hx home directory (default `~/.hx`), holding toolchains and tool symlinks.
+    pub const HX_HOME: &'static str = "HX_HOME";
 
     /// Enable verbose output.
     pub const HX_VERBOSE: &'static str = "HX_VERBOSE";
@@ -82,6 +88,12 @@ impl EnvVars {
 
     /// Jupyter session name (for detecting notebook environments).
     pub const JPY_SESSION_NAME: &'static str = "JPY_SESSION_NAME";
+
+    /// XDG base directory for caches.
+    pub const XDG_CACHE_HOME: &'static str = "XDG_CACHE_HOME";
+
+    /// XDG base directory for configuration.
+    pub const XDG_CONFIG_HOME: &'static str = "XDG_CONFIG_HOME";
 
     /// Standard HOME environment variable.
     pub const HOME: &'static str = "HOME";

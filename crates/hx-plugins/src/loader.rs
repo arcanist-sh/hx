@@ -126,8 +126,9 @@ pub fn create_plugins_dir(project_root: &Path) -> Result<PathBuf> {
 pub struct PluginPaths {
     /// Project-local plugins directory.
     pub local: PathBuf,
-    /// Global plugins directory.
-    pub global: Option<PathBuf>,
+    /// Global plugin directories, in search order (see
+    /// [`hx_cache::global_plugin_dirs`]).
+    pub global: Vec<PathBuf>,
     /// Custom paths from configuration.
     pub custom: Vec<PathBuf>,
 }
@@ -137,8 +138,7 @@ impl PluginPaths {
     pub fn for_project(config: &PluginConfig, project_root: &Path) -> Self {
         let local = project_root.join(".hx").join("plugins");
 
-        let global =
-            directories::BaseDirs::new().map(|dirs| dirs.config_dir().join("hx").join("plugins"));
+        let global = hx_cache::global_plugin_dirs().unwrap_or_default();
 
         let custom = config
             .paths
@@ -170,10 +170,10 @@ impl PluginPaths {
             }
         }
 
-        if let Some(ref global) = self.global
-            && global.exists()
-        {
-            paths.push(global);
+        for global in &self.global {
+            if global.exists() {
+                paths.push(global);
+            }
         }
 
         paths
@@ -182,9 +182,9 @@ impl PluginPaths {
 
 fn shellexpand(path: &str) -> String {
     if path.starts_with("~/")
-        && let Some(dirs) = directories::BaseDirs::new()
+        && let Ok(home) = hx_cache::home_dir()
     {
-        return format!("{}{}", dirs.home_dir().display(), &path[1..]);
+        return format!("{}{}", home.display(), &path[1..]);
     }
     path.to_string()
 }

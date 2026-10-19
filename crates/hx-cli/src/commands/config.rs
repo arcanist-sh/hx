@@ -32,8 +32,11 @@ pub async fn show(output: &Output) -> Result<i32> {
     }
 }
 
-/// Show path to global config file.
-pub async fn path(output: &Output) -> Result<i32> {
+/// Show path to global config file, or with `all`, every hx location.
+pub async fn path(all: bool, output: &Output) -> Result<i32> {
+    if all {
+        return path_all(output);
+    }
     match global_config_path() {
         Some(path) => {
             println!("{}", path.display());
@@ -44,6 +47,33 @@ pub async fn path(output: &Output) -> Result<i32> {
             Ok(1)
         }
     }
+}
+
+/// Print every location hx uses, one per line: label, path, and what chose it.
+fn path_all(output: &Output) -> Result<i32> {
+    let paths = match hx_cache::HxPaths::current() {
+        Ok(paths) => paths,
+        Err(e) => {
+            output.error(&format!("Could not determine hx paths: {}", e));
+            return Ok(1);
+        }
+    };
+    print!("{}", format_paths(&paths));
+    Ok(0)
+}
+
+fn format_paths(paths: &hx_cache::HxPaths) -> String {
+    let rows = paths.entries();
+    let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+    rows.iter()
+        .map(|(label, loc)| {
+            format!(
+                "{label:<width$}  {}  ({})\n",
+                loc.path.display(),
+                loc.source
+            )
+        })
+        .collect()
 }
 
 /// Open global config in editor.
@@ -301,5 +331,36 @@ fn parse_bool(value: &str) -> Result<bool> {
             "Invalid boolean value: {} (use true/false)",
             value
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hx_cache::{BaseLocations, HxPaths};
+    use std::ffi::OsString;
+
+    // Asserts on rendered Unix-style paths; the resolver itself is tested on
+    // Linux, macOS and Windows layouts in hx-cache.
+    #[cfg(unix)]
+    #[test]
+    fn format_paths_lists_every_location_with_its_source() {
+        let base = BaseLocations {
+            home: "/home/u".into(),
+            project_cache: "/home/u/.cache/hx".into(),
+            project_config: "/home/u/.config/hx".into(),
+            platform_cache: "/home/u/.cache".into(),
+            platform_config: "/home/u/.config".into(),
+        };
+        let env = |key: &str| (key == "XDG_CACHE_HOME").then(|| OsString::from("/x"));
+        let text = format_paths(&HxPaths::resolve(env, &base));
+
+        assert!(text.contains("/home/u/.config/hx/config.toml  (default)"));
+        assert!(text.contains("/x/hx/solver  ($XDG_CACHE_HOME)"));
+        assert!(text.contains("/home/u/.hx/toolchains  (default)"));
+        assert_eq!(
+            text.lines().count(),
+            HxPaths::resolve(env, &base).entries().len()
+        );
     }
 }
