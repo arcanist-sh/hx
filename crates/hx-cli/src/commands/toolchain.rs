@@ -5,11 +5,12 @@ use anyhow::Result;
 use hx_cache::toolchain_dir;
 use hx_config::{Manifest, find_project_root};
 use hx_solver::bhc_platform::find_platform_for_bhc;
+use hx_toolchain::metadata::{self, Tool, VersionListing};
 use hx_toolchain::{
     BhcInstallOptions, GhcSource, InstallStrategy, RECOMMENDED_BHC_VERSION,
     RECOMMENDED_CABAL_VERSION, RECOMMENDED_GHC_VERSION, SmartCabalInstallOptions,
     SmartInstallOptions, Toolchain, ToolchainManifest, create_symlinks, install, install_bhc,
-    known_versions, remove_ghc, set_active,
+    remove_ghc, set_active,
 };
 use hx_ui::{Output, Style};
 
@@ -125,78 +126,172 @@ async fn status(output: &Output) -> Result<i32> {
 async fn list(available: bool, installed_only: bool, output: &Output) -> Result<i32> {
     let tc_dir = toolchain_dir()?;
     let manifest = ToolchainManifest::load(&tc_dir)?;
-    let installed: Vec<_> = manifest.installed_versions().into_iter().collect();
-
-    if available && !installed_only {
-        // Show all known versions with installation status
-        output.header("Available GHC versions");
-
-        let versions = known_versions();
-        for version in versions {
-            let is_installed = installed.contains(&version.version.as_str());
-            let is_active = manifest.active_ghc.as_deref() == Some(&version.version);
-
-            let status = if is_active {
-                format!("{} (active)", Style::success("✓"))
-            } else if is_installed {
-                format!("{} (installed)", Style::success("✓"))
-            } else if version.is_recommended {
-                format!("{} (recommended)", Style::info("○"))
-            } else {
-                Style::dim("○").to_string()
-            };
-
-            output.list_item(&version.version, &status);
-        }
-    } else if installed_only || installed.is_empty() {
-        // Show only installed versions
-        output.header("Installed GHC versions (hx-managed)");
-
-        if manifest.ghc.is_empty() {
-            output.info("No GHC versions installed via hx");
-            output.info(&format!(
-                "Install one with: hx toolchain install {}",
-                RECOMMENDED_GHC_VERSION
-            ));
-        } else {
-            for ghc in &manifest.ghc {
-                let active_marker = if manifest.active_ghc.as_deref() == Some(&ghc.version) {
-                    " *"
-                } else {
-                    ""
-                };
-                output.list_item(
-                    &format!("{}{}", ghc.version, active_marker),
-                    &format!(
-                        "installed {} via {}",
-                        ghc.installed_at.format("%Y-%m-%d"),
-                        ghc.source
-                    ),
-                );
-            }
-        }
+    let mode = if installed_only {
+        ListMode::Installed
+    } else if available {
+        ListMode::Available
     } else {
-        // Default: show installed with some available
-        output.header("Installed GHC versions");
+        ListMode::Default
+    };
 
-        if manifest.ghc.is_empty() {
-            output.info("No GHC versions installed via hx");
-        } else {
-            for ghc in &manifest.ghc {
-                let active_marker = if manifest.active_ghc.as_deref() == Some(&ghc.version) {
-                    format!(" {}", Style::success("(active)"))
-                } else {
-                    String::new()
+    // Installed versions need no metadata; everything else is read from
+    // ghcup's metadata, or hx's built-in tables when it is unavailable.
+    let metadata = match mode {
+        ListMode::Installed => None,
+        _ => metadata::load().await,
+    };
+
+    let ghc_installed: Vec<&str> = manifest.ghc.iter().map(|g| g.version.as_str()).collect();
+    let cabal_installed: Vec<&str> = manifest.cabal.iter().map(|c| c.version.as_str()).collect();
+    let sections = [
+        (
+            Tool::Ghc,
+            "GHC",
+            ghc_installed,
+            manifest.active_ghc.as_deref(),
+        ),
+        (
+            Tool::Cabal,
+            "Cabal",
+            cabal_installed,
+            manifest.active_cabal.as_deref(),
+        ),
+    ];
+
+    for (tool, name, installed, active) in sections {
+        let listing = metadata::version_listing(metadata.as_deref(), tool);
+        let rows = version_rows(&listing, &installed, active, mode);
+        let header = match mode {
+            ListMode::Available => format!("Available {} versions", name),
+            ListMode::Installed => format!("Installed {} versions (hx-managed)", name),
+            ListMode::Default => format!("{} versions", name),
+        };
+        output.header(&header);
+
+        if rows.is_empty() {
+            output.info(&format!("No {} versions installed via hx", name));
+            if let Some(recommended) = metadata::recommended_version(metadata.as_deref(), tool) {
+                let command = match tool {
+                    Tool::Cabal => format!("hx toolchain install --cabal {}", recommended),
+                    _ => format!("hx toolchain install {}", recommended),
                 };
-                output.list_item(&ghc.version, &active_marker);
+                output.info(&format!("Install one with: {}", command));
             }
+            continue;
         }
 
+        for row in rows {
+            output.list_item(&row.version, &row.describe());
+        }
+    }
+
+    if mode != ListMode::Installed {
         output.info("");
-        output.info("Use --available to see all known versions");
+        if metadata.is_some() {
+            output.info("Versions and tags from ghcup metadata");
+        } else {
+            output.info("ghcup metadata unavailable; showing hx's built-in version list");
+        }
+        if mode == ListMode::Default {
+            output.info("Use --available to see all versions");
+        }
     }
 
     Ok(0)
+}
+
+/// Which versions `hx toolchain list` shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListMode {
+    /// Installed versions plus the recommended and latest releases.
+    Default,
+    /// Every current release (ghcup's `old` and prereleases hidden) plus
+    /// anything installed.
+    Available,
+    /// Only installed versions.
+    Installed,
+}
+
+/// One line of `hx toolchain list`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VersionRow {
+    version: String,
+    installed: bool,
+    active: bool,
+    recommended: bool,
+    latest: bool,
+}
+
+impl VersionRow {
+    fn describe(&self) -> String {
+        let mut labels = Vec::new();
+        if self.active {
+            labels.push("active");
+        } else if self.installed {
+            labels.push("installed");
+        }
+        if self.recommended {
+            labels.push("recommended");
+        }
+        if self.latest {
+            labels.push("latest");
+        }
+        let icon = if self.installed {
+            Style::success("✓").to_string()
+        } else if self.recommended || self.latest {
+            Style::info("○").to_string()
+        } else {
+            Style::dim("○").to_string()
+        };
+        if labels.is_empty() {
+            icon
+        } else {
+            format!("{} ({})", icon, labels.join(", "))
+        }
+    }
+}
+
+/// Build the rows for one tool, newest first.
+fn version_rows(
+    listing: &[VersionListing],
+    installed: &[&str],
+    active: Option<&str>,
+    mode: ListMode,
+) -> Vec<VersionRow> {
+    let mut rows: Vec<VersionRow> = listing
+        .iter()
+        .filter(|l| {
+            let is_installed = installed.contains(&l.version.as_str());
+            match mode {
+                ListMode::Installed => is_installed,
+                ListMode::Default => is_installed || l.recommended || l.latest,
+                ListMode::Available => is_installed || !(l.old || l.prerelease),
+            }
+        })
+        .map(|l| VersionRow {
+            version: l.version.clone(),
+            installed: installed.contains(&l.version.as_str()),
+            active: active == Some(l.version.as_str()),
+            recommended: l.recommended,
+            latest: l.latest,
+        })
+        .collect();
+
+    // Installed versions the listing does not know (custom or withdrawn builds)
+    for version in installed {
+        if !rows.iter().any(|r| r.version == *version) {
+            rows.push(VersionRow {
+                version: version.to_string(),
+                installed: true,
+                active: active == Some(*version),
+                recommended: false,
+                latest: false,
+            });
+        }
+    }
+
+    rows.sort_by(|a, b| metadata::compare_versions(&b.version, &a.version));
+    rows
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -539,5 +634,74 @@ async fn use_project_toolchain(output: &Output) -> Result<i32> {
         Ok(0)
     } else {
         Ok(4)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn listing(version: &str, recommended: bool, latest: bool, old: bool) -> VersionListing {
+        VersionListing {
+            version: version.to_string(),
+            recommended,
+            latest,
+            old,
+            prerelease: false,
+        }
+    }
+
+    fn sample() -> Vec<VersionListing> {
+        vec![
+            listing("9.14.1", false, true, false),
+            listing("9.12.2", false, false, false),
+            listing("9.10.3", true, false, false),
+            listing("9.8.4", false, false, false),
+            listing("8.10.7", false, false, true),
+        ]
+    }
+
+    fn versions(rows: &[VersionRow]) -> Vec<&str> {
+        rows.iter().map(|r| r.version.as_str()).collect()
+    }
+
+    #[test]
+    fn test_default_shows_installed_recommended_latest() {
+        let rows = version_rows(&sample(), &["9.8.4"], Some("9.8.4"), ListMode::Default);
+        assert_eq!(versions(&rows), ["9.14.1", "9.10.3", "9.8.4"]);
+        assert!(rows[0].latest && !rows[0].installed);
+        assert!(rows[1].recommended);
+        assert!(rows[2].active && rows[2].installed);
+    }
+
+    #[test]
+    fn test_available_hides_old_unless_installed() {
+        let rows = version_rows(&sample(), &[], None, ListMode::Available);
+        assert_eq!(versions(&rows), ["9.14.1", "9.12.2", "9.10.3", "9.8.4"]);
+
+        let rows = version_rows(&sample(), &["8.10.7"], None, ListMode::Available);
+        assert!(versions(&rows).contains(&"8.10.7"));
+    }
+
+    #[test]
+    fn test_installed_only_includes_unknown_versions() {
+        let rows = version_rows(
+            &sample(),
+            &["9.10.3", "9.12.3"],
+            Some("9.12.3"),
+            ListMode::Installed,
+        );
+        assert_eq!(versions(&rows), ["9.12.3", "9.10.3"]);
+        assert!(rows[0].active);
+        assert!(rows[1].recommended && rows[1].installed);
+    }
+
+    #[test]
+    fn test_describe_labels() {
+        let rows = version_rows(&sample(), &["9.10.3"], Some("9.10.3"), ListMode::Default);
+        let recommended = rows.iter().find(|r| r.version == "9.10.3").unwrap();
+        assert!(recommended.describe().contains("(active, recommended)"));
+        let latest = rows.iter().find(|r| r.version == "9.14.1").unwrap();
+        assert!(latest.describe().contains("(latest)"));
     }
 }

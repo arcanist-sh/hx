@@ -149,8 +149,14 @@ create_symlinks("9.8.2")?;
 ## CLI Commands
 
 ```bash
-# List installed versions
+# Installed versions plus ghcup's recommended and latest releases
 hx toolchain list
+
+# Every current release (from ghcup metadata, or the built-in list offline)
+hx toolchain list --available
+
+# Only installed versions
+hx toolchain list --installed
 
 # Install a version
 hx toolchain install --ghc 9.8.2

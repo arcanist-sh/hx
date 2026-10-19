@@ -2,12 +2,21 @@
 
 hx can install GHC and Cabal directly without requiring ghcup.
 
-## Direct Download URLs
+## Download URLs
+
+The archive URL, unpack directory and SHA-256 come from ghcup's release
+metadata when it lists the version for this machine; on Linux that also
+picks the build for your distribution (see [Release Metadata](./metadata.md)).
+Otherwise, and whenever the metadata cannot be fetched, hx builds the URL
+itself:
 
 ### GHC
 ```
-https://downloads.haskell.org/ghc/{version}/ghc-{version}-{arch}-{os}.tar.xz
+https://downloads.haskell.org/~ghc/{version}/ghc-{version}-{suffix}.tar.xz
 ```
+
+`{suffix}` is the target triple on macOS and Windows and the
+`{arch}-deb10-linux` build on Linux.
 
 ### Cabal
 ```
@@ -131,7 +140,9 @@ Tools are installed to `~/.hx/toolchains/`:
 ### GHC Installation Steps
 
 1. **Download** - Fetch tarball from downloads.haskell.org
-2. **Verify** - Check SHA256 hash (when available)
+2. **Verify** - Check the SHA-256 from ghcup metadata, or from the published
+   `SHA256SUMS`; installs without either are refused unless
+   `HX_ALLOW_UNVERIFIED_DOWNLOADS=1`
 3. **Extract** - Unpack to temporary directory
 4. **Configure** - Run `./configure --prefix=~/.hx/toolchains/ghc/{version}`
 5. **Install** - Run `make install`
@@ -141,10 +152,11 @@ Tools are installed to `~/.hx/toolchains/`:
 ### Cabal Installation Steps
 
 1. **Download** - Fetch tarball
-2. **Extract** - Unpack (single binary)
-3. **Install** - Copy to `~/.hx/toolchains/cabal/{version}/bin/`
-4. **Update manifest** - Record in manifest.json
-5. **Create symlinks** - If set_active is true
+2. **Verify** - Same checksum rules as GHC
+3. **Extract** - Unpack (single binary)
+4. **Install** - Copy to `~/.hx/toolchains/cabal/{version}/bin/`
+5. **Update manifest** - Record in manifest.json
+6. **Create symlinks** - If set_active is true
 
 ## Progress Display
 
@@ -182,18 +194,12 @@ match download_and_install_ghc("9.8.2", options).await {
 
 ## Supported Versions
 
-### GHC
-- 9.10.1, 9.8.2, 9.8.1
-- 9.6.6, 9.6.5, 9.6.4, 9.6.3
-- 9.4.8, 9.4.7, 9.4.6
-- 9.2.8, 9.0.2
-- 8.10.7
+Any version ghcup's metadata lists can be installed; `hx toolchain list
+--available` shows them. Without metadata hx falls back to its built-in
+lists (`KNOWN_GHC_VERSIONS`, `KNOWN_CABAL_VERSIONS`), and versions outside
+both can still be installed when the built-in URL scheme matches.
 
-### Cabal
-- 3.12.1.0, 3.10.3.0
-- 3.8.1.0, 3.6.2.0
-
-Check if a version is known:
+Check if a version is in the built-in list:
 
 ```rust
 use hx_toolchain::ghc::is_known_version;

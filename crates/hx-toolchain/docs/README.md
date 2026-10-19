@@ -11,6 +11,7 @@ Toolchain detection, management, and direct installation for hx.
 - **Version management** - Switch between installed versions
 - **Auto-install** - Seamless project-specific toolchains
 - **Platform support** - Linux, macOS, Windows
+- **Release metadata** - Versions, tags, bindist URLs and checksums from ghcup's published metadata, with built-in tables offline
 
 ## Modules
 
@@ -21,6 +22,7 @@ Toolchain detection, management, and direct installation for hx.
 | `cabal` | Cabal download and installation |
 | `check` | Toolchain requirement validation |
 | `install` | Smart installation (ghcup or direct) |
+| `metadata` | ghcup release metadata: fetch, cache, bindist selection |
 
 ## Quick Start
 
@@ -66,3 +68,4 @@ println!("Installed to: {}", result.path.display());
 - [Version Management](./versions.md) - Managing multiple versions
 - [Auto-Install](./auto-install.md) - Project-specific toolchains
 - [Platform Support](./platforms.md) - Cross-platform details
+- [Release Metadata](./metadata.md) - Versions, URLs and checksums from ghcup

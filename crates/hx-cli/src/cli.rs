@@ -1147,9 +1147,12 @@ pub enum ToolchainCommands {
     /// Show installed toolchain versions and status
     Status,
 
-    /// List available and installed GHC versions
+    /// List GHC and Cabal versions, marking installed, recommended and latest
+    ///
+    /// Versions and tags come from ghcup's published metadata (cached for 24
+    /// hours); without network access hx's built-in version list is used.
     List {
-        /// Show available versions from known list
+        /// Show every available version, not just installed, recommended and latest
         #[arg(long)]
         available: bool,
 
