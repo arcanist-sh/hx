@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-compiled release targets do not need.
 - Replaced the unmaintained, unsound `atty` with `std::io::IsTerminal`.
 
+### Changed
+- **The solver's index and resolution caches are encoded with postcard
+  instead of bincode**, which is no longer maintained. Existing caches are
+  rejected by version and rebuilt on first use. The full Hackage index
+  (19,461 packages, 153,513 versions) round-trips intact: 30 MB, decoded in
+  ~0.1 s against ~4.4 s to parse from the tarball.
+- Dependency majors: `toml` 1, `indicatif` 0.18 + `console` 0.16, `notify` 8
+  + `notify-debouncer-mini` 0.7, `which` 8, `anstream` 1, `ed25519-dalek` 3,
+  `steel-core` 0.8, `criterion` 0.8. This removes the unmaintained `instant`
+  and `number_prefix` from the tree. The 5 `cargo audit` warnings that remain
+  (all *unmaintained*, none vulnerabilities) come from steel-core.
+
 ## [0.9.2] - 2026-09-04
 
 ### Changed

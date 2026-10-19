@@ -7,7 +7,7 @@
 use crate::package::{InstallPlan, PackageIndex};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use thiserror::Error;
@@ -20,7 +20,7 @@ pub enum CacheError {
     ReadError(#[from] std::io::Error),
 
     #[error("failed to decode cache: {0}")]
-    DecodeError(#[from] bincode::Error),
+    DecodeError(#[from] postcard::Error),
 
     #[error("cache version mismatch")]
     VersionMismatch,
@@ -30,8 +30,11 @@ pub enum CacheError {
 }
 
 /// Current cache format version. Bumped to 2 when the index began evaluating
-/// `.cabal` conditionals, which makes the parsed deps context-dependent.
-const CACHE_VERSION: u32 = 2;
+/// `.cabal` conditionals, which makes the parsed deps context-dependent, and
+/// to 3 when the encoding moved from bincode to postcard. A version-2 bincode
+/// header still decodes as version 2 under postcard (`02 00 00 00` reads as
+/// the varint 2), so the bump is what makes old caches rejected, not misread.
+const CACHE_VERSION: u32 = 3;
 
 /// Header for cached files to track version and source.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -46,6 +49,51 @@ struct CacheHeader {
     /// parsed dependency set depends on it, so a cache built for a different
     /// context must not be reused.
     context_key: Option<String>,
+}
+
+/// Encode a cache file: the header, then the payload, back to back.
+fn encode_cached<T: serde::Serialize>(
+    header: &CacheHeader,
+    payload: &T,
+) -> Result<Vec<u8>, CacheError> {
+    let mut bytes = postcard::to_stdvec(header)?;
+    bytes.extend(postcard::to_stdvec(payload)?);
+    Ok(bytes)
+}
+
+/// Decode a cache file, rejecting other format versions before the payload
+/// is touched.
+fn decode_cached<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<(CacheHeader, T), CacheError> {
+    let (header, rest): (CacheHeader, _) = postcard::take_from_bytes(bytes)?;
+
+    if header.version != CACHE_VERSION {
+        debug!(
+            "Cache version mismatch: expected {}, found {}",
+            CACHE_VERSION, header.version
+        );
+        return Err(CacheError::VersionMismatch);
+    }
+
+    Ok((header, postcard::from_bytes(rest)?))
+}
+
+/// Decode a cached index, rejecting indexes parsed for another build context.
+fn decode_index(bytes: &[u8], context_key: &str) -> Result<PackageIndex, CacheError> {
+    let (header, index) = decode_cached(bytes)?;
+
+    // The cached deps were evaluated for a specific build context; a different
+    // GHC/platform would yield a different dependency set.
+    if header.context_key.as_deref() != Some(context_key) {
+        debug!(
+            "Index cache context mismatch: expected {:?}, found {:?}",
+            context_key, header.context_key
+        );
+        return Err(CacheError::VersionMismatch);
+    }
+
+    Ok(index)
 }
 
 /// Get the default cache directory for hx-solver.
@@ -96,32 +144,8 @@ pub fn load_cached_index(
 
     info!("Loading cached package index from {}", cache_path.display());
 
-    let file = File::open(&cache_path)?;
-    let mut reader = BufReader::new(file);
-
-    // Read header first
-    let header: CacheHeader = bincode::deserialize_from(&mut reader)?;
-
-    if header.version != CACHE_VERSION {
-        debug!(
-            "Cache version mismatch: expected {}, found {}",
-            CACHE_VERSION, header.version
-        );
-        return Err(CacheError::VersionMismatch);
-    }
-
-    // The cached deps were evaluated for a specific build context; a different
-    // GHC/platform would yield a different dependency set.
-    if header.context_key.as_deref() != Some(context_key) {
-        debug!(
-            "Index cache context mismatch: expected {:?}, found {:?}",
-            context_key, header.context_key
-        );
-        return Err(CacheError::VersionMismatch);
-    }
-
-    // Read the index
-    let index: PackageIndex = bincode::deserialize_from(&mut reader)?;
+    let bytes = fs::read(&cache_path)?;
+    let index = decode_index(&bytes, context_key)?;
 
     info!(
         "Loaded {} packages with {} versions from cache",
@@ -153,9 +177,6 @@ pub fn save_index_cache(
 
     info!("Saving package index cache to {}", cache_path.display());
 
-    let file = File::create(&cache_path)?;
-    let mut writer = BufWriter::new(file);
-
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -168,11 +189,9 @@ pub fn save_index_cache(
         context_key: Some(context_key.to_string()),
     };
 
-    // Write header
-    bincode::serialize_into(&mut writer, &header)?;
-
-    // Write index
-    bincode::serialize_into(&mut writer, index)?;
+    let mut writer = BufWriter::new(File::create(&cache_path)?);
+    writer.write_all(&encode_cached(&header, index)?)?;
+    writer.flush()?;
 
     info!(
         "Cached {} packages with {} versions",
@@ -219,18 +238,8 @@ pub fn load_cached_resolution(fingerprint: &str) -> Result<InstallPlan, CacheErr
 
     debug!("Loading cached resolution for {}", fingerprint);
 
-    let file = File::open(&cache_path)?;
-    let mut reader = BufReader::new(file);
-
-    // Read header
-    let header: CacheHeader = bincode::deserialize_from(&mut reader)?;
-
-    if header.version != CACHE_VERSION {
-        return Err(CacheError::VersionMismatch);
-    }
-
-    // Read the plan
-    let plan: InstallPlan = bincode::deserialize_from(&mut reader)?;
+    let bytes = fs::read(&cache_path)?;
+    let (_, plan): (_, InstallPlan) = decode_cached(&bytes)?;
 
     info!("Loaded cached resolution with {} packages", plan.len());
 
@@ -253,9 +262,6 @@ pub fn save_resolution_cache(fingerprint: &str, plan: &InstallPlan) -> Result<()
 
     debug!("Saving resolution cache for {}", fingerprint);
 
-    let file = File::create(&cache_path)?;
-    let mut writer = BufWriter::new(file);
-
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -270,11 +276,9 @@ pub fn save_resolution_cache(fingerprint: &str, plan: &InstallPlan) -> Result<()
         context_key: None,
     };
 
-    // Write header
-    bincode::serialize_into(&mut writer, &header)?;
-
-    // Write plan
-    bincode::serialize_into(&mut writer, plan)?;
+    let mut writer = BufWriter::new(File::create(&cache_path)?);
+    writer.write_all(&encode_cached(&header, plan)?)?;
+    writer.flush()?;
 
     info!("Cached resolution with {} packages", plan.len());
 
@@ -328,6 +332,66 @@ fn hash_file(path: &Path) -> Result<String, std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::package::{Dependency, PackageVersion};
+
+    fn test_header(version: u32, context_key: &str) -> CacheHeader {
+        CacheHeader {
+            version,
+            created_at: 0,
+            source_hash: Some("abc".to_string()),
+            context_key: Some(context_key.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_index_cache_roundtrip() {
+        let mut index = PackageIndex::new();
+        let mut pv = PackageVersion::new("aeson", "2.2.3.0".parse().unwrap());
+        pv.add_dependency(Dependency::with_constraint(
+            "base",
+            crate::parse_constraint(">=4.18 && <5").unwrap(),
+        ));
+        index.add_package_version(pv);
+        index.add_package_version(PackageVersion::new("text", "2.1".parse().unwrap()));
+
+        let bytes = encode_cached(&test_header(CACHE_VERSION, "ghc-9.10.3"), &index).unwrap();
+        let decoded = decode_index(&bytes, "ghc-9.10.3").unwrap();
+
+        assert_eq!(decoded.package_count(), 2);
+        assert_eq!(decoded.version_count(), 2);
+        let aeson = decoded
+            .get_package_version("aeson", &"2.2.3.0".parse().unwrap())
+            .unwrap();
+        assert_eq!(aeson.dependencies.len(), 1);
+        assert_eq!(aeson.dependencies[0].name, "base");
+    }
+
+    #[test]
+    fn test_index_cache_rejects_other_context_and_version() {
+        let index = PackageIndex::new();
+
+        let bytes = encode_cached(&test_header(CACHE_VERSION, "ghc-9.8.4"), &index).unwrap();
+        assert!(matches!(
+            decode_index(&bytes, "ghc-9.10.3"),
+            Err(CacheError::VersionMismatch)
+        ));
+
+        let bytes = encode_cached(&test_header(CACHE_VERSION - 1, "ghc-9.10.3"), &index).unwrap();
+        assert!(matches!(
+            decode_index(&bytes, "ghc-9.10.3"),
+            Err(CacheError::VersionMismatch)
+        ));
+    }
+
+    /// A version-2 cache written by bincode must be rejected, not misread.
+    #[test]
+    fn test_index_cache_rejects_bincode_v2() {
+        // bincode 1.x: fixed-width little-endian u32 version, then u64 timestamp
+        let mut bytes = vec![2, 0, 0, 0];
+        bytes.extend_from_slice(&1_700_000_000u64.to_le_bytes());
+        bytes.extend_from_slice(&[0; 32]);
+        assert!(decode_index(&bytes, "ghc-9.10.3").is_err());
+    }
 
     #[test]
     fn test_fingerprint_deterministic() {

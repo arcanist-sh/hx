@@ -12,4 +12,4 @@ categories.workspace = true
 
 [dependencies]
 owo-colors = "4"
-anstream = "0.6"
+anstream.workspace = true
