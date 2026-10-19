@@ -8,6 +8,8 @@
 //! - Direct GHC and Cabal binary downloads (no ghcup dependency required)
 //! - Per-project toolchain version management
 //! - BHC (Basel Haskell Compiler) detection and management
+//! - Release metadata (versions, tags, bindist URLs, checksums) from ghcup's
+//!   published metadata, with built-in tables as the offline fallback
 
 pub mod bhc;
 pub mod cabal;
@@ -15,6 +17,7 @@ pub mod check;
 pub mod detect;
 pub mod ghc;
 pub mod install;
+pub mod metadata;
 pub mod verify;
 
 pub use bhc::{

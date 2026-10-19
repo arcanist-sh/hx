@@ -255,7 +255,8 @@ hx docs --serve              # Serve locally on port 8080
 
 ```bash
 hx toolchain status          # Show installed versions
-hx toolchain list            # List all available versions
+hx toolchain list            # Installed, recommended and latest GHC/Cabal
+hx toolchain list --available # All available versions
 hx toolchain list --installed # List installed versions only
 
 hx toolchain install 9.8.2   # Install GHC version
@@ -547,6 +548,8 @@ delegation to Cabal.
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
+| `HX_OFFLINE` | Never fetch ghcup release metadata; use the cache or built-in version tables |
+| `HX_GHCUP_METADATA_URL` | Alternative ghcup metadata file (mirror, or `file://` path) |
 | `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
 | `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Route hx's downloads through a proxy (system proxy settings are also honoured) |

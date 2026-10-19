@@ -13,7 +13,10 @@ use std::fs;
 use tempfile::TempDir;
 
 fn hx() -> Command {
-    Command::cargo_bin("hx").unwrap()
+    let mut cmd = Command::cargo_bin("hx").unwrap();
+    // `hx doctor` refreshes ghcup metadata; keep the suite off the network.
+    cmd.env("HX_OFFLINE", "1");
+    cmd
 }
 
 // =============================================================================

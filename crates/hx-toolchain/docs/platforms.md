@@ -46,19 +46,24 @@ println!("Running on: {}", platform.download_string());
 
 ## Download URL Patterns
 
+These are the built-in patterns, used when ghcup's release metadata is
+unavailable or has no entry. With metadata, the URL comes from it and on
+Linux follows the detected distribution (Debian, Ubuntu, Fedora, Alpine and
+musl systems, ...); see [Release Metadata](./metadata.md).
+
 ### GHC
 
 ```
-https://downloads.haskell.org/ghc/{version}/ghc-{version}-{platform}.tar.xz
+https://downloads.haskell.org/~ghc/{version}/ghc-{version}-{platform}.tar.xz
 ```
 
 | Platform | URL Pattern |
 |----------|-------------|
-| Linux x86_64 | `ghc-9.8.2-x86_64-linux-unknown.tar.xz` |
-| Linux aarch64 | `ghc-9.8.2-aarch64-linux-unknown.tar.xz` |
+| Linux x86_64 | `ghc-9.8.2-x86_64-deb10-linux.tar.xz` |
+| Linux aarch64 | `ghc-9.8.2-aarch64-deb10-linux.tar.xz` |
 | macOS x86_64 | `ghc-9.8.2-x86_64-apple-darwin.tar.xz` |
 | macOS aarch64 | `ghc-9.8.2-aarch64-apple-darwin.tar.xz` |
-| Windows | `ghc-9.8.2-x86_64-windows.tar.xz` |
+| Windows | `ghc-9.8.2-x86_64-unknown-mingw32.tar.xz` |
 
 ### Cabal
 
@@ -66,13 +71,15 @@ https://downloads.haskell.org/ghc/{version}/ghc-{version}-{platform}.tar.xz
 https://downloads.haskell.org/cabal/cabal-install-{version}/cabal-install-{version}-{platform}.tar.xz
 ```
 
-| Platform | URL Pattern |
-|----------|-------------|
-| Linux x86_64 | `cabal-install-3.12.1.0-x86_64-linux-ubuntu20_04.tar.xz` |
-| Linux aarch64 | `cabal-install-3.12.1.0-aarch64-linux-ubuntu20_04.tar.xz` |
-| macOS x86_64 | `cabal-install-3.12.1.0-x86_64-darwin.tar.xz` |
-| macOS aarch64 | `cabal-install-3.12.1.0-aarch64-darwin.tar.xz` |
-| Windows | `cabal-install-3.12.1.0-x86_64-windows.zip` |
+| Platform | Before 3.18 | 3.18 and later |
+|----------|-------------|----------------|
+| Linux x86_64 | `x86_64-linux-ubuntu20_04.tar.xz` | `x86_64-linux-unknown.tar.xz` |
+| Linux aarch64 | `aarch64-linux-deb11.tar.xz` | `aarch64-linux-unknown.tar.xz` |
+| macOS x86_64 | `x86_64-darwin.tar.xz` | `x86_64-apple-darwin.tar.xz` |
+| macOS aarch64 | `aarch64-darwin.tar.xz` | `aarch64-apple-darwin.tar.xz` |
+| Windows | `x86_64-windows.zip` | `x86_64-mingw64.zip` |
+
+(each prefixed with `cabal-install-{version}-`)
 
 ## Platform-Specific Paths
 

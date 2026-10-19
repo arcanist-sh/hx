@@ -3,9 +3,13 @@
 //! Downloads Cabal binaries directly from downloads.haskell.org and extracts them
 //! to the hx toolchain directory. Unlike GHC, Cabal binaries are pre-built and
 //! don't require configure/make.
+//!
+//! The archive URL and SHA-256 come from ghcup metadata when it lists this
+//! version for this machine; otherwise hx's own URL scheme is used.
 
-use crate::cabal::{cabal_archive_filename, cabal_download_url, is_valid_version};
+use crate::cabal::{cabal_download_url, is_valid_version};
 use crate::ghc::{InstallSource, InstalledCabal, Platform, ToolchainManifest};
+use crate::metadata::{self, Tool};
 use crate::verify;
 use futures_util::StreamExt;
 use hx_core::{CommandRunner, Error, Result};
@@ -100,14 +104,31 @@ pub async fn download_and_install_cabal(
     })?;
 
     // Download the archive
-    let archive_name = cabal_archive_filename(&options.version, platform);
-    let archive_path = download_dir.join(&archive_name);
-    let url = cabal_download_url(&options.version, platform);
+    let artifact = metadata::resolve_install_download(
+        Tool::Cabal,
+        &options.version,
+        platform,
+        cabal_download_url(&options.version, platform),
+    )
+    .await;
+    let archive_path = download_dir.join(&artifact.file_name);
 
-    download_cabal_archive(&url, &archive_path, &options.version, options.timeout).await?;
+    download_cabal_archive(
+        &artifact.url,
+        &archive_path,
+        &options.version,
+        artifact.sha256.as_deref(),
+        options.timeout,
+    )
+    .await?;
 
     // Extract the archive
-    extract_cabal_archive(&archive_path, &install_dir, &options.version, platform)?;
+    extract_cabal_archive(
+        &archive_path,
+        &install_dir,
+        &options.version,
+        artifact.subdir.as_deref(),
+    )?;
 
     // Verify installation
     verify_cabal_installation(&install_dir, &options.version).await?;
@@ -135,10 +156,17 @@ pub async fn download_and_install_cabal(
 
 /// Download a Cabal archive with progress display.
 ///
-/// The archive's SHA-256 is verified against the `SHA256SUMS` manifest
+/// The archive's SHA-256 is verified against `known_sha256` (from ghcup
+/// metadata) when given, otherwise against the `SHA256SUMS` manifest
 /// published alongside it; previously downloaded archives are re-verified
 /// before being reused.
-async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
+async fn download_cabal_archive(
+    url: &str,
+    dest: &Path,
+    version: &str,
+    known_sha256: Option<&str>,
+    timeout: u64,
+) -> Result<()> {
     let client = hx_core::http::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
@@ -149,7 +177,10 @@ async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: 
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    let expected = verify::fetch_expected_sha256(&client, url, archive_name).await?;
+    let expected = match known_sha256 {
+        Some(hash) => Some(hash.to_string()),
+        None => verify::fetch_expected_sha256(&client, url, archive_name).await?,
+    };
     if expected.is_none() {
         verify::require_checksum_or_opt_out(&label, url)?;
     }
@@ -264,11 +295,16 @@ async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: 
 }
 
 /// Extract a Cabal archive.
+///
+/// The archive format follows the file name (`.zip` on Windows, `.tar.xz`
+/// elsewhere). Archives normally hold just the `cabal` binary; when ghcup
+/// metadata names an unpack directory (`subdir`), the binary is moved out of
+/// it into `bin/`.
 fn extract_cabal_archive(
     archive_path: &Path,
     install_dir: &Path,
     version: &str,
-    platform: Platform,
+    subdir: Option<&str>,
 ) -> Result<()> {
     let spinner = Spinner::new(format!("Extracting Cabal {}...", version));
 
@@ -286,13 +322,16 @@ fn extract_cabal_archive(
         source: e,
     })?;
 
-    if matches!(platform, Platform::X86_64Windows) {
-        // Windows uses .zip
+    let is_zip = archive_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+    if is_zip {
         extract_zip(archive_path, &bin_dir)?;
     } else {
-        // Unix uses .tar.xz
         extract_tar_xz(archive_path, &bin_dir)?;
     }
+
+    hoist_from_subdir(&bin_dir, subdir)?;
 
     // Set executable permissions on Unix
     #[cfg(unix)]
@@ -311,6 +350,25 @@ fn extract_cabal_archive(
     }
 
     spinner.finish_success(format!("Extracted Cabal {}", version));
+    Ok(())
+}
+
+/// Move the cabal binary out of `bin/<subdir>/` when the archive unpacked
+/// into a directory instead of placing the binary at its root.
+fn hoist_from_subdir(bin_dir: &Path, subdir: Option<&str>) -> Result<()> {
+    let name = cabal_binary_name();
+    let Some(subdir) = subdir.filter(|s| !s.is_empty() && !s.contains("..")) else {
+        return Ok(());
+    };
+    let target = bin_dir.join(name);
+    let nested = bin_dir.join(subdir).join(name);
+    if !target.exists() && nested.exists() {
+        fs::rename(&nested, &target).map_err(|e| Error::Io {
+            message: "Failed to move cabal binary into place".into(),
+            path: Some(nested),
+            source: e,
+        })?;
+    }
     Ok(())
 }
 
@@ -501,6 +559,25 @@ mod tests {
             zip.write_all(data).unwrap();
         }
         zip.finish().unwrap();
+    }
+
+    #[test]
+    fn test_hoist_from_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        let nested = bin.join("cabal-3.10");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join(cabal_binary_name()), b"binary").unwrap();
+
+        hoist_from_subdir(&bin, None).unwrap();
+        assert!(!bin.join(cabal_binary_name()).exists());
+
+        hoist_from_subdir(&bin, Some("cabal-3.10")).unwrap();
+        assert_eq!(fs::read(bin.join(cabal_binary_name())).unwrap(), b"binary");
+
+        // Already at the root: nothing to do
+        hoist_from_subdir(&bin, Some("cabal-3.10")).unwrap();
+        assert!(bin.join(cabal_binary_name()).exists());
     }
 
     #[test]

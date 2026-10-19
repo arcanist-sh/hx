@@ -7,6 +7,7 @@
 use hx_config::{CompilerBackend, MANIFEST_FILENAME};
 use hx_core::error::Fix;
 use hx_solver::bhc_platform::{find_platform_for_bhc, latest_installable_platform};
+use hx_toolchain::metadata::{self, GhcupMetadata, Tool};
 use hx_toolchain::{Toolchain, detect_bhc, install::ghcup_install_command};
 use hx_ui::{Output, Style};
 use std::path::{Path, PathBuf};
@@ -130,11 +131,27 @@ pub async fn run_checks(project_dir: Option<&Path>, invoked_name: &str) -> Docto
     // Check ghcup
     check_ghcup(&toolchain, &mut report);
 
+    // ghcup metadata (cached; None offline) for the recommended versions
+    let metadata = metadata::load().await;
+
     // Check GHC
-    check_ghc(&toolchain, &mut report);
+    check_ghc(&toolchain, metadata.as_deref(), &mut report);
 
     // Check Cabal
     check_cabal(&toolchain, &mut report);
+
+    // Mention newer recommended releases, unless the project pins versions
+    let pins = project_dir
+        .and_then(|dir| hx_config::Project::load(dir).ok())
+        .map(|project| project.manifest.toolchain)
+        .unwrap_or_default();
+    check_recommended_versions(
+        &toolchain,
+        metadata.as_deref(),
+        pins.ghc.as_deref(),
+        pins.cabal.as_deref(),
+        &mut report,
+    );
 
     // Check HLS
     check_hls(&toolchain, &mut report);
@@ -266,8 +283,10 @@ fn check_ghcup(toolchain: &Toolchain, report: &mut DoctorReport) {
     }
 }
 
-fn check_ghc(toolchain: &Toolchain, report: &mut DoctorReport) {
+fn check_ghc(toolchain: &Toolchain, metadata: Option<&GhcupMetadata>, report: &mut DoctorReport) {
     if !toolchain.ghc.status.is_found() {
+        let recommended = metadata::recommended_version(metadata, Tool::Ghc)
+            .unwrap_or_else(|| hx_toolchain::RECOMMENDED_GHC_VERSION.to_string());
         report.add(
             Diagnostic::error("ghc not found")
                 .with_fix(Fix::with_command(
@@ -276,7 +295,7 @@ fn check_ghc(toolchain: &Toolchain, report: &mut DoctorReport) {
                 ))
                 .with_fix(Fix::with_command(
                     "Or use hx",
-                    "hx toolchain install --ghc 9.8.2",
+                    format!("hx toolchain install --ghc {}", recommended),
                 )),
         );
     } else {
@@ -311,6 +330,69 @@ fn check_cabal(toolchain: &Toolchain, report: &mut DoctorReport) {
                 .unwrap_or_else(|| "installed".to_string())
         )));
     }
+}
+
+/// Note (as info) when ghcup recommends a newer GHC or Cabal than the one on
+/// PATH. Versions pinned in hx.toml are deliberate, so pinned tools are skipped.
+fn check_recommended_versions(
+    toolchain: &Toolchain,
+    metadata: Option<&GhcupMetadata>,
+    pinned_ghc: Option<&str>,
+    pinned_cabal: Option<&str>,
+    report: &mut DoctorReport,
+) {
+    let tools = [
+        (
+            Tool::Ghc,
+            "GHC",
+            toolchain.ghc.status.version().map(|v| v.to_string()),
+            pinned_ghc,
+        ),
+        (
+            Tool::Cabal,
+            "Cabal",
+            toolchain.cabal.status.version().map(|v| v.to_string()),
+            pinned_cabal,
+        ),
+    ];
+    for (tool, name, found, pinned) in tools {
+        if pinned.is_some() {
+            continue;
+        }
+        let (Some(found), Some(recommended)) =
+            (found, metadata::recommended_version(metadata, tool))
+        else {
+            continue;
+        };
+        if let Some(diagnostic) = newer_recommended_diagnostic(tool, name, &found, &recommended) {
+            report.add(diagnostic);
+        }
+    }
+}
+
+fn newer_recommended_diagnostic(
+    tool: Tool,
+    name: &str,
+    found: &str,
+    recommended: &str,
+) -> Option<Diagnostic> {
+    if metadata::compare_versions(recommended, found) != std::cmp::Ordering::Greater {
+        return None;
+    }
+    let command = match tool {
+        Tool::Cabal => format!("hx toolchain install --cabal {}", recommended),
+        _ => format!("hx toolchain install {}", recommended),
+    };
+    Some(
+        Diagnostic::info(format!(
+            "{} {} is the recommended release (you have {})",
+            name, recommended, found
+        ))
+        .with_fix(Fix::with_command(
+            format!("Install {} {}", name, recommended),
+            command,
+        )),
+    )
 }
 
 fn check_hls(toolchain: &Toolchain, report: &mut DoctorReport) {
@@ -1001,6 +1083,31 @@ mod tests {
 
     fn p(s: &str) -> PathBuf {
         PathBuf::from(s)
+    }
+
+    #[test]
+    fn newer_recommended_is_info_with_install_fix() {
+        let diag = newer_recommended_diagnostic(Tool::Ghc, "GHC", "9.8.2", "9.10.3").unwrap();
+        assert_eq!(diag.severity, Severity::Info);
+        assert!(diag.message.contains("9.10.3"));
+        assert!(diag.message.contains("9.8.2"));
+        assert_eq!(
+            diag.fixes[0].command.as_deref(),
+            Some("hx toolchain install 9.10.3")
+        );
+
+        let diag =
+            newer_recommended_diagnostic(Tool::Cabal, "Cabal", "3.12.1.0", "3.16.1.0").unwrap();
+        assert_eq!(
+            diag.fixes[0].command.as_deref(),
+            Some("hx toolchain install --cabal 3.16.1.0")
+        );
+    }
+
+    #[test]
+    fn newer_recommended_silent_when_current_or_ahead() {
+        assert!(newer_recommended_diagnostic(Tool::Ghc, "GHC", "9.10.3", "9.10.3").is_none());
+        assert!(newer_recommended_diagnostic(Tool::Ghc, "GHC", "9.14.1", "9.10.3").is_none());
     }
 
     #[test]
