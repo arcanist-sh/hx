@@ -224,6 +224,9 @@ fn get_target() -> String {
     let os = std::env::consts::OS;
 
     match (arch, os) {
+        // Stay on the variant this binary was built as: install.sh installs
+        // the static musl build on x86_64 Linux.
+        ("x86_64", "linux") if cfg!(target_env = "musl") => "x86_64-unknown-linux-musl".to_string(),
         ("x86_64", "linux") => "x86_64-unknown-linux-gnu".to_string(),
         ("aarch64", "linux") => "aarch64-unknown-linux-gnu".to_string(),
         ("x86_64", "macos") => "x86_64-apple-darwin".to_string(),
