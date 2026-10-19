@@ -156,9 +156,19 @@ hx check                     # Fast type-check
 hx clean                     # Clean build artifacts
 ```
 
-> **Workspaces** — For a `cabal.project` with several local packages, `hx build`
-> and `hx test` build and test every member. Use `--package <name>` to target a
-> single member.
+### Workspaces
+
+```bash
+hx workspace init            # Make this directory a multi-package workspace root
+hx workspace add ./lib-a     # Add a member (cabal.project stays the member list)
+hx workspace list            # Members, versions, dependencies between them
+hx build -p lib-a -p app     # Build selected members
+hx test --changed origin/main  # Test only members a branch affects (+ dependents)
+```
+
+At the root, `hx build`/`test`/`check` cover every member. Inside a member
+directory they target that member, still using the root lockfile and
+toolchain. See [docs/WORKSPACES.md](docs/WORKSPACES.md).
 
 ### Running & Testing
 

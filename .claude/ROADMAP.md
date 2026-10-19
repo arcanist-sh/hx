@@ -428,12 +428,12 @@ Just `hx`.
   - [x] `hx uninstall <package>`
 
 ### Workspaces 2.0
-- [ ] `hx workspace` commands for multi-package monorepos
-  - [ ] `hx workspace init` — create workspace root
-  - [ ] `hx workspace add <path>` — add member
-  - [ ] Per-member BHC profiles (server member uses `server`, lib uses `default`)
+- [x] `hx workspace` commands for multi-package monorepos (`init`, `add`, `rm`, `list`, `affected`)
+  - [x] `hx workspace init` — create workspace root
+  - [x] `hx workspace add <path>` — add member
+  - [ ] Per-member BHC profiles (server member uses `server`, lib uses `default`) — needs BHC builds to support workspaces first
 - [ ] Workspace-level BHC Platform snapshot (shared across all members)
-- [ ] Selective rebuilds: only recompile affected members
+- [x] Selective rebuilds: `--changed [BASE]` on build/test/check selects affected members + reverse deps
 
 ### Build Scripts
 - [ ] `[build] script = "build.hs"` — custom build logic in Haskell

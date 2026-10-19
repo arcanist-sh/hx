@@ -1,204 +1,61 @@
 # Workspaces
 
-hx supports multi-package workspaces (monorepos) with shared configuration.
+hx supports multi-package workspaces (monorepos). User-facing documentation
+lives in [docs/WORKSPACES.md](../../../docs/WORKSPACES.md); this page covers the
+`hx-config` API.
 
-## Overview
+## Membership
 
-A workspace contains multiple Haskell packages that share:
-- Toolchain configuration
-- Build settings
-- Dependency constraints
-- Plugin hooks
-
-## Workspace Structure
-
-```
-my-workspace/
-├── hx.toml                 # Root manifest
-├── hx.lock                 # Shared lockfile
-├── cabal.project           # Cabal project file
-├── packages/
-│   ├── core/
-│   │   ├── core.cabal
-│   │   └── src/
-│   ├── server/
-│   │   ├── server.cabal
-│   │   └── src/
-│   └── client/
-│       ├── client.cabal
-│       └── src/
-```
-
-## Workspace Detection
-
-A project is a workspace when:
-1. `cabal.project` exists, OR
-2. Multiple `.cabal` files are found
+A project is a workspace when its root `cabal.project` lists at least one local
+package. `cabal.project` is the only member list — `hx.toml` does not duplicate
+it. `Project::load` resolves the `packages:` and `optional-packages:` fields
+(directories, `.cabal` paths and globs) via
+[`workspace::resolve_members`](../src/workspace.rs).
 
 ```rust
 let project = Project::load(&root)?;
 
 if project.is_workspace() {
-    println!("Workspace with {} packages", project.package_count());
+    for pkg in &project.workspace_packages {
+        println!("{} {:?} at {}", pkg.name, pkg.version, pkg.path.display());
+    }
 }
 ```
 
 ## WorkspacePackage
 
-Each package in a workspace is represented by:
-
 ```rust
 pub struct WorkspacePackage {
-    /// Package name
-    pub name: String,
-
-    /// Package directory
-    pub path: PathBuf,
-
-    /// Path to .cabal file
+    pub name: String,              // `name:` from the .cabal file
+    pub path: PathBuf,             // relative to the root; empty for `packages: .`
     pub cabal_file: PathBuf,
+    pub version: Option<String>,
+    pub dependencies: Vec<String>, // every build-depends name, all components/branches
+    pub executables: Vec<String>,
+    pub test_suites: Vec<String>,
 }
 ```
 
-## Accessing Packages
+## Member graph and selection
 
-```rust
-let project = Project::load(&root)?;
+| Method | Purpose |
+|--------|---------|
+| `local_deps(name)` | Members `name` depends on directly |
+| `local_reverse_deps(name)` | Members that depend on `name` directly |
+| `with_reverse_deps(names)` | `names` plus all transitive dependents, in workspace order |
+| `member_owning(path)` | Member whose directory contains a root-relative path |
+| `member_at(dir)` | Member containing an absolute directory (ignores a root member) |
+| `affected_by(files)` | `AffectedMembers::All` for workspace-wide files, else the touched members plus dependents |
 
-// List all packages
-for name in project.package_names() {
-    println!("Package: {}", name);
-}
+## Root discovery
 
-// Get specific package
-if let Some(pkg) = project.get_package("server") {
-    println!("Server path: {}", pkg.path.display());
-}
+`find_project_root` walks up to the nearest `hx.toml`. If that directory is
+itself a member of an enclosing workspace (an ancestor with `hx.toml` and a
+`cabal.project` listing it), the workspace root is returned instead, so a
+member's own `hx.toml` never splits the workspace.
 
-// Iterate packages
-for pkg in &project.workspace_packages {
-    println!("{}: {}", pkg.name, pkg.cabal_file.display());
-}
-```
+## Editing cabal.project
 
-## Building Workspaces
-
-### Build All Packages
-
-```bash
-hx build
-```
-
-### Build Specific Package
-
-```bash
-hx build --package server
-```
-
-### Build Multiple Packages
-
-```bash
-hx build --package core --package server
-```
-
-## Testing Workspaces
-
-```bash
-# Test all packages
-hx test
-
-# Test specific package
-hx test --package core
-```
-
-## cabal.project Integration
-
-hx reads `cabal.project` to discover packages:
-
-```
--- cabal.project
-packages:
-    packages/core
-    packages/server
-    packages/client
-
--- Optional: shared constraints
-constraints: text >= 2.0
-```
-
-## Workspace Manifest
-
-The root `hx.toml` applies to all packages:
-
-```toml
-[project]
-name = "my-workspace"
-kind = "lib"
-
-[toolchain]
-ghc = "9.8.2"
-cabal = "3.12.1.0"
-
-[build]
-optimization = 1
-warnings = true
-
-[dependencies]
-# Shared dependencies
-base = ">=4.18"
-text = "^2.0"
-```
-
-## Package-Specific Configuration
-
-Individual packages can have their own `hx.toml`:
-
-```
-packages/server/
-├── hx.toml          # Package-specific overrides
-├── server.cabal
-└── src/
-```
-
-Package configuration merges with workspace configuration:
-- Package values override workspace values
-- Dependencies are combined
-
-## Status Display
-
-Build output shows workspace context:
-
-```
-   Building my-workspace (3/3 packages)
-   Compiling core-0.1.0
-   Compiling server-0.1.0
-   Compiling client-0.1.0
-    Finished 3 packages in 12.5s
-```
-
-## Lockfile for Workspaces
-
-The lockfile records all packages:
-
-```toml
-[workspace]
-is_workspace = true
-
-[[workspace.packages]]
-name = "core"
-version = "0.1.0"
-path = "packages/core"
-
-[[workspace.packages]]
-name = "server"
-version = "0.1.0"
-path = "packages/server"
-```
-
-## Best Practices
-
-1. **Use cabal.project** - Standard Cabal workspace format
-2. **Share toolchain config** - One GHC version for all
-3. **Centralize dependencies** - Define in root hx.toml
-4. **Test together** - `hx test` runs all package tests
-5. **Lock together** - Single hx.lock for reproducibility
+`workspace::add_package_entry` and `workspace::remove_package_entry` rewrite
+only the `packages:` field and preserve the rest of the file. Entries matched
+by a glob are never rewritten (`remove_package_entry` returns `None`).
