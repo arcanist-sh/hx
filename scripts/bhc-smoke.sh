@@ -129,6 +129,38 @@ else
 fi
 echo "::endgroup::"
 
+# --- Scenario: a library-only package builds without linking --------------
+# A package with no executable has no `main`; hx must compile it (-c) rather
+# than try to link it.
+lproj="$WORK/bhc-lib"
+mkdir -p "$lproj/src/Smoke"
+cp "$proj/hx.toml" "$lproj/hx.toml"
+sed -i.bak 's/name = "bhc-smoke"/name = "bhc-lib"/' "$lproj/hx.toml" && rm -f "$lproj/hx.toml.bak"
+cat >"$lproj/bhc-lib.cabal" <<'CABAL'
+cabal-version: 3.0
+name:          bhc-lib
+version:       0.1.0.0
+library
+  exposed-modules: Smoke.Greeting
+  hs-source-dirs:  src
+  build-depends:   base
+CABAL
+cat >"$lproj/src/Smoke/Greeting.hs" <<'HS'
+module Smoke.Greeting (greeting) where
+greeting :: String
+greeting = "hello from a library"
+HS
+
+echo "::group::bhc: library-only package"
+if ( cd "$lproj" && "$HX" build ) >/dev/null 2>&1 \
+  && [ -f "$lproj/.hx/bhc-build/obj/Smoke/Greeting.o" ] \
+  && [ ! -e "$lproj/.hx/bhc-build/bhc-lib" ]; then
+  ok "hx build compiles a library-only package without linking"
+else
+  bad "hx build failed on a library-only package (or linked an executable)"
+fi
+echo "::endgroup::"
+
 # --- Scenario: hx test builds and runs a cabal test-suite with BHC ----------
 # BHC has no `test` subcommand; hx reads the `test-suite` stanza, compiles its
 # `main-is` with BHC, and runs it. A passing suite exits 0; a failing one must

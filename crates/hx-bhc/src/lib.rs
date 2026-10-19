@@ -117,6 +117,20 @@ impl BhcBackend {
         sources: &[PathBuf],
         output_exe: &Path,
     ) -> Vec<String> {
+        self.build_args_for(
+            options,
+            sources,
+            &BhcOutput::Executable(output_exe.to_path_buf()),
+        )
+    }
+
+    /// Like [`build_args`](Self::build_args), for either output kind.
+    fn build_args_for(
+        &self,
+        options: &CompilerBuildOptions,
+        sources: &[PathBuf],
+        output: &BhcOutput,
+    ) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
 
         // Profile (global).
@@ -163,9 +177,22 @@ impl BhcBackend {
             args.push(src.to_string_lossy().to_string());
         }
 
-        // Output executable.
-        args.push("-o".to_string());
-        args.push(output_exe.to_string_lossy().to_string());
+        match output {
+            // Link an executable.
+            BhcOutput::Executable(exe) => {
+                args.push("-o".to_string());
+                args.push(exe.to_string_lossy().to_string());
+            }
+            // Compile (and type-check) every module without linking: a
+            // library has no `main` to link against.
+            BhcOutput::Objects { odir, hidir } => {
+                args.push("-c".to_string());
+                args.push("--odir".to_string());
+                args.push(odir.to_string_lossy().to_string());
+                args.push("--hidir".to_string());
+                args.push(hidir.to_string_lossy().to_string());
+            }
+        }
 
         args
     }
@@ -349,6 +376,51 @@ impl BhcBackend {
 }
 
 /// Recursively collect `.hs` source files under the given directories.
+/// What a BHC invocation produces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BhcOutput {
+    /// A linked executable at this path.
+    Executable(PathBuf),
+    /// Object and interface files only (`-c --odir --hidir`), for libraries.
+    Objects { odir: PathBuf, hidir: PathBuf },
+}
+
+/// Whether a project builds an executable, so the BHC build should link.
+///
+/// With a `.cabal` file this follows its stanzas: a package without an
+/// `executable` stanza is a library and is compiled without linking. Without
+/// one, the project links when one of its sources is a `Main` module.
+fn links_executable(project_root: &Path, sources: &[PathBuf]) -> bool {
+    if let Some(cabal) = hx_config::workspace::find_cabal_file(project_root)
+        && let Ok(content) = std::fs::read_to_string(&cabal)
+    {
+        return !hx_config::workspace::scan_cabal(&content)
+            .executables
+            .is_empty();
+    }
+    sources.iter().any(|src| {
+        std::fs::read_to_string(src)
+            .map(|text| is_main_module(&text))
+            .unwrap_or(false)
+    })
+}
+
+/// Whether Haskell source text is the `Main` module: it declares
+/// `module Main`, or has no module header at all (which means `Main`).
+fn is_main_module(source: &str) -> bool {
+    for line in source.lines() {
+        let line = line.trim_start();
+        if let Some(rest) = line.strip_prefix("module ") {
+            let name = rest
+                .split(|c: char| c.is_whitespace() || c == '(')
+                .next()
+                .unwrap_or("");
+            return name == "Main";
+        }
+    }
+    true
+}
+
 fn collect_hs_sources(src_dirs: &[PathBuf]) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -465,14 +537,22 @@ impl CompilerBackend for BhcBackend {
             });
         }
 
-        // Output executable under .hx so it does not pollute the project.
+        // Build output under .hx so it does not pollute the project.
         let out_dir = project_root.join(".hx").join("bhc-build");
         let _ = std::fs::create_dir_all(&out_dir);
-        let exe_name = project_root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "main".to_string());
-        let output_exe = out_dir.join(exe_name);
+        let output_kind = if links_executable(project_root, &sources) {
+            let exe_name = project_root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "main".to_string());
+            BhcOutput::Executable(out_dir.join(exe_name))
+        } else {
+            let odir = out_dir.join("obj");
+            let hidir = out_dir.join("iface");
+            let _ = std::fs::create_dir_all(&odir);
+            let _ = std::fs::create_dir_all(&hidir);
+            BhcOutput::Objects { odir, hidir }
+        };
 
         // BHC compiles with absolute `-I` dirs; pass sources relative to the
         // project root for a tidy command line.
@@ -480,7 +560,7 @@ impl CompilerBackend for BhcBackend {
             src_dirs: src_dirs.clone(),
             ..options.clone()
         };
-        let args = self.build_args(&options_abs, &sources, &output_exe);
+        let args = self.build_args_for(&options_abs, &sources, &output_kind);
 
         info!("Running BHC build in {}", project_root.display());
         debug!("Args: {:?}", args);
@@ -494,18 +574,20 @@ impl CompilerBackend for BhcBackend {
             .run_compile(project_root, &args, options.verbose, output)
             .await?;
 
-        output.status(
-            "Finished",
-            &format!("BHC build in {:.2}s", duration.as_secs_f64()),
-        );
-
+        // The caller reports "Finished" with the duration.
         Ok(CompilerBuildResult {
             success: true,
             duration,
             modules_compiled: 0, // Would need to parse BHC output
             modules_skipped: 0,
-            executable: None,
-            library: None,
+            executable: match &output_kind {
+                BhcOutput::Executable(exe) => Some(exe.clone()),
+                BhcOutput::Objects { .. } => None,
+            },
+            library: match &output_kind {
+                BhcOutput::Objects { odir, .. } => Some(odir.clone()),
+                BhcOutput::Executable(_) => None,
+            },
             warnings,
             errors,
         })
@@ -649,6 +731,75 @@ mod tests {
         assert!(args.contains(&"src/Main.hs".to_string()));
         let o = args.iter().position(|a| a == "-o").unwrap();
         assert_eq!(args[o + 1], ".hx/bhc-build/app");
+    }
+
+    #[test]
+    fn test_build_args_library_compiles_without_linking() {
+        let backend = BhcBackend::new();
+        let options = CompilerBuildOptions::default();
+        let sources = vec![PathBuf::from("src/Lib.hs")];
+        let output = BhcOutput::Objects {
+            odir: PathBuf::from(".hx/bhc-build/obj"),
+            hidir: PathBuf::from(".hx/bhc-build/iface"),
+        };
+        let args = backend.build_args_for(&options, &sources, &output);
+
+        assert!(args.contains(&"-c".to_string()));
+        assert!(!args.contains(&"-o".to_string()));
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--odir", ".hx/bhc-build/obj"])
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--hidir", ".hx/bhc-build/iface"])
+        );
+        assert!(args.contains(&"src/Lib.hs".to_string()));
+    }
+
+    #[test]
+    fn test_is_main_module() {
+        assert!(is_main_module("module Main where\nmain = pure ()\n"));
+        assert!(is_main_module("module Main (main) where\n"));
+        assert!(is_main_module("-- no header\nmain = pure ()\n"));
+        assert!(!is_main_module("module Arcanist.Hello (greeting) where\n"));
+        assert!(!is_main_module(
+            "{-# LANGUAGE Strict #-}\nmodule Lib where\n"
+        ));
+    }
+
+    #[test]
+    fn test_links_executable_follows_cabal_stanzas() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let lib = src.join("Lib.hs");
+        std::fs::write(&lib, "module Lib where\n").unwrap();
+
+        std::fs::write(
+            dir.path().join("demo.cabal"),
+            "cabal-version: 3.0\nname: demo\nversion: 0.1\nlibrary\n  exposed-modules: Lib\n",
+        )
+        .unwrap();
+        assert!(!links_executable(dir.path(), std::slice::from_ref(&lib)));
+
+        std::fs::write(
+            dir.path().join("demo.cabal"),
+            "cabal-version: 3.0\nname: demo\nversion: 0.1\nlibrary\n  exposed-modules: Lib\nexecutable demo\n  main-is: Main.hs\n",
+        )
+        .unwrap();
+        assert!(links_executable(dir.path(), std::slice::from_ref(&lib)));
+    }
+
+    #[test]
+    fn test_links_executable_without_cabal_looks_for_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("Lib.hs");
+        let main = dir.path().join("Main.hs");
+        std::fs::write(&lib, "module Lib where\n").unwrap();
+        std::fs::write(&main, "module Main where\nmain = pure ()\n").unwrap();
+        assert!(!links_executable(dir.path(), std::slice::from_ref(&lib)));
+        assert!(links_executable(dir.path(), &[lib, main]));
     }
 
     #[test]

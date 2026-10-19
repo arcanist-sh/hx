@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`hx build --backend bhc` builds library-only packages.** A package
+  without an `executable` stanza is now compiled and type-checked with BHC
+  (`-c`, objects and interfaces under `.hx/bhc-build/`) instead of being
+  linked as a program, which failed for want of a `main`. Executables link
+  as before. ([#61](https://github.com/arcanist-sh/hx/issues/61))
+
 ## [0.10.0] - 2026-10-19
 
 ### Added
