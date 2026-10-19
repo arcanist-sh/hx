@@ -29,9 +29,9 @@ pub use build_state::{BuildState, PackageBuildInfo, PackageStatus};
 pub use paths::{
     BaseLocations, HxPaths, LegacyRoot, PathSource, ResolvedPath, bhc_home_dir,
     bhc_platform_cache_dir, cabal_store_dir, global_cache_dir, global_config_dir,
-    global_config_file, global_plugin_dirs, home_dir, hx_home_dir, index_mirror_dir, installed_manifest_path,
-    package_store_dir, script_cache_dir, set_config_file_override, solver_cache_dir,
-    stackage_cache_dir, toolchain_bin_dir, toolchain_dir,
+    global_config_file, global_plugin_dirs, home_dir, hx_home_dir, index_mirror_dir,
+    installed_manifest_path, package_store_dir, script_cache_dir, set_config_file_override,
+    solver_cache_dir, stackage_cache_dir, toolchain_bin_dir, toolchain_dir,
 };
 pub use source::{
     SourceFingerprint, compute_source_fingerprint, load_source_fingerprint, save_source_fingerprint,

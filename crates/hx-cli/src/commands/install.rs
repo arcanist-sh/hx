@@ -754,7 +754,7 @@ async fn fetch_preferred_versions(name: &str) -> std::result::Result<Option<Vec<
     }
 
     let url = format!("https://hackage.haskell.org/package/{name}/preferred");
-    let client = reqwest::Client::builder()
+    let client = hx_core::http::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
