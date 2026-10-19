@@ -28,7 +28,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.96.0"
+          toolchain: "1.99.1"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -61,7 +61,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.96.0"
+          toolchain: "1.99.1"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
