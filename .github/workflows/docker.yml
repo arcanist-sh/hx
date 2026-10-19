@@ -34,7 +34,7 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # The Docker workflow and the Release workflow both trigger on the tag
       # push and run in parallel, but the image is built from the release

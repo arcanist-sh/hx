@@ -16,19 +16,20 @@ on:
 
 jobs:
   real-world:
-    name: real-world (${{ matrix.os }})
+    name: real-world (${{ matrix.os }}, GHC ${{ matrix.ghc }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        # The GHC series hx supports. Keep in step with the series hx's
+        # toolchain resolution and Stackage snapshots target.
+        ghc: ["9.10.3", "9.12.4", "9.14.1"]
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -36,14 +37,14 @@ jobs:
       - name: Install Haskell toolchain
         uses: haskell-actions/setup@v2
         with:
-          ghc-version: "9.10.3"
+          ghc-version: ${{ matrix.ghc }}
           cabal-version: "latest"
 
       - name: Refresh Hackage index
         run: cabal update
 
       - name: Build hx
-        run: cargo build --release -p hx-cli
+        run: cargo build --locked --release -p hx-cli
 
       - name: Real-world project builds
         # The nightly run always covers the full template set; manual runs
@@ -63,15 +64,13 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build hx
-        run: cargo build --release -p hx-cli
+        run: cargo build --locked --release -p hx-cli
 
       - name: Install GHC and Cabal without ghcup
         # The runner image ships ghcup; drop it from PATH so a failed direct
@@ -91,15 +90,13 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99.1"
+        uses: ./.github/actions/setup-rust
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build hx
-        run: cargo build --release -p hx-cli
+        run: cargo build --locked --release -p hx-cli
 
       - name: Install BHC
         # Download the published Linux toolchain directly and verify it against
@@ -107,7 +104,7 @@ jobs:
         # adding the extraction dir to PATH keeps that layout, which the compiler
         # needs to locate its runtime libraries.
         env:
-          BHC_VERSION: "0.2.3"
+          BHC_VERSION: "0.2.22"
         run: |
           set -euo pipefail
           base="https://github.com/arcanist-sh/bhc/releases/download/v${BHC_VERSION}"

@@ -1,0 +1,42 @@
+name: Set up Rust
+description: >
+  Install the Rust toolchain pinned in rust-toolchain.toml. Every workflow goes
+  through this action so CI can never drift from the pin developers build with.
+
+inputs:
+  components:
+    description: Extra rustup components (comma-separated), e.g. "clippy, rustfmt".
+    required: false
+    default: ""
+  targets:
+    description: Extra compilation targets (comma-separated).
+    required: false
+    default: ""
+
+outputs:
+  toolchain:
+    description: The toolchain channel read from rust-toolchain.toml.
+    value: ${{ steps.channel.outputs.toolchain }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read toolchain channel
+      id: channel
+      shell: bash
+      run: |
+        set -euo pipefail
+        channel="$(sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' rust-toolchain.toml)"
+        if [ -z "$channel" ]; then
+          echo "::error file=rust-toolchain.toml::could not read the toolchain channel"
+          exit 1
+        fi
+        echo "Rust toolchain from rust-toolchain.toml: $channel"
+        echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
+
+    - name: Install Rust ${{ steps.channel.outputs.toolchain }}
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.channel.outputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}

@@ -54,9 +54,9 @@ pub enum SnapshotError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SnapshotType {
-    /// Long-term support snapshot (e.g., lts-22.28)
+    /// Long-term support snapshot (e.g., lts-24.64)
     Lts,
-    /// Nightly snapshot (e.g., nightly-2024-01-15)
+    /// Nightly snapshot (e.g., nightly-2026-10-19)
     Nightly,
     /// BHC Platform curated snapshot (e.g., bhc-platform-2026.1)
     BhcPlatform,
@@ -89,9 +89,9 @@ impl SnapshotId {
     /// Parse a snapshot identifier string.
     ///
     /// Supports formats:
-    /// - `lts-22.28` - LTS snapshot
-    /// - `lts-22` - Latest minor in LTS 22
-    /// - `nightly-2024-01-15` - Nightly snapshot
+    /// - `lts-24.64` - LTS snapshot
+    /// - `lts-24` - Latest minor in LTS 24
+    /// - `nightly-2026-10-19` - Nightly snapshot
     /// - `nightly` - Latest nightly
     pub fn parse(s: &str) -> Result<Self, SnapshotError> {
         let s = s.trim().to_lowercase();

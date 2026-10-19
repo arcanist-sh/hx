@@ -1,0 +1,56 @@
+name: Nix
+
+# Evaluates and builds the flake on every change that can break it. The flake
+# builds hx from source against nixpkgs' Rust and the committed Cargo.lock, so
+# a dependency bump that needs a newer rustc than nixpkgs ships, or a crate
+# that needs a system library the derivation does not provide, fails here
+# rather than for `nix profile install` users (and at FlakeHub publish time).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - Cargo.toml
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - .github/workflows/nix.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - Cargo.toml
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - .github/workflows/nix.yml
+  workflow_dispatch:
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: nix build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # x86_64-linux and aarch64-darwin; the flake's third system,
+        # aarch64-linux, is evaluated (not built) by `nix flake check`.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Check flake outputs
+        run: nix flake check --no-build --all-systems
+
+      - name: Build hx
+        run: nix build .#hx --print-build-logs
+
+      - name: Run the built binary
+        run: ./result/bin/hx --version

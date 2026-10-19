@@ -10,14 +10,14 @@ Add a snapshot to your `hx.toml`:
 
 ```toml
 [stackage]
-snapshot = "lts-22.28"
+snapshot = "lts-24.64"
 ```
 
 ### Options
 
 | Field | Description |
 |-------|-------------|
-| `snapshot` | Stackage snapshot identifier (e.g., `lts-22.28`, `nightly-2024-01-15`) |
+| `snapshot` | Stackage snapshot identifier (e.g., `lts-24.64`, `nightly-2026-10-19`) |
 | `allow_newer` | Allow packages not in the snapshot from Hackage (default: false) |
 | `extra_deps` | Override specific package versions |
 
@@ -25,7 +25,7 @@ snapshot = "lts-22.28"
 
 ```toml
 [stackage]
-snapshot = "lts-22.28"
+snapshot = "lts-24.64"
 allow_newer = true
 extra_deps = { aeson = "2.2.0.0", text = "2.1" }
 ```
@@ -44,32 +44,32 @@ hx stackage list --limit 20   # Show more snapshots
 ### Get snapshot information
 
 ```bash
-hx stackage info lts-22.28           # Show snapshot details
-hx stackage info lts-22.28 --packages  # Include all packages
+hx stackage info lts-24.64           # Show snapshot details
+hx stackage info lts-24.64 --packages  # Include all packages
 hx stackage info nightly             # Latest nightly info
 ```
 
 ### Set snapshot for project
 
 ```bash
-hx stackage set lts-22.28    # Set snapshot in hx.toml
+hx stackage set lts-24.64    # Set snapshot in hx.toml
 hx stackage set nightly      # Use latest nightly
 ```
 
 ### Lock with snapshot (shorthand)
 
 ```bash
-hx lock --snapshot lts-22.28  # Set snapshot and lock in one step
+hx lock --snapshot lts-24.64  # Set snapshot and lock in one step
 ```
 
 ## Snapshot Identifiers
 
 | Format | Example | Description |
 |--------|---------|-------------|
-| `lts-X.Y` | `lts-22.28` | Specific LTS version |
-| `lts-X` | `lts-22` | Latest minor in LTS major version |
+| `lts-X.Y` | `lts-24.64` | Specific LTS version |
+| `lts-X` | `lts-24` | Latest minor in LTS major version |
 | `lts` | `lts` | Latest LTS |
-| `nightly-YYYY-MM-DD` | `nightly-2024-01-15` | Specific nightly |
+| `nightly-YYYY-MM-DD` | `nightly-2026-10-19` | Specific nightly |
 | `nightly` | `nightly` | Latest nightly |
 
 ## GHC Version Compatibility
@@ -77,8 +77,8 @@ hx lock --snapshot lts-22.28  # Set snapshot and lock in one step
 Each Stackage snapshot is built against a specific GHC version. hx will warn you if your project's GHC version doesn't match the snapshot:
 
 ```
-warning: Project uses GHC 9.6.4 but snapshot lts-22.28 uses GHC 9.6.3
-         Consider updating [toolchain].ghc to "9.6.3" in hx.toml
+warning: Project uses GHC 9.12.4 but snapshot lts-24.64 uses GHC 9.10.3
+         Consider updating [toolchain].ghc to "9.10.3" in hx.toml
 ```
 
 ## How It Works
@@ -112,7 +112,7 @@ If a dependency isn't in the snapshot:
 
 ```toml
 [stackage]
-snapshot = "lts-22.28"
+snapshot = "lts-24.64"
 allow_newer = true
 extra_deps = { some-new-package = "1.0.0" }
 ```
@@ -125,5 +125,5 @@ If you get build errors due to GHC incompatibility:
 2. Or choose a snapshot that matches your GHC version
 
 ```bash
-hx stackage info lts-22  # Check which GHC version this uses
+hx stackage info lts-24  # Check which GHC version this uses
 ```
