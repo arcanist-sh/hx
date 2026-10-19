@@ -195,8 +195,10 @@ hx watch --clear             # Clear terminal between runs
 ```bash
 hx lock                      # Generate/update hx.lock
 hx lock --update             # Update all dependencies
+hx lock --check              # Verify hx.lock (for CI; non-zero exit on mismatch)
 hx sync                      # Build with locked dependencies
-hx fetch                     # Pre-fetch dependencies in parallel
+hx fetch                     # Download + verify locked sources in parallel
+hx sync --offline            # Build from cached sources only (after hx fetch)
 
 hx add text                  # Add a dependency
 hx add aeson ">=2.0"         # Add with version constraint
@@ -539,11 +541,13 @@ older-layout ones.
 
 ## Lockfile
 
-The `hx.lock` file ensures reproducible builds:
+The `hx.lock` file ensures reproducible builds. It pins every dependency's
+exact version, the SHA-256 of its source tarball, the Hackage `.cabal`
+revision it was resolved with, and the Hackage index state:
 
 ```toml
-version = 1
-created_at = "2026-01-16T00:00:00Z"
+version = 2
+created_at = "2026-10-19T08:09:08Z"
 
 [toolchain]
 ghc = "9.8.2"
@@ -552,12 +556,23 @@ cabal = "3.12.1.0"
 [plan]
 compiler_id = "ghc-9.8.2"
 platform = "x86_64-linux"
+index_state = "2026-10-19T07:18:30Z"
 hash = "sha256:..."
 
 [[packages]]
-name = "text"
-version = "2.1.1"
+name = "containers"
+version = "0.8.1"
+source = "hackage"
+sha256 = "9bd0f5156306b04a799c32ff49a6129f7c8dd6ec96c6ddeb7885975ffffc9e99"
+revision = 0
+cabal_sha256 = "11cc66be32854dc6b9c04c1e4f9a3ecb4939399a3b54bf00c6c085d538470b12"
 ```
+
+`hx sync` builds with exactly these pins. For offline or air-gapped builds,
+run `hx fetch` once while online (it downloads and verifies every source),
+then `hx sync --offline` (or `HX_OFFLINE=1`). In CI, `hx lock --check` fails
+when hx.lock is stale or a cached source does not match its hash. See
+[docs/LOCKFILE.md](docs/LOCKFILE.md) for the full format and workflow.
 
 The native solver evaluates `.cabal` conditionals (`os`, `arch`, `impl(ghc)`,
 and `flag`) and excludes dependencies of disabled components (`buildable: False`),
@@ -583,13 +598,14 @@ delegation to Cabal.
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
-| `HX_OFFLINE` | Never fetch ghcup release metadata; use the cache or built-in version tables |
+| `HX_OFFLINE` | Work offline: never refresh ghcup release metadata (use the cache or built-in tables), and build `hx sync` from cached sources only (like `--offline`) |
 | `HX_GHCUP_METADATA_URL` | Alternative ghcup metadata file (mirror, or `file://` path) |
 | `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
 | `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Route hx's downloads through a proxy (system proxy settings are also honoured) |
 | `SSL_CERT_FILE` / `SSL_CERT_DIR` | On Linux, read CA certificates from these locations instead of the system store. hx trusts the operating system's certificate store plus a bundled Mozilla root set, so a CA installed system-wide (for example a corporate TLS proxy's) is trusted on every platform |
 | `HX_REGISTRY_TOKEN` | API token for `--registry` commands (overrides `credentials.toml`) |
+| `HX_HACKAGE_URL` | Hackage mirror `hx fetch` downloads from (`file://` mirrors work) |
 
 ## Exit Codes
 
