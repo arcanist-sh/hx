@@ -29,4 +29,4 @@ tar = "0.4"
 zip.workspace = true
 futures-util = "0.3"
 tempfile.workspace = true
-dirs = "5.0"
+dirs = "7.0"
