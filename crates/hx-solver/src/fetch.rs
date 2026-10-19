@@ -77,10 +77,9 @@ impl Default for FetchOptions {
     }
 }
 
-/// Get the default package cache directory.
+/// Get the default package cache directory (see [`hx_cache::package_store_dir`]).
 pub fn default_package_cache_dir() -> Option<PathBuf> {
-    let home = dirs_next::home_dir()?;
-    Some(home.join(".cache").join("hx").join("packages"))
+    hx_cache::package_store_dir().ok()
 }
 
 /// Hackage package URL.

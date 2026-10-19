@@ -225,16 +225,11 @@ fn extract_package_id(content: &str) -> Option<String> {
     None
 }
 
-/// Return the default cache directory for hx.
-///
-/// Uses the platform cache directory via `directories::BaseDirs` and
-/// appends `hx`. Falls back to `~/.cache/hx` if unavailable.
+/// The default `cache_dir` to pass to [`BhcPackageDb::open`]: hx's native
+/// package store (see [`hx_cache::package_store_dir`]), the same root
+/// `hx build --backend bhc` uses.
 pub fn default_cache_dir() -> PathBuf {
-    directories::BaseDirs::new()
-        .map(|d| d.cache_dir().to_path_buf())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .unwrap_or_else(|| PathBuf::from(".cache"))
-        .join("hx")
+    hx_cache::package_store_dir().unwrap_or_else(|_| PathBuf::from(".hx").join("native-store"))
 }
 
 #[cfg(test)]
@@ -274,12 +269,7 @@ key: base-4.19.0-abcdef1234
     #[test]
     fn test_default_cache_dir() {
         let dir = default_cache_dir();
-        let dir_str = dir.to_string_lossy();
-        assert!(
-            dir_str.ends_with("hx"),
-            "expected path ending with 'hx', got: {}",
-            dir_str
-        );
+        assert_eq!(dir, hx_cache::package_store_dir().unwrap());
     }
 
     #[test]

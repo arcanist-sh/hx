@@ -186,12 +186,9 @@ fn compute_script_hash(content: &str, deps: &[String]) -> String {
     to_hex(result)[..16].to_string()
 }
 
-/// Get the script cache directory.
+/// Get the script cache directory (see [`hx_cache::script_cache_dir`]).
 fn get_script_cache_dir() -> Result<PathBuf> {
-    let cache_dir = dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("hx")
-        .join("scripts");
+    let cache_dir = hx_cache::script_cache_dir()?;
 
     fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir)

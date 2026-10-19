@@ -4,7 +4,6 @@
 //! directly, including version detection, package database discovery, and
 //! flag generation.
 
-use directories::BaseDirs;
 use hx_config::BhcProfile;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
@@ -128,25 +127,19 @@ impl BhcCompilerConfig {
     /// Discover default package database paths for a given BHC version.
     ///
     /// Looks in:
-    /// - `~/.cache/hx/bhc-<version>/package.db`
+    /// - `<package store>/bhc-<version>/package.db` (the DB `hx build`
+    ///   populates; see [`hx_cache::package_store_dir`])
     /// - `~/.bhc/package.db`
     fn detect_package_dbs(version: &str) -> Vec<PathBuf> {
         let mut dbs = Vec::new();
 
-        if let Some(base_dirs) = BaseDirs::new() {
-            let home = base_dirs.home_dir();
-
-            // Per-version cache DB under the platform cache directory
-            let cache_dir = base_dirs.cache_dir();
-            let cache_db = cache_dir
-                .join("hx")
-                .join(format!("bhc-{}", version))
-                .join("package.db");
-            dbs.push(cache_db);
+        if let (Ok(store), Ok(bhc_home)) = (hx_cache::package_store_dir(), hx_cache::bhc_home_dir())
+        {
+            // Per-version DB in hx's native package store
+            dbs.push(store.join(format!("bhc-{}", version)).join("package.db"));
 
             // Global BHC DB
-            let global_db = home.join(".bhc").join("package.db");
-            dbs.push(global_db);
+            dbs.push(bhc_home.join("package.db"));
         }
 
         debug!("Detected package DBs: {:?}", dbs);
@@ -312,7 +305,7 @@ mod tests {
         let dbs = BhcCompilerConfig::detect_package_dbs("2026.2.0");
 
         // Should produce paths if home directory exists
-        if BaseDirs::new().is_some() {
+        if hx_cache::home_dir().is_ok() {
             assert!(!dbs.is_empty());
 
             // First path should contain the version-specific cache dir

@@ -4,14 +4,14 @@ use anyhow::Result;
 use hx_solver::index::{IndexOptions, load_index};
 use hx_solver::package::PackageIndex;
 use hx_ui::Output;
-use std::path::PathBuf;
 
 /// Run the search command.
 pub async fn run(query: &str, limit: usize, detailed: bool, output: &Output) -> Result<i32> {
     output.status("Searching", &format!("for '{}'", query));
 
     // Find and load the package index
-    let index_path = find_index_path();
+    // hx-managed mirror first, then cabal's own index
+    let index_path = hx_solver::best_index_path();
     let index = match index_path {
         Some(path) => {
             let options = IndexOptions {
@@ -60,31 +60,6 @@ pub async fn run(query: &str, limit: usize, detailed: bool, output: &Output) -> 
     }
 
     Ok(0)
-}
-
-/// Find the package index path.
-fn find_index_path() -> Option<PathBuf> {
-    // Try hx-managed index first
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let hx_index = cache_dir.join("hx").join("index").join("01-index.tar.gz");
-        if hx_index.exists() {
-            return Some(hx_index);
-        }
-    }
-
-    // Try cabal index
-    if let Some(home) = dirs::home_dir() {
-        let cabal_index = home
-            .join(".cabal")
-            .join("packages")
-            .join("hackage.haskell.org")
-            .join("01-index.tar.gz");
-        if cabal_index.exists() {
-            return Some(cabal_index);
-        }
-    }
-
-    None
 }
 
 /// A search result with package info.

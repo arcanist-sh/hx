@@ -167,11 +167,10 @@ fn parse_version_output(output: &str) -> Option<String> {
     None
 }
 
-/// Get the default BHC installation directory.
+/// Get the default BHC installation directory (`~/.bhc`, see
+/// [`hx_cache::bhc_home_dir`]).
 pub fn bhc_install_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|home| home.join(".bhc"))
-        .unwrap_or_else(|| PathBuf::from(".bhc"))
+    hx_cache::bhc_home_dir().unwrap_or_else(|_| PathBuf::from(".bhc"))
 }
 
 /// Get the path where a specific BHC version would be installed.

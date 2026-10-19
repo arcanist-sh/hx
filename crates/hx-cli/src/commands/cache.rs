@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use hx_cache::{
-    ArtifactIndex, StoreIndex, clean_global_cache, clear_artifacts, global_cache_dir,
+    ArtifactIndex, HxPaths, StoreIndex, clean_global_cache, clear_artifacts, global_cache_dir,
     prune_artifacts, store_disk_size,
 };
 use hx_ui::Output;
@@ -25,6 +25,17 @@ pub async fn status(output: &Output) -> Result<i32> {
         versions.sort_by(|a, b| b.1.cmp(a.1));
         for (version, count) in versions {
             output.list_item(version, &format!("{} builds", count));
+        }
+    }
+
+    // Show where the caches live (`hx config path --all` lists everything)
+    if let Ok(paths) = HxPaths::current() {
+        output.header("Locations");
+        output.list_item("cache", &paths.cache.path.display().to_string());
+        output.list_item("cabal store", &paths.cabal_store.path.display().to_string());
+        // Older-layout caches outside the cache root, if present
+        for root in paths.cache_roots().iter().skip(1).filter(|r| r.exists()) {
+            output.list_item("also", &root.display().to_string());
         }
     }
 

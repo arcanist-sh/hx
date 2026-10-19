@@ -96,10 +96,9 @@ fn decode_index(bytes: &[u8], context_key: &str) -> Result<PackageIndex, CacheEr
     Ok(index)
 }
 
-/// Get the default cache directory for hx-solver.
+/// Get the default cache directory for hx-solver (see [`hx_cache::solver_cache_dir`]).
 pub fn cache_dir() -> Option<PathBuf> {
-    let home = dirs_next::home_dir()?;
-    Some(home.join(".cache").join("hx").join("solver"))
+    hx_cache::solver_cache_dir().ok()
 }
 
 /// Get the path for the cached package index.

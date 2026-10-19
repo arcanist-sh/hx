@@ -354,7 +354,7 @@ impl Snapshot {
 
 /// Cache directory for Stackage snapshots.
 pub fn snapshot_cache_dir() -> Option<PathBuf> {
-    dirs_next::cache_dir().map(|d: PathBuf| d.join("hx").join("stackage"))
+    hx_cache::stackage_cache_dir().ok()
 }
 
 /// Get the cache path for a specific snapshot.

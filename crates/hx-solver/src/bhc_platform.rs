@@ -158,7 +158,7 @@ pub struct SnapshotRegistry {
 
 /// Cache directory for BHC Platform data.
 pub fn bhc_platform_cache_dir() -> Option<PathBuf> {
-    dirs_next::cache_dir().map(|d: PathBuf| d.join("hx").join("bhc-platform"))
+    hx_cache::bhc_platform_cache_dir().ok()
 }
 
 /// Get the cache path for the registry index.
