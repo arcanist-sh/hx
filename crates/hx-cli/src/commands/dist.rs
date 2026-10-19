@@ -5,7 +5,7 @@
 use anyhow::{Context, Result, bail};
 use clap::CommandFactory;
 use clap_complete::{Shell, generate};
-use sha2::{Digest, Sha256};
+use hx_core::hash::sha256_reader;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -347,20 +347,8 @@ fn create_zip(staging_dir: &Path, archive_path: &Path, output: &Output) -> Resul
 fn generate_checksum(archive_path: &Path, output: &Output) -> Result<PathBuf> {
     output.verbose("Generating SHA256 checksum...");
 
-    let mut file = File::open(archive_path).context("Failed to open archive for checksum")?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
+    let file = File::open(archive_path).context("Failed to open archive for checksum")?;
+    let hash_hex = sha256_reader(file).context("Failed to read archive for checksum")?;
 
     let archive_name = archive_path
         .file_name()

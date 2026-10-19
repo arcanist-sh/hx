@@ -7,9 +7,9 @@
 //! - Offline-capable dependency resolution
 
 use chrono::{DateTime, Utc};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Write};
 use std::path::PathBuf;
@@ -315,7 +315,7 @@ pub async fn update_index(options: &MirrorOptions) -> Result<UpdateResult, Mirro
     }
 
     // Compute hash
-    let sha256 = format!("{:x}", hasher.finalize());
+    let sha256 = to_hex(hasher.finalize());
 
     // Move temp file to final location
     fs::rename(&temp_path, &idx_path)?;

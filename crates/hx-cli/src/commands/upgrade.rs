@@ -236,8 +236,7 @@ fn get_target() -> String {
 /// Lowercase hex SHA-256 of a downloaded release archive, as published in
 /// the release's `.sha256` file.
 fn archive_sha256(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    hex::encode(Sha256::digest(bytes))
+    hx_core::hash::sha256_hex(bytes)
 }
 
 #[cfg(test)]

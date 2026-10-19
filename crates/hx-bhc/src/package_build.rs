@@ -6,9 +6,9 @@
 
 use crate::compile::compile_module;
 use crate::native::{BhcCompilerConfig, BhcNativeBuildOptions, BhcNativeError};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_solver::{ExtractedPackage, build_module_graph};
 use hx_ui::Output;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -436,7 +436,7 @@ pub fn compute_package_id(
         hasher.update(b"-");
         hasher.update(dep.as_bytes());
     }
-    let hash = hex::encode(hasher.finalize());
+    let hash = to_hex(hasher.finalize());
     format!("{}-{}-{}", name, version, &hash[..12])
 }
 

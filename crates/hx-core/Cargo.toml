@@ -21,3 +21,5 @@ regex-lite = "0.1"
 reqwest.workspace = true
 rustls.workspace = true
 webpki-root-certs.workspace = true
+sha2.workspace = true
+hex.workspace = true

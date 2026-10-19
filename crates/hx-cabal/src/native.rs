@@ -4,11 +4,11 @@
 //! without going through Cabal. It uses module dependency analysis to compile
 //! modules in the correct order with parallel compilation support.
 
+use hx_core::hash::{Digest, Sha256, sha256_file, sha256_hex, to_hex};
 use hx_core::{CommandOutput, CommandRunner, Error, Fix, Result};
 use hx_solver::{ModuleGraph, ModuleInfo, build_module_graph};
 use hx_ui::{Output, Progress, Spinner};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -509,18 +509,12 @@ impl BuildState {
 
 /// Cache key for a detected [`GhcConfig`]: SHA-256 of `<ghc path>|<version>`.
 fn ghc_config_cache_key(ghc_path: &Path, version: &str) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(format!("{}|{}", ghc_path.display(), version).as_bytes())
-    )
+    sha256_hex(format!("{}|{}", ghc_path.display(), version))
 }
 
 /// Compute SHA256 hash of a file.
 fn compute_file_hash(path: &Path) -> std::io::Result<String> {
-    let content = std::fs::read(path)?;
-    let mut hasher = Sha256::new();
-    hasher.update(&content);
-    Ok(format!("{:x}", hasher.finalize()))
+    sha256_file(path)
 }
 
 /// Cheap source-change signal: `(mtime_nanos, size_bytes)` from a single
@@ -545,7 +539,7 @@ fn compute_deps_hash(deps: &[String], module_states: &HashMap<String, ModuleStat
             hasher.update(state.compiled_at.to_le_bytes());
         }
     }
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 /// Compute hash of build flags.
@@ -557,7 +551,7 @@ pub fn compute_flags_hash(options: &NativeBuildOptions) -> String {
     for flag in &options.extra_flags {
         hasher.update(flag.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 // ============================================================================

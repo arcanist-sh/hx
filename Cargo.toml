@@ -58,8 +58,8 @@ console = "0.16"
 owo-colors = "4"
 anstream = "1"
 
-# Hashing
-sha2 = "0.10"
+# Hashing (used through `hx_core::hash`)
+sha2 = "0.11"
 
 # Paths
 directories = "5"

@@ -31,7 +31,6 @@ tracing = "0.1"
 
 # Caching
 postcard.workspace = true
-sha2.workspace = true
 
 # Cryptography
 ed25519-dalek = { workspace = true }

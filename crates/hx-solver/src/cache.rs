@@ -5,9 +5,9 @@
 //! - Caching of resolution results keyed by dependency fingerprint
 
 use crate::package::{InstallPlan, PackageIndex};
-use sha2::{Digest, Sha256};
+use hx_core::hash::{Digest, Sha256, sha256_file, to_hex};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use thiserror::Error;
@@ -218,7 +218,7 @@ pub fn compute_deps_fingerprint(deps: &[(String, String)]) -> String {
     }
 
     let result = hasher.finalize();
-    format!("{:x}", result)
+    to_hex(result)
 }
 
 /// Load a cached resolution result if it exists.
@@ -319,14 +319,7 @@ pub fn clear_index_cache() -> Result<(), CacheError> {
 
 /// Compute SHA256 hash of a file.
 fn hash_file(path: &Path) -> Result<String, std::io::Error> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-
-    std::io::copy(&mut reader, &mut hasher)?;
-
-    let result = hasher.finalize();
-    Ok(format!("{:x}", result))
+    sha256_file(path)
 }
 
 #[cfg(test)]

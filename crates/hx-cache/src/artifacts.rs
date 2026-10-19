@@ -9,11 +9,11 @@
 //! This enables sharing compiled artifacts across projects with identical inputs.
 
 use hx_core::error::{Error, Result};
+use hx_core::hash::{Digest, Sha256, sha256_reader, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{debug, info};
@@ -185,35 +185,21 @@ pub fn compute_artifact_hash(
         hasher.update(b";");
     }
 
-    format!("{:x}", hasher.finalize())
+    to_hex(hasher.finalize())
 }
 
 /// Compute hash of a file's contents.
 pub fn hash_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).map_err(|e| Error::Io {
+    let file = File::open(path).map_err(|e| Error::Io {
         message: "failed to open file for hashing".to_string(),
         path: Some(path.to_path_buf()),
         source: e,
     })?;
-
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer).map_err(|e| Error::Io {
-            message: "failed to read file for hashing".to_string(),
-            path: Some(path.to_path_buf()),
-            source: e,
-        })?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
+    sha256_reader(file).map_err(|e| Error::Io {
+        message: "failed to read file for hashing".to_string(),
+        path: Some(path.to_path_buf()),
+        source: e,
+    })
 }
 
 /// Store artifacts for a module.

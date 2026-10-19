@@ -5,8 +5,8 @@
 
 use crate::snapshot::{Snapshot, SnapshotError, SnapshotId, SnapshotMetadata, SnapshotPackage};
 use ed25519_dalek::{Signature, VerifyingKey};
+use hx_core::hash::sha256_hex;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -173,10 +173,7 @@ pub fn snapshot_cache_path(id: &str) -> Option<PathBuf> {
 
 /// Verify SHA256 hash of content.
 pub fn verify_sha256(content: &[u8], expected: &str) -> bool {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    let result = format!("{:x}", hasher.finalize());
-    result == expected
+    sha256_hex(content) == expected
 }
 
 /// Verify an Ed25519 signature over content.

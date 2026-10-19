@@ -5,8 +5,8 @@
 
 use crate::global_cache_dir;
 use hx_core::error::{Error, Result};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -405,7 +405,7 @@ pub fn calculate_package_cache_key(
     }
 
     let result = hasher.finalize();
-    format!("sha256:{}", hex::encode(result))
+    format!("sha256:{}", to_hex(result))
 }
 
 /// Get the path to the store index file.
@@ -441,7 +441,7 @@ pub fn calculate_fingerprint(
     }
 
     let result = hasher.finalize();
-    format!("sha256:{}", hex::encode(result))
+    format!("sha256:{}", to_hex(result))
 }
 
 /// Get the size of the Cabal store on disk.
@@ -476,16 +476,6 @@ fn dir_size(path: &Path) -> Result<u64> {
     }
 
     Ok(size)
-}
-
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
-    }
 }
 
 #[cfg(test)]

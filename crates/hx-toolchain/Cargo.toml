@@ -23,8 +23,6 @@ which.workspace = true
 chrono.workspace = true
 directories.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
-sha2.workspace = true
-hex.workspace = true
 flate2.workspace = true
 xz2 = "0.1"
 tar = "0.4"

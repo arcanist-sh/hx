@@ -5,8 +5,8 @@
 
 use crate::global_cache_dir;
 use hx_core::error::{Error, Result};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::debug;
@@ -163,13 +163,7 @@ pub fn calculate_bhc_cache_key(
     }
 
     let result = hasher.finalize();
-    format!(
-        "sha256:{}",
-        result
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    )
+    format!("sha256:{}", to_hex(result))
 }
 
 #[cfg(test)]

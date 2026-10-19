@@ -6,8 +6,8 @@
 //! - Fingerprint calculation
 
 use chrono::{DateTime, Utc};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use thiserror::Error;
 
@@ -227,7 +227,7 @@ impl Lockfile {
         }
 
         let result = hasher.finalize();
-        format!("sha256:{}", hex::encode(result))
+        format!("sha256:{}", to_hex(result))
     }
 
     /// Add a package to the lockfile.
@@ -315,16 +315,6 @@ fn parse_constraint(s: &str) -> Option<(String, String)> {
         }
     }
     None
-}
-
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
-    }
 }
 
 #[cfg(test)]

@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use hx_core::CommandRunner;
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_ui::{Output, Spinner};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -183,7 +183,7 @@ fn compute_script_hash(content: &str, deps: &[String]) -> String {
         hasher.update(dep.as_bytes());
     }
     let result = hasher.finalize();
-    format!("{:x}", result)[..16].to_string()
+    to_hex(result)[..16].to_string()
 }
 
 /// Get the script cache directory.

@@ -204,7 +204,7 @@ fn topological_sort(graph: &HashMap<String, Vec<String>>) -> Result<Vec<String>,
 
 /// Compute a fingerprint for the build plan.
 fn compute_plan_fingerprint(packages: &[BuildUnit], compiler_id: &str, platform: &str) -> String {
-    use sha2::{Digest, Sha256};
+    use hx_core::hash::{Digest, Sha256, to_hex};
 
     let mut hasher = Sha256::new();
     hasher.update(format!("compiler:{}", compiler_id));
@@ -218,7 +218,7 @@ fn compute_plan_fingerprint(packages: &[BuildUnit], compiler_id: &str, platform:
     }
 
     let result = hasher.finalize();
-    format!("{:x}", result)
+    to_hex(result)
 }
 
 /// Detect the compiler ID.

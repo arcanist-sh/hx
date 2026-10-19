@@ -6,9 +6,9 @@
 use crate::package::InstallPlan;
 use crate::version::Version;
 use futures::stream::{self, StreamExt};
+use hx_core::hash::{Digest, Sha256, sha256_file, to_hex};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -279,7 +279,7 @@ async fn fetch_single_package(
     pb.finish_and_clear();
 
     // Compute hash
-    let hash = format!("{:x}", hasher.finalize());
+    let hash = to_hex(hasher.finalize());
 
     // Verify hash if enabled
     if options.verify_hashes
@@ -335,10 +335,7 @@ async fn fetch_expected_hash(
 
 /// Compute SHA256 hash of a file.
 fn compute_file_hash(path: &Path) -> Result<String, FetchError> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(sha256_file(path)?)
 }
 
 /// Summary of fetch operation.

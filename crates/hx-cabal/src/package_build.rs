@@ -4,10 +4,10 @@
 //! using direct GHC invocation, without relying on Cabal.
 
 use crate::native::{CCompileOptions, CCompilerConfig, GhcConfig, compile_c_sources};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use hx_core::{CommandRunner, Error, Fix, Result};
 use hx_solver::{ExtractedPackage, LibraryConfig};
 use hx_ui::Output;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::{debug, info};
@@ -462,7 +462,7 @@ fn compute_package_id(
     }
 
     let hash = hasher.finalize();
-    let hash_prefix = &format!("{:x}", hash)[..12];
+    let hash_prefix = &to_hex(hash)[..12];
 
     format!("{}-{}-{}", name, version, hash_prefix)
 }

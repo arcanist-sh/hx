@@ -4,11 +4,10 @@
 //! checksum manifests published alongside the archives (e.g. `SHA256SUMS` on
 //! downloads.haskell.org, or `<file>.sha256` release assets).
 
+use hx_core::hash::sha256_reader;
 use hx_core::{Error, Result};
 use reqwest::Client;
-use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -108,25 +107,16 @@ pub async fn fetch_expected_sha256(
 
 /// Compute the SHA-256 of a file (streaming).
 pub fn sha256_of_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).map_err(|e| Error::Io {
+    let file = File::open(path).map_err(|e| Error::Io {
         message: "Failed to open file for checksum verification".into(),
         path: Some(path.to_path_buf()),
         source: e,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| Error::Io {
-            message: "Failed to read file for checksum verification".into(),
-            path: Some(path.to_path_buf()),
-            source: e,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    sha256_reader(file).map_err(|e| Error::Io {
+        message: "Failed to read file for checksum verification".into(),
+        path: Some(path.to_path_buf()),
+        source: e,
+    })
 }
 
 /// Verify a file against an expected SHA-256 digest.

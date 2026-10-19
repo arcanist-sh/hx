@@ -4,7 +4,7 @@
 //! a project's code has changed, enabling skip-build optimizations.
 
 use hx_core::error::{Error, Result};
-use sha2::{Digest, Sha256};
+use hx_core::hash::{Digest, Sha256, to_hex};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -52,7 +52,7 @@ pub fn compute_source_fingerprint(project_root: &Path) -> Result<SourceFingerpri
         file_count += 1;
     }
 
-    let hash = format!("sha256:{}", hex::encode(hasher.finalize()));
+    let hash = format!("sha256:{}", to_hex(hasher.finalize()));
 
     debug!(
         "Computed source fingerprint: {} ({} files)",
@@ -159,17 +159,6 @@ pub fn save_source_fingerprint(project_root: &Path, fingerprint: &SourceFingerpr
     })?;
 
     Ok(())
-}
-
-/// Hex encoding helper.
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
-    }
 }
 
 #[cfg(test)]
