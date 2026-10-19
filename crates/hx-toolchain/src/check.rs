@@ -3,7 +3,7 @@
 use crate::detect::{ToolStatus, Toolchain};
 use crate::install::{self, SmartCabalInstallOptions, SmartInstallOptions};
 use hx_core::{Error, Fix, Result, Version};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use tracing::info;
 
 /// Result of checking toolchain requirements.
@@ -215,7 +215,7 @@ fn build_install_fixes(check: &ToolchainCheck) -> Vec<Fix> {
 /// Prompt the user to confirm installation.
 fn confirm_install(check: &ToolchainCheck) -> Result<bool> {
     // Check if we're in a non-interactive environment
-    if std::env::var("CI").is_ok() || !atty::is(atty::Stream::Stdin) {
+    if std::env::var("CI").is_ok() || !io::stdin().is_terminal() {
         // Non-interactive: don't prompt, just fail
         return Ok(false);
     }

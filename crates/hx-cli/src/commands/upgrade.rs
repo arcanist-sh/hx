@@ -239,3 +239,46 @@ fn get_target() -> String {
         _ => format!("{}-unknown-{}", arch, os),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mirrors the release archive layout: `hx-<target>/hx` inside a .tar.gz.
+    #[test]
+    fn test_extract_release_tarball() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive_path = tmp.path().join("hx-test.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            let data = b"#!/bin/sh\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "hx-test/hx", &data[..])
+                .unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+
+        let out = tmp.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        self_update::Extract::from_source(&archive_path)
+            .extract_into(&out)
+            .unwrap();
+
+        let found = find_file(&out, "hx").expect("hx binary extracted");
+        assert_eq!(std::fs::read(found).unwrap(), b"#!/bin/sh\n");
+    }
+
+    #[test]
+    fn test_is_newer() {
+        assert!(is_newer("0.10.0", "0.9.2"));
+        assert!(is_newer("1.0.0", "0.99.99"));
+        assert!(!is_newer("0.9.2", "0.9.2"));
+        assert!(!is_newer("0.9.1", "0.9.2"));
+    }
+}

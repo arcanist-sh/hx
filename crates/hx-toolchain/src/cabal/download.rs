@@ -361,7 +361,7 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<()> {
         let Some(safe_name) = file.enclosed_name() else {
             return Err(Error::config(format!(
                 "Refusing to extract zip entry with unsafe path: {}",
-                file.name()
+                String::from_utf8_lossy(file.name_raw())
             )));
         };
         let outpath = dest_dir.join(safe_name);
@@ -492,6 +492,41 @@ pub fn set_active_cabal(toolchain_dir: &Path, version: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, data) in entries {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn test_extract_zip_writes_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("cabal.zip");
+        write_zip(&archive, &[("cabal.exe", b"binary"), ("doc/README", b"hi")]);
+
+        let dest = tmp.path().join("bin");
+        extract_zip(&archive, &dest).unwrap();
+
+        assert_eq!(fs::read(dest.join("cabal.exe")).unwrap(), b"binary");
+        assert_eq!(fs::read(dest.join("doc/README")).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn test_extract_zip_rejects_path_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("evil.zip");
+        write_zip(&archive, &[("../escaped", b"x")]);
+
+        let dest = tmp.path().join("bin");
+        assert!(extract_zip(&archive, &dest).is_err());
+        assert!(!tmp.path().join("escaped").exists());
+    }
 
     #[test]
     fn test_download_options_default() {
