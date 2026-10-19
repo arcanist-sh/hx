@@ -1,0 +1,58 @@
+---
+source: crates/hx-lock/src/lib.rs
+expression: toml
+---
+version = 2
+created_at = "2026-10-01T12:00:00Z"
+
+[toolchain]
+ghc = "9.8.2"
+cabal = "3.12.1.0"
+bhc = "2026.2.0"
+bhc_profile = "server"
+
+[plan]
+compiler_id = "ghc-9.8.2"
+platform = "aarch64-macos"
+index_state = "2026-09-30T08:15:00Z"
+snapshot = "lts-22.28"
+hash = "sha256:85ee5851b44c0872a8535bb8ec8408d0dfd9a9b2c3fb6044ee099e6b68534d75"
+
+[[packages]]
+name = "aeson"
+version = "2.2.3.0"
+source = "stackage"
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+revision = 2
+cabal_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+[packages.flags]
+cffi = false
+ordered-keymap = true
+
+[[packages]]
+name = "base"
+version = "4.19.1.0"
+source = "ghc"
+
+[[packages]]
+name = "my-fork"
+version = "0.3.0"
+source = "git"
+git = "https://github.com/example/my-fork.git"
+rev = "0123456789abcdef0123456789abcdef01234567"
+subdir = "core"
+
+[[packages]]
+name = "text-short"
+version = "0.1.6"
+source = "hackage"
+sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+revision = 0
+cabal_sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+[[packages]]
+name = "vendored"
+version = "1.0"
+source = "path"
+path = "vendor/vendored"
