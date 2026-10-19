@@ -1604,6 +1604,10 @@ mod tests {
                     name: name.to_string(),
                     path: PathBuf::from(name),
                     cabal_file: PathBuf::from(format!("{name}/{name}.cabal")),
+                    version: None,
+                    dependencies: Vec::new(),
+                    executables: Vec::new(),
+                    test_suites: Vec::new(),
                 })
                 .collect(),
         }
