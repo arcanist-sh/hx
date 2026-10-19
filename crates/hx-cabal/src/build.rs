@@ -334,7 +334,7 @@ pub async fn repl(
     Ok(status.code().unwrap_or(1))
 }
 
-fn parse_build_output(output: &CommandOutput) -> BuildResult {
+pub(crate) fn parse_build_output(output: &CommandOutput) -> BuildResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
@@ -355,7 +355,7 @@ fn parse_build_output(output: &CommandOutput) -> BuildResult {
     }
 }
 
-fn format_duration(duration: Duration) -> String {
+pub(crate) fn format_duration(duration: Duration) -> String {
     let secs = duration.as_secs_f64();
     if secs < 1.0 {
         format!("{:.0}ms", duration.as_millis())
@@ -373,7 +373,7 @@ fn format_duration(duration: Duration) -> String {
 /// ( ... )`) and cabal's phase announcements (`Building`, `Linking`, …). Noise
 /// such as blank lines, warnings, and diagnostics returns `None` so it never
 /// clobbers the spinner.
-fn build_progress_message(line: &str) -> Option<String> {
+pub(crate) fn build_progress_message(line: &str) -> Option<String> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return None;

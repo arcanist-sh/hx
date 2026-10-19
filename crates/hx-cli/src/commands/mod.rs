@@ -20,6 +20,8 @@ mod ide;
 mod import;
 mod index;
 mod init;
+mod install;
+mod installed;
 mod lint;
 mod lock;
 mod lsp;
@@ -250,6 +252,29 @@ pub async fn run(cli: Cli) -> Result<i32> {
             limit,
             detailed,
         }) => search::run(&query, limit, detailed, &output).await,
+        Some(Commands::Install {
+            package,
+            git,
+            rev,
+            path,
+            ghc,
+            jobs,
+            force,
+            list,
+        }) => {
+            let request = install::InstallRequest {
+                package,
+                git,
+                rev,
+                path,
+                ghc,
+                jobs,
+                force,
+                list,
+            };
+            install::run(request, &output).await
+        }
+        Some(Commands::Uninstall { packages }) => install::uninstall(packages, &output).await,
         Some(Commands::Audit {
             fix,
             ignore,
