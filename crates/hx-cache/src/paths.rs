@@ -438,6 +438,19 @@ pub fn bhc_home_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// XDG roots used in tests. XDG values must be absolute *on the host*
+    /// (relative ones are ignored), and `/x/...` is not absolute on Windows.
+    const X_CACHE: &str = if cfg!(windows) {
+        "C:/x/cache"
+    } else {
+        "/x/cache"
+    };
+    const X_CONFIG: &str = if cfg!(windows) {
+        "C:/x/config"
+    } else {
+        "/x/config"
+    };
     use std::collections::HashMap;
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
@@ -600,22 +613,25 @@ mod tests {
     #[test]
     fn xdg_cache_home_moves_every_cache_location() {
         for base in [linux(), macos(), windows()] {
-            let paths = HxPaths::resolve(env(&[("XDG_CACHE_HOME", "/x/cache")]), &base);
+            let paths = HxPaths::resolve(env(&[("XDG_CACHE_HOME", X_CACHE)]), &base);
             let src = PathSource::Env("XDG_CACHE_HOME");
             for (loc, expected) in [
-                (&paths.cache, "/x/cache/hx"),
-                (&paths.cabal_store, "/x/cache/hx/cabal/store"),
-                (&paths.solver_cache, "/x/cache/hx/solver"),
-                (&paths.package_store, "/x/cache/hx/packages"),
-                (&paths.index_mirror, "/x/cache/hx/index"),
-                (&paths.stackage_cache, "/x/cache/hx/stackage"),
-                (&paths.bhc_platform_cache, "/x/cache/hx/bhc-platform"),
-                (&paths.script_cache, "/x/cache/hx/scripts"),
+                (&paths.cache, &format!("{X_CACHE}/hx")),
+                (&paths.cabal_store, &format!("{X_CACHE}/hx/cabal/store")),
+                (&paths.solver_cache, &format!("{X_CACHE}/hx/solver")),
+                (&paths.package_store, &format!("{X_CACHE}/hx/packages")),
+                (&paths.index_mirror, &format!("{X_CACHE}/hx/index")),
+                (&paths.stackage_cache, &format!("{X_CACHE}/hx/stackage")),
+                (
+                    &paths.bhc_platform_cache,
+                    &format!("{X_CACHE}/hx/bhc-platform"),
+                ),
+                (&paths.script_cache, &format!("{X_CACHE}/hx/scripts")),
             ] {
                 assert_eq!(loc.path, p(expected));
                 assert_eq!(loc.source, src);
             }
-            assert_eq!(paths.cache_roots(), vec![p("/x/cache/hx")]);
+            assert_eq!(paths.cache_roots(), vec![p(&format!("{X_CACHE}/hx"))]);
             // Config and toolchains are untouched.
             assert_eq!(paths.config_dir.source, PathSource::Default);
             assert_eq!(paths.toolchains.path, base.home.join(".hx/toolchains"));
@@ -625,7 +641,7 @@ mod tests {
     #[test]
     fn hx_cache_dir_wins_over_xdg_and_is_used_as_is() {
         let paths = HxPaths::resolve(
-            env(&[("HX_CACHE_DIR", "/hxc"), ("XDG_CACHE_HOME", "/x/cache")]),
+            env(&[("HX_CACHE_DIR", "/hxc"), ("XDG_CACHE_HOME", X_CACHE)]),
             &macos(),
         );
         assert_eq!(paths.cache.path, p("/hxc"));
@@ -648,10 +664,16 @@ mod tests {
 
     #[test]
     fn xdg_config_home_moves_config_file_and_plugins() {
-        let paths = HxPaths::resolve(env(&[("XDG_CONFIG_HOME", "/x/config")]), &macos());
-        assert_eq!(paths.config_dir.path, p("/x/config/hx"));
-        assert_eq!(paths.config_file.path, p("/x/config/hx/config.toml"));
-        assert_eq!(paths.plugin_dirs[0].path, p("/x/config/hx/plugins"));
+        let paths = HxPaths::resolve(env(&[("XDG_CONFIG_HOME", X_CONFIG)]), &macos());
+        assert_eq!(paths.config_dir.path, p(&format!("{X_CONFIG}/hx")));
+        assert_eq!(
+            paths.config_file.path,
+            p(&format!("{X_CONFIG}/hx/config.toml"))
+        );
+        assert_eq!(
+            paths.plugin_dirs[0].path,
+            p(&format!("{X_CONFIG}/hx/plugins"))
+        );
         assert_eq!(paths.config_file.source, PathSource::Env("XDG_CONFIG_HOME"));
         // XDG_CONFIG_HOME must not leak into the cache.
         assert_eq!(paths.cache.path, p("/Users/u/Library/Caches/io.raskell.hx"));
@@ -659,7 +681,7 @@ mod tests {
 
     #[test]
     fn xdg_cache_home_does_not_leak_into_config() {
-        let paths = HxPaths::resolve(env(&[("XDG_CACHE_HOME", "/x/cache")]), &linux());
+        let paths = HxPaths::resolve(env(&[("XDG_CACHE_HOME", X_CACHE)]), &linux());
         assert_eq!(paths.config_dir.path, p("/home/u/.config/hx"));
         assert_ne!(paths.config_dir.path, paths.cache.path);
     }
@@ -669,12 +691,12 @@ mod tests {
         let paths = HxPaths::resolve(
             env(&[
                 ("HX_CONFIG_FILE", "/etc/hx.toml"),
-                ("XDG_CONFIG_HOME", "/x/config"),
+                ("XDG_CONFIG_HOME", X_CONFIG),
             ]),
             &linux(),
         );
         assert_eq!(paths.config_file.path, p("/etc/hx.toml"));
-        assert_eq!(paths.config_dir.path, p("/x/config/hx"));
+        assert_eq!(paths.config_dir.path, p(&format!("{X_CONFIG}/hx")));
     }
 
     #[test]
