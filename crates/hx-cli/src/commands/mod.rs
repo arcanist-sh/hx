@@ -39,11 +39,12 @@ mod stackage;
 mod toolchain;
 mod upgrade;
 mod watch;
+mod workspace;
 
 use crate::cli::{
     ArtifactCommands, BhcPlatformCommands, CacheCommands, Cli, Commands, CompletionsCommands,
     ConfigCommands, DepsCommands, DistCommands, GlobalArgs, GraphFormat, IndexCommands,
-    NixCommands, PluginsCommands, ServerCommands,
+    NixCommands, PluginsCommands, ServerCommands, WorkspaceCommands,
 };
 use anyhow::Result;
 use hx_toolchain::AutoInstallPolicy;
@@ -98,21 +99,27 @@ pub async fn run(cli: Cli) -> Result<i32> {
             jobs,
             target,
             package,
+            changed,
             native,
             backend,
         }) => {
+            let selection = build::PackageArgs { package, changed };
             build::run(
-                release, jobs, target, package, native, backend, policy, &output,
+                release, jobs, target, selection, native, backend, policy, &output,
             )
             .await
         }
         Some(Commands::Test {
             pattern,
             package,
+            changed,
             target,
             native,
             backend,
-        }) => build::test(pattern, package, target, native, backend, policy, &output).await,
+        }) => {
+            let selection = build::PackageArgs { package, changed };
+            build::test(pattern, selection, target, native, backend, policy, &output).await
+        }
         Some(Commands::Run {
             args,
             package,
@@ -121,10 +128,25 @@ pub async fn run(cli: Cli) -> Result<i32> {
             backend,
         }) => run::run(args, package, target, native, backend, policy, &output).await,
         Some(Commands::Repl { backend }) => run::repl(backend, policy, &output).await,
-        Some(Commands::Check { backend }) => {
+        Some(Commands::Check {
+            package,
+            changed,
+            backend,
+        }) => {
             // Check is just a fast build
-            build::run(false, None, None, None, false, backend, policy, &output).await
+            let selection = build::PackageArgs { package, changed };
+            build::run(
+                false, None, None, selection, false, backend, policy, &output,
+            )
+            .await
         }
+        Some(Commands::Workspace { command }) => match command {
+            WorkspaceCommands::Init { path, name } => workspace::init(path, name, &output).await,
+            WorkspaceCommands::Add { paths } => workspace::add(paths, &output).await,
+            WorkspaceCommands::Rm { members } => workspace::remove(members, &output).await,
+            WorkspaceCommands::List { json } => workspace::list(json, &output).await,
+            WorkspaceCommands::Affected { base } => workspace::affected(base, &output).await,
+        },
         Some(Commands::Fmt { check }) => fmt::run(check, &output).await,
         Some(Commands::Lint { fix }) => lint::run(fix, &output).await,
         Some(Commands::Doctor) => doctor::run(&output).await,

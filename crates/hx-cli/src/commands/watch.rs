@@ -168,10 +168,14 @@ async fn run_action(
     policy: AutoInstallPolicy,
     output: &Output,
 ) -> Result<i32> {
+    let selection = build::PackageArgs {
+        package: package.into_iter().collect(),
+        changed: None,
+    };
     if test {
-        build::test(None, package, None, false, None, policy, output).await
+        build::test(None, selection, None, false, None, policy, output).await
     } else {
-        build::run(false, None, None, package, false, None, policy, output).await
+        build::run(false, None, None, selection, false, None, policy, output).await
     }
 }
 
