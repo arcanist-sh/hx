@@ -103,7 +103,20 @@ pub async fn query_all_packages(package_dbs: &[PathBuf]) -> Vec<PackageInfo> {
 fn parse_package_info(output: &str) -> PackageInfo {
     let mut info = PackageInfo::default();
 
+    // ghc-pkg wraps long field values onto indented continuation lines
+    // (`depends:` is usually empty on its own line); fold them back in.
+    let mut fields: Vec<String> = Vec::new();
     for line in output.lines() {
+        match fields.last_mut() {
+            Some(field) if line.starts_with([' ', '\t']) => {
+                field.push(' ');
+                field.push_str(line.trim());
+            }
+            _ => fields.push(line.to_string()),
+        }
+    }
+
+    for line in &fields {
         let line = line.trim();
 
         if let Some(value) = line.strip_prefix("name:") {
@@ -2182,6 +2195,25 @@ mod hash_golden_tests {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn test_parse_package_info_folds_continuation_lines() {
+        let dump = "name:                 template-haskell\nversion:              2.21.0.0\n\
+                    id:                   template-haskell-2.21.0.0-4c6f\ndepends:\n    \
+                    base-4.19.1.0-e86d ghc-boot-th-9.8.2-c69e\n    pretty-1.1.3.6-b285\n\
+                    exposed:              True\n";
+        let info = parse_package_info(dump);
+        assert_eq!(info.name, "template-haskell");
+        assert_eq!(
+            info.depends,
+            vec![
+                "base-4.19.1.0-e86d",
+                "ghc-boot-th-9.8.2-c69e",
+                "pretty-1.1.3.6-b285"
+            ]
+        );
+        assert!(info.exposed);
+    }
     use super::*;
 
     #[test]
