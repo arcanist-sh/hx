@@ -62,7 +62,7 @@ anstream = "1"
 sha2 = "0.11"
 
 # Paths
-directories = "5"
+directories = "6"
 
 # HTTP
 # Every client is built by `hx_core::http`. reqwest's `rustls` feature selects
