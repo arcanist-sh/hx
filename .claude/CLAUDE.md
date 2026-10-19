@@ -129,7 +129,7 @@ mise install
 ```
 
 This will install:
-- Rust 1.96.0
+- Rust 1.99.1
 
 ## Links
 
