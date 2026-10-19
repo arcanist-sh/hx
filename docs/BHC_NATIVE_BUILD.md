@@ -184,19 +184,45 @@ packages, not their compiled bodies.
 ### Testing
 
 ```bash
-hx test --backend bhc --native
+hx test --backend bhc                  # every test suite
+hx test --backend bhc --package NAME   # one test suite (or workspace member)
+hx test --backend bhc --pattern PAT    # forward a filter to the suite
 ```
 
-`hx test --native` compiles a conventional test entry point to a native
-executable — discovering and compiling the project's own modules from the
-source directories — then runs it. A zero exit status is a pass; a non-zero
-status is a failure.
+BHC has no `test` subcommand, so hx drives the run itself. For each test suite
+it compiles the suite's main module to a native executable with BHC — the same
+invocation as `hx build` (`--profile`, `-O`, `--target`, one `-I` per source
+directory, runtime libraries on `LIBRARY_PATH`) — and then runs it. A zero exit
+status is a pass; a non-zero status (or a crash) is a failure, and `hx test`
+then exits with code 5 and lists the failing suites. `--native` makes no
+difference here: a BHC test build is always native.
 
-The test entry is the first of these that exists:
+**Finding the suites.** hx reads the `test-suite` stanzas of the package's
+`.cabal` file. Each `type: exitcode-stdio-1.0` suite is built from its
+`main-is` (looked up in its `hs-source-dirs`, default `.`); the library's
+`hs-source-dirs` are added to the import path when the suite lists the package
+itself in `build-depends`, and `default-extensions` are passed as `-X` flags.
+Suites of another type (`detailed-0.9`) are skipped with a warning. When the
+package has no `.cabal` file or no test-suite stanza, hx falls back to the
+first of these that exists, importing from the `[build] src_dirs`:
 
 ```
 test/Main.hs   test/Spec.hs   tests/Main.hs   tests/Spec.hs
 ```
+
+Executables are written to `<package>/.hx/bhc-test/<suite>`.
+
+**`--package`** names a workspace member (run its suites), the project itself
+(run all suites), or a single test suite.
+
+**`--pattern`** is forwarded to the suite in the form its framework expects,
+judged from the suite's `build-depends`: `--match PAT` for hspec,
+`--pattern PAT` for tasty, and the bare pattern as the only argument otherwise.
+
+> **Scope:** test suites are compiled against the project's own modules and
+> BHC's builtin packages only. The dependency-aware package-database build
+> described above is not yet applied to test suites, so a suite that imports a
+> Hackage package (for example `hspec`) does not build with BHC yet.
 
 > **Note:** BHC implements program exit codes faithfully — `error` and uncaught
 > exceptions exit non-zero (printing the message to stderr), and
@@ -212,6 +238,7 @@ test/Main.hs   test/Spec.hs   tests/Main.hs   tests/Spec.hs
 | `<cache>/bhc-<version>/package.db/` | Registered `.conf` files (the package database) |
 | `<cache>/bhc-<version>/lib/<id>/lib/` | A package's installed `.bhi` interfaces and `libHS<id>.a` |
 | `<project>/.hx/bhc-native-build/` | The project's own build output |
+| `<package>/.hx/bhc-test/` | Test-suite executables built by `hx test` |
 
 `<cache>` is hx's native package store, `~/.cache/hx/packages` by default on every platform
 (`$HX_CACHE_DIR/packages` or `$XDG_CACHE_HOME/hx/packages` when either is set). Run
@@ -250,6 +277,7 @@ Inside the REPL:
 | REPL package/import flags | ✅ |
 | hx transitive dependency build into a package DB | ✅ |
 | `hx build --backend bhc --native` orchestration | ✅ |
+| `hx test --backend bhc` (cabal `exitcode-stdio-1.0` suites, local modules + builtins) | ✅ |
 | Live end-to-end build against Hackage | requires network; run `hx lock && hx build --backend bhc --native` to exercise |
 
 ## Troubleshooting

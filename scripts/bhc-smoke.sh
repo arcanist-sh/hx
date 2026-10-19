@@ -4,8 +4,9 @@
 #
 # Proves the hx -> BHC build pipeline end to end against a real BHC toolchain:
 # detection, the correct CLI invocation, LIBRARY_PATH wiring for the runtime
-# libraries, linking, and honest failure reporting (older BHC releases exit 0
-# even on errors, so hx must not trust the exit status alone).
+# libraries, linking, honest failure reporting (older BHC releases exit 0
+# even on errors, so hx must not trust the exit status alone), and `hx test`
+# building and running a cabal test-suite (pass and fail).
 #
 # It deliberately uses a *minimal* program, so a failure points at the hx
 # side of the pipeline rather than at a BHC language-coverage gap. The
@@ -125,6 +126,87 @@ if ( cd "$badp" && "$HX" build ) >/dev/null 2>&1; then
   bad "hx build reported success on a broken BHC program (silent failure)"
 else
   ok "hx build reports failure on a broken BHC program"
+fi
+echo "::endgroup::"
+
+# --- Scenario: hx test builds and runs a cabal test-suite with BHC ----------
+# BHC has no `test` subcommand; hx reads the `test-suite` stanza, compiles its
+# `main-is` with BHC, and runs it. A passing suite exits 0; a failing one must
+# make `hx test` exit non-zero (exit code 5) and name the suite.
+tproj="$WORK/bhc-test"
+mkdir -p "$tproj/src" "$tproj/test"
+cat >"$tproj/hx.toml" <<'TOML'
+[project]
+name = "bhc-test"
+version = "0.1.0.0"
+
+[compiler]
+backend = "bhc"
+
+[build]
+src_dirs = ["src"]
+TOML
+cat >"$tproj/bhc-test.cabal" <<'CABAL'
+cabal-version: 2.4
+name:          bhc-test
+version:       0.1.0.0
+
+library
+  hs-source-dirs:  src
+  exposed-modules: Double
+  build-depends:   base
+
+test-suite bhc-test-suite
+  type:           exitcode-stdio-1.0
+  main-is:        Main.hs
+  hs-source-dirs: test
+  build-depends:  base, bhc-test
+CABAL
+cat >"$tproj/src/Double.hs" <<'HS'
+module Double (double) where
+
+double :: Int -> Int
+double x = x * 2
+HS
+write_test_main() {
+  cat >"$tproj/test/Main.hs" <<HS
+module Main where
+
+import Double (double)
+import System.Exit (exitFailure)
+
+main :: IO ()
+main =
+  if double 21 == $1
+    then putStrLn "bhc-test-suite: ok"
+    else putStrLn "bhc-test-suite: unexpected result" >> exitFailure
+HS
+}
+
+echo "::group::bhc: test (passing suite)"
+write_test_main 42
+if out="$(cd "$tproj" && "$HX" test 2>&1)"; then
+  echo "$out"
+  if echo "$out" | grep -q "bhc-test-suite: ok"; then
+    ok "hx test (BHC) builds and runs a passing test suite"
+  else
+    bad "hx test (BHC) succeeded but the suite's output is missing"
+  fi
+else
+  echo "$out"
+  bad "hx test (BHC) failed on a passing test suite"
+fi
+echo "::endgroup::"
+
+echo "::group::bhc: test (failing suite)"
+write_test_main 43
+out="$(cd "$tproj" && "$HX" test 2>&1)"
+code=$?
+echo "$out"
+if [ "$code" -ne 0 ] && echo "$out" | sed -E 's/\x1b\[[0-9;]*m//g' | grep -q "failed: bhc-test-suite"; then
+  ok "hx test (BHC) reports a failing test suite (exit $code)"
+else
+  bad "hx test (BHC) did not report a failing test suite (exit $code)"
 fi
 echo "::endgroup::"
 

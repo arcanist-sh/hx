@@ -285,7 +285,7 @@ pub async fn test(
     pattern: Option<String>,
     package: Option<String>,
     target: Option<String>,
-    native: bool,
+    _native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
     output: &Output,
@@ -298,10 +298,9 @@ pub async fn test(
     let backend = backend_override.unwrap_or(project.manifest.compiler.backend);
 
     // Use BHC backend for testing
+    // BHC has no `test` subcommand; hx builds and runs each test suite. A BHC
+    // compile is always native, so `--native` does not change the BHC path.
     if backend == CompilerBackend::Bhc {
-        if native {
-            return run_bhc_native_test(&project, target, output).await;
-        }
         return run_bhc_test(&project, pattern, package, target, output).await;
     }
 
@@ -1099,24 +1098,6 @@ fn resolve_main_source(
         .unwrap_or(rel)
 }
 
-/// Find a project's test entry point for a native BHC test build.
-///
-/// hx has no structured test-suite config yet, so it looks for a conventional
-/// test main module and returns its path relative to the project root, or
-/// `None` if none is present.
-fn find_test_entry(project_root: &std::path::Path) -> Option<String> {
-    const CANDIDATES: [&str; 4] = [
-        "test/Main.hs",
-        "test/Spec.hs",
-        "tests/Main.hs",
-        "tests/Spec.hs",
-    ];
-    CANDIDATES
-        .iter()
-        .find(|rel| project_root.join(rel).exists())
-        .map(|rel| (*rel).to_string())
-}
-
 /// Run a native BHC build (hx owns the build graph).
 pub(crate) async fn run_bhc_native_build(
     project: &Project,
@@ -1274,113 +1255,57 @@ pub(crate) async fn run_bhc_native_build(
     }
 }
 
-/// Run a project's tests with a native BHC build.
+/// A package whose test suites a BHC test run covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BhcTestPackage {
+    /// Package name.
+    name: String,
+    /// Package root directory.
+    root: PathBuf,
+    /// The package's `.cabal` file, if it has one.
+    cabal_file: Option<PathBuf>,
+}
+
+/// Which packages a BHC test run covers, and which suite (if any) it is
+/// narrowed to.
 ///
-/// Compiles a conventional test entry point (`test/Main.hs`, `test/Spec.hs`, …)
-/// to a native executable — discovering and compiling the project's own modules
-/// from the source directories — then runs it. A zero exit status is a pass.
-async fn run_bhc_native_test(
+/// `--package` names a workspace member, the project itself, or a single test
+/// suite. A name that is neither a member nor the project is treated as a
+/// suite name; it is validated once the suites are discovered.
+fn select_bhc_test_packages(
     project: &Project,
-    target: Option<String>,
-    output: &Output,
-) -> Result<i32> {
-    use hx_bhc::native::BhcCompilerConfig;
-
-    output.warn("BHC native test is experimental");
-
-    let Some(entry) = find_test_entry(&project.root) else {
-        output.error("no BHC test entry found (expected test/Main.hs or test/Spec.hs)");
-        return Ok(2);
-    };
-    let test_dir = std::path::Path::new(&entry)
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    output.status("Testing", &format!("{} (BHC native)", project.name()));
-
-    let bhc = match BhcCompilerConfig::detect().await {
-        Ok(config) => config
-            .with_profile(project.manifest.compiler.bhc.profile)
-            .with_tensor_fusion(project.manifest.compiler.bhc.tensor_fusion)
-            .with_emit_kernel_report(project.manifest.compiler.bhc.emit_kernel_report),
-        Err(e) => {
-            output.error(&format!("BHC not available: {}", e));
-            output.info("Install BHC with: hx toolchain install --bhc latest");
-            return Ok(4);
+    package: Option<&str>,
+) -> (Vec<BhcTestPackage>, Option<String>) {
+    if project.is_workspace() {
+        let member = |p: &hx_config::WorkspacePackage| BhcTestPackage {
+            name: p.name.clone(),
+            root: project.root.join(&p.path),
+            cabal_file: Some(project.root.join(&p.cabal_file)),
+        };
+        if let Some(pkg) = package.and_then(|name| project.get_package(name)) {
+            return (vec![member(pkg)], None);
         }
+        let all = project.workspace_packages.iter().map(member).collect();
+        return (all, package.map(str::to_string));
+    }
+
+    let this = BhcTestPackage {
+        name: project.name().to_string(),
+        root: project.root.clone(),
+        cabal_file: project.cabal_file.clone(),
     };
-
-    let build_config = &project.manifest.build;
-    let out_dir = project.root.join(".hx/bhc-native-test");
-    let exe = out_dir.join(format!("{}-test", project.name()));
-    let _ = std::fs::create_dir_all(&out_dir);
-
-    // Import paths: the project's source dirs (so the test can import the
-    // library) plus the test directory itself.
-    let mut import_paths: Vec<String> = build_config.src_dirs.clone();
-    if !test_dir.is_empty() && !import_paths.contains(&test_dir) {
-        import_paths.push(test_dir);
-    }
-
-    let mut args = bhc.bhc_flags();
-    args.push("-O".to_string());
-    args.push(build_config.optimization.to_string());
-    args.push("--odir".to_string());
-    args.push(out_dir.to_string_lossy().to_string());
-    if build_config.warnings {
-        args.push("--Wall".to_string());
-    }
-    if build_config.werror {
-        args.push("--Werror".to_string());
-    }
-    for dir in &import_paths {
-        args.push("--import-path".to_string());
-        args.push(dir.clone());
-    }
-    if let Some(ref t) = target {
-        args.push("--target".to_string());
-        args.push(t.clone());
-    }
-    args.extend(build_config.ghc_flags.iter().cloned());
-    args.push(entry); // the test source file
-    args.push("-o".to_string());
-    args.push(exe.to_string_lossy().to_string());
-
-    let build = std::process::Command::new(&bhc.bhc_path)
-        .args(&args)
-        .current_dir(&project.root)
-        .output()?;
-    if !build.status.success() {
-        let stderr = String::from_utf8_lossy(&build.stderr);
-        if !stderr.is_empty() {
-            eprintln!("{}", stderr);
-        }
-        output.error("BHC native test build failed");
-        return Ok(5);
-    }
-
-    // Run the test executable; its exit status is the test result.
-    let start = std::time::Instant::now();
-    let status = std::process::Command::new(&exe)
-        .current_dir(&project.root)
-        .status()
-        .map_err(|e| anyhow::anyhow!("failed to run test executable {}: {e}", exe.display()))?;
-    let duration = start.elapsed();
-
-    if status.success() {
-        output.status(
-            "Finished",
-            &format!("BHC native tests in {}", format_build_duration(duration)),
-        );
-        Ok(0)
-    } else {
-        output.error("BHC native tests failed");
-        Ok(status.code().unwrap_or(5))
-    }
+    let suite_filter = package
+        .filter(|name| *name != project.name())
+        .map(str::to_string);
+    (vec![this], suite_filter)
 }
 
 /// Run tests using the BHC backend.
+///
+/// BHC has no `test` subcommand, so hx drives the run: it discovers the
+/// package's `exitcode-stdio-1.0` test suites (or a conventional `test/Main.hs`),
+/// compiles each suite's main module with BHC exactly like `hx build` does, then
+/// runs the executable. A suite passes when it exits 0.
 async fn run_bhc_test(
     project: &Project,
     pattern: Option<String>,
@@ -1388,10 +1313,9 @@ async fn run_bhc_test(
     target: Option<String>,
     output: &Output,
 ) -> Result<i32> {
-    use hx_bhc::{BhcBackend, generate_bhc_manifest};
-    use hx_compiler::CompilerBackend as Backend;
-
-    output.status("Testing", &format!("{} (BHC)", project.name()));
+    use hx_bhc::{BhcBackend, discover_test_suites, generate_bhc_manifest};
+    use hx_compiler::{BuildOptions as CompilerBuildOptions, CompilerBackend as Backend};
+    use hx_core::Fix;
 
     // Generate bhc.toml from hx.toml
     match generate_bhc_manifest(&project.root, &project.manifest) {
@@ -1434,44 +1358,171 @@ async fn run_bhc_test(
         }
     }
 
-    // Build test arguments using the backend's test_args helper
-    let bhc_cmd = backend.bhc_cmd();
-    let args = backend.test_args(pattern.as_deref(), package.as_deref(), target.as_deref());
-
-    let start = std::time::Instant::now();
-
-    let cmd_output = std::process::Command::new(&bhc_cmd)
-        .args(&args)
-        .current_dir(&project.root)
-        .output()?;
-
-    let duration = start.elapsed();
-    let success = cmd_output.status.success();
-
-    let stdout = String::from_utf8_lossy(&cmd_output.stdout);
-    let stderr = String::from_utf8_lossy(&cmd_output.stderr);
-
-    if output.is_verbose() || !success {
-        if !stdout.is_empty() {
-            output.verbose(&stdout);
+    // Discover the test suites to run.
+    let (packages, suite_filter) = select_bhc_test_packages(project, package.as_deref());
+    let mut suites = Vec::new();
+    for pkg in &packages {
+        let found = match discover_test_suites(
+            &pkg.root,
+            &pkg.name,
+            pkg.cabal_file.as_deref(),
+            &project.manifest.build.src_dirs,
+        ) {
+            Ok(found) => found,
+            Err(e) => {
+                let cabal = pkg.cabal_file.as_deref().unwrap_or(&pkg.root);
+                output.error(&format!("Failed to read {}: {}", cabal.display(), e));
+                return Ok(3);
+            }
+        };
+        let wanted = |name: &str| suite_filter.as_deref().is_none_or(|f| f == name);
+        for skipped in found.skipped.iter().filter(|s| wanted(&s.name)) {
+            output.warn(&format!(
+                "skipping test suite `{}` ({}): {}",
+                skipped.name, pkg.name, skipped.reason
+            ));
         }
-        if !stderr.is_empty() {
-            if success {
-                output.verbose(&stderr);
-            } else {
-                eprintln!("{}", stderr);
+        suites.extend(found.suites.into_iter().map(|s| (pkg.clone(), s)));
+    }
+
+    if let Some(ref name) = suite_filter {
+        let available: Vec<String> = suites.iter().map(|(_, s)| s.name.clone()).collect();
+        suites.retain(|(_, s)| &s.name == name);
+        if suites.is_empty() {
+            output.error(&format!("No package or test suite named '{}'", name));
+            let mut names: Vec<String> = project
+                .package_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect();
+            names.extend(available);
+            output.info(&format!("Available: {}", names.join(", ")));
+            return Ok(1);
+        }
+    }
+
+    if suites.is_empty() {
+        output.error("No test suites found for BHC");
+        output.info(
+            "  hx looks for `test-suite` stanzas (type: exitcode-stdio-1.0) in the .cabal file, \
+             then for test/Main.hs, test/Spec.hs, tests/Main.hs or tests/Spec.hs",
+        );
+        output.print_fix(&Fix::new(
+            "Add a `test-suite` stanza with `type: exitcode-stdio-1.0` and `main-is`, \
+             or create test/Main.hs",
+        ));
+        return Ok(3);
+    }
+
+    // Initialize plugin hooks (no GHC version: this is a BHC run).
+    let mut hooks = PluginHooks::from_project(project, None);
+    if let Some(ref mut h) = hooks {
+        if let Err(e) = h.initialize() {
+            output.verbose(&format!("Plugin initialization warning: {}", e));
+        }
+        if !h.run_pre_hook(HookEvent::PreTest, output) {
+            output.error("Pre-test hook failed");
+            return Ok(6); // Hook failure exit code
+        }
+    }
+
+    output.status("Testing", &format!("{} (BHC)", project.name()));
+
+    let build_config = &project.manifest.build;
+    let build_options = CompilerBuildOptions {
+        release: false,
+        optimization: Some(build_config.optimization),
+        jobs: None,
+        target,
+        package: None,
+        verbose: output.is_verbose(),
+        extra_flags: build_config.ghc_flags.clone(),
+        src_dirs: Vec::new(), // per suite
+        werror: build_config.werror,
+    };
+
+    let start = Instant::now();
+    let mut passed: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    let mut build_failed = false;
+
+    for (pkg, suite) in &suites {
+        let exe = pkg.root.join(".hx/bhc-test").join(&suite.name);
+
+        output.status("Building", &format!("{} (BHC)", suite.name));
+        if let Err(e) = backend
+            .build_test_suite(&pkg.root, suite, &build_options, &exe, output)
+            .await
+        {
+            // BHC's own output has already been printed by the backend.
+            output.error(&format!(
+                "Test suite `{}` failed to build: {}",
+                suite.name, e
+            ));
+            failed.push(suite.name.clone());
+            build_failed = true;
+            continue;
+        }
+
+        let args = pattern
+            .as_deref()
+            .map(|p| suite.framework.pattern_args(p))
+            .unwrap_or_default();
+        output.status("Running", &suite.name);
+        output.verbose(format!("  {} {}", exe.display(), args.join(" ")).trim_end());
+
+        match std::process::Command::new(&exe)
+            .args(&args)
+            .current_dir(&pkg.root)
+            .status()
+        {
+            Ok(status) if status.success() => passed.push(suite.name.clone()),
+            Ok(status) => {
+                let how = match status.code() {
+                    Some(code) => format!("exit code {code}"),
+                    None => "a signal".to_string(),
+                };
+                output.error(&format!("Test suite `{}` failed ({})", suite.name, how));
+                failed.push(suite.name.clone());
+            }
+            Err(e) => {
+                output.error(&format!(
+                    "Failed to run test suite `{}` ({}): {}",
+                    suite.name,
+                    exe.display(),
+                    e
+                ));
+                failed.push(suite.name.clone());
             }
         }
+    }
+
+    let duration = start.elapsed();
+    let success = failed.is_empty();
+    if let Some(ref mut h) = hooks {
+        h.run_post_test_hook(success, passed.len(), failed.len(), 0, output);
     }
 
     if success {
         output.status(
             "Finished",
-            &format!("BHC tests in {}", format_build_duration(duration)),
+            &format!(
+                "{} BHC test suite(s) passed in {}",
+                passed.len(),
+                format_build_duration(duration)
+            ),
         );
         Ok(0)
     } else {
-        output.error("BHC tests failed");
+        output.error(&format!(
+            "{} of {} BHC test suite(s) failed: {}",
+            failed.len(),
+            suites.len(),
+            failed.join(", ")
+        ));
+        if build_failed {
+            output.info("hint: Run `hx test --verbose` for full compiler output");
+        }
         Ok(5)
     }
 }
@@ -1512,36 +1563,67 @@ mod tests {
         assert_eq!(got, "Main.hs");
     }
 
-    #[test]
-    fn find_test_entry_prefers_test_main() {
-        use super::find_test_entry;
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(root.path().join("test")).unwrap();
-        std::fs::write(root.path().join("test/Spec.hs"), "module Main where\n").unwrap();
-        std::fs::write(root.path().join("test/Main.hs"), "module Main where\n").unwrap();
-        // test/Main.hs is listed before test/Spec.hs.
-        assert_eq!(
-            find_test_entry(root.path()).as_deref(),
-            Some("test/Main.hs")
-        );
+    fn project(workspace: &[&str]) -> hx_config::Project {
+        let mut manifest = hx_config::Manifest::default();
+        manifest.project.name = "demo".to_string();
+        hx_config::Project {
+            root: PathBuf::from("/ws"),
+            manifest,
+            cabal_file: Some(PathBuf::from("/ws/demo.cabal")),
+            has_cabal_project: !workspace.is_empty(),
+            workspace_packages: workspace
+                .iter()
+                .map(|name| hx_config::WorkspacePackage {
+                    name: name.to_string(),
+                    path: PathBuf::from(name),
+                    cabal_file: PathBuf::from(format!("{name}/{name}.cabal")),
+                })
+                .collect(),
+        }
     }
 
     #[test]
-    fn find_test_entry_finds_tests_spec() {
-        use super::find_test_entry;
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(root.path().join("tests")).unwrap();
-        std::fs::write(root.path().join("tests/Spec.hs"), "module Main where\n").unwrap();
-        assert_eq!(
-            find_test_entry(root.path()).as_deref(),
-            Some("tests/Spec.hs")
-        );
+    fn bhc_test_selection_single_package() {
+        use super::select_bhc_test_packages;
+        let p = project(&[]);
+
+        let (pkgs, filter) = select_bhc_test_packages(&p, None);
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].name, "demo");
+        assert_eq!(pkgs[0].root, PathBuf::from("/ws"));
+        assert_eq!(pkgs[0].cabal_file, Some(PathBuf::from("/ws/demo.cabal")));
+        assert_eq!(filter, None);
+
+        // The project's own name selects every suite.
+        let (_, filter) = select_bhc_test_packages(&p, Some("demo"));
+        assert_eq!(filter, None);
+
+        // Any other name narrows the run to that suite.
+        let (pkgs, filter) = select_bhc_test_packages(&p, Some("demo-test"));
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(filter.as_deref(), Some("demo-test"));
     }
 
     #[test]
-    fn find_test_entry_none_when_absent() {
-        use super::find_test_entry;
-        let root = tempfile::tempdir().unwrap();
-        assert_eq!(find_test_entry(root.path()), None);
+    fn bhc_test_selection_workspace() {
+        use super::select_bhc_test_packages;
+        let p = project(&["core", "cli"]);
+
+        let (pkgs, filter) = select_bhc_test_packages(&p, None);
+        let names: Vec<&str> = pkgs.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["core", "cli"]);
+        assert_eq!(filter, None);
+
+        // A member name selects that member's suites only.
+        let (pkgs, filter) = select_bhc_test_packages(&p, Some("cli"));
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].root, PathBuf::from("/ws/cli"));
+        assert_eq!(pkgs[0].cabal_file, Some(PathBuf::from("/ws/cli/cli.cabal")));
+        assert_eq!(filter, None);
+
+        // Otherwise it names a suite, searched across all members.
+        let (pkgs, filter) = select_bhc_test_packages(&p, Some("core-test"));
+        assert_eq!(pkgs.len(), 2);
+        assert_eq!(filter.as_deref(), Some("core-test"));
     }
 }

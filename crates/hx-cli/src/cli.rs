@@ -161,7 +161,7 @@ pub enum Commands {
         #[arg(short, long)]
         pattern: Option<String>,
 
-        /// Test specific package (in workspace)
+        /// Test specific package (in workspace); with BHC, also a single test suite
         #[arg(long)]
         package: Option<String>,
 
