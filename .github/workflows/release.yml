@@ -112,4 +112,5 @@ jobs:
           publish hx-plugins
           publish hx-doctor
           publish hx-ls
+          publish hx-registry
           publish hx-cli
