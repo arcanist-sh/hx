@@ -77,7 +77,9 @@ detect_platform() {
         Linux)
             case "$ARCH" in
                 aarch64) echo "aarch64-unknown-linux-gnu" ;;
-                x86_64)  echo "x86_64-unknown-linux-gnu" ;;
+                # The static musl build runs on every x86_64 distribution,
+                # whatever its glibc (or none, on Alpine).
+                x86_64)  echo "x86_64-unknown-linux-musl" ;;
                 *)       error "Unsupported Linux architecture: $ARCH" ;;
             esac
             ;;

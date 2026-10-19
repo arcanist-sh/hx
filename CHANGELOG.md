@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`install.sh` installs the static musl build on x86_64 Linux**, which runs
+  on every distribution regardless of its glibc version (or none, on Alpine).
+  `hx upgrade` stays on the variant it was installed as.
+
 ## [0.9.3] - 2026-10-19
 
 ### Added
