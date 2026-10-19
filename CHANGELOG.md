@@ -7,89 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-19
+
+### Added
+- **GHC 9.12 and 9.14, Cabal 3.14–3.18 and BHC up to 0.2.22** are known
+  versions, installable with `hx toolchain install`.
+- **`hx toolchain install --cabal` downloads Cabal directly**, falling back to
+  ghcup only when needed, the same way GHC installs work. `--ghcup` still
+  forces ghcup.
+- **Per-release HLS compatibility.** `hx doctor` and `hx ide status` check the
+  installed HLS against the upstream support table for the exact GHC release,
+  and recommend the last HLS that supports an older GHC.
+
+### Changed
+- **Recommended toolchain: GHC 9.10.3, Cabal 3.16.1.0, HLS 2.14.0.0**, matching
+  ghcup's recommendations (GHC 9.10.3 is also the compiler of Stackage LTS 24).
+  BHC's recommended version is 0.2.22.
+- **Direct GHC installs on Linux use the distribution builds GHC publishes**
+  (the deb10 build, glibc 2.28, available on x86_64 and aarch64 for every
+  release from 9.2.8 to 9.14.1), and locate the unpacked bindist directory for
+  both the 9.2 and the 9.4+ layouts.
+- **Cabal downloads follow the 3.18 release naming** (`x86_64-linux-unknown`,
+  `aarch64-apple-darwin`, `x86_64-mingw64`) and keep the earlier naming for
+  older releases.
+- **Stackage snapshots are read in full**, including the compiler from
+  `with-compiler:`; snapshot-to-GHC defaults cover LTS 23, LTS 24 and current
+  nightlies, and `hx import --from stack` shares that table.
+- **Templates and `hx init` accept `base` up to 4.22**, so new projects target
+  GHC 9.6 through 9.14.
+- `hx nix` falls back to the recommended GHC when a project pins none.
+- Links in generated files point at `bhc.arcanist.sh` and
+  `arcanist.sh/hx/install.sh`.
+- **The BHC Platform snapshot registry is served from
+  `arcanist.sh/bhc-platform/`**; `HX_BHC_PLATFORM_URL` selects a mirror.
+  Embedded snapshots keep working offline.
+- `hx doctor` suggests a newer BHC Platform only when a released BHC can use
+  it, and names that release in the fix command.
+- **The solver's index and resolution caches use postcard**, a maintained
+  format. Existing caches are rebuilt automatically on first use; the full
+  Hackage index (19,461 packages, 153,513 versions) loads from cache in
+  about 0.1 s.
+- Dependency updates: `toml` 1, `indicatif` 0.18, `console` 0.16, `notify` 8,
+  `notify-debouncer-mini` 0.7, `which` 8, `anstream` 1, `ed25519-dalek` 3,
+  `steel-core` 0.8, `zip` 9, `self_update` 1.3.
+
 ### Security
-- **Clears every open RustSec vulnerability (12 advisories across 5 crates).**
-  `cargo audit` had gone from clean to 12 findings since 0.9.2 without any
-  change on our side. The lockfile refresh picks up patched `rustls` (0.23.40 →
-  0.23.46; TLS 1.3 handshake confusion, a ServerHello downgrade, an
-  unauthenticated 1 GiB brotli allocation) and `quinn-proto`. `zip` moves 2 → 9
-  (SUID/SGID preservation and symlink handling in `extract()`). hx's own Cabal
-  zip extractor never called `extract()` and already rejected `..` paths;
-  the bump keeps it on a maintained line, and it now has tests for both
-  properties. `self_update` moves 0.42 → 1.3, which drops `quick-xml`
-  (two DoS advisories) from the tree; hx only uses its extract-and-replace
-  helpers, so it now builds without self_update's release-backend features,
-  and on its ureq backend (rustls + ring): its reqwest backend would have
-  switched every rustls in the build to aws-lc-rs, a C dependency the
-  cross-compiled release targets do not need.
-- Replaced the unmaintained, unsound `atty` with `std::io::IsTerminal`.
-
-### Changed
-- **The solver's index and resolution caches are encoded with postcard
-  instead of bincode**, which is no longer maintained. Existing caches are
-  rejected by version and rebuilt on first use. The full Hackage index
-  (19,461 packages, 153,513 versions) round-trips intact: 30 MB, decoded in
-  ~0.1 s against ~4.4 s to parse from the tarball.
-- Dependency majors: `toml` 1, `indicatif` 0.18 + `console` 0.16, `notify` 8
-  + `notify-debouncer-mini` 0.7, `which` 8, `anstream` 1, `ed25519-dalek` 3,
-  `steel-core` 0.8, `criterion` 0.8. This removes the unmaintained `instant`
-  and `number_prefix` from the tree. The 5 `cargo audit` warnings that remain
-  (all *unmaintained*, none vulnerabilities) come from steel-core.
+- All RustSec advisories against hx's dependency tree are resolved: patched
+  `rustls` (0.23.46) and `quinn-proto`, `zip` 9, and `self_update` 1.3, which
+  removes `quick-xml` from the tree. `cargo audit` reports no vulnerabilities.
+- `atty` is replaced by `std::io::IsTerminal`.
+- TLS stays on pure-Rust `ring` across all release targets: `self_update` uses
+  its ureq backend, so no C crypto library is pulled into the cross builds.
 
 ### Internal
-- Build toolchain moves from Rust 1.96.0 to 1.99.1 (`rust-toolchain.toml`,
-  `mise.toml`, release and real-world workflows). `async-trait` 0.1.92 is
-  required: older versions emit code that trips 1.99's `double_must_use`
-  lint under `-D warnings`. The MSRV (`rust-version = "1.96"`) is unchanged.
-
-### Fixed
-- **Direct GHC install failed on every Linux machine.** GHC no longer
-  publishes generic `ghc-<v>-x86_64-unknown-linux` bindists, only
-  per-distribution builds, so the download 404'd and hx fell back to ghcup,
-  failing outright when ghcup was absent. hx now downloads the deb10 build
-  (glibc 2.28), which exists on both architectures for every release from
-  9.2.8 to 9.14.1 and is what ghcup uses for unrecognized distributions. The
-  installer also finds the unpacked directory instead of assuming its name,
-  since 9.2 bindists unpack to plain `ghc-<v>`.
-- **Cabal 3.18 could not be installed directly.** 3.18 renamed its release
-  assets (`x86_64-linux-unknown`, `aarch64-apple-darwin`, `x86_64-mingw64`).
-  The asset name now depends on the version.
-- **`hx toolchain install --cabal` required ghcup.** It now downloads
-  directly and falls back to ghcup, like GHC installs and like the automatic
-  toolchain check already did. `--ghcup` still forces ghcup.
-- **Stackage snapshots parsed to zero packages.** stackage.org puts the first
-  constraint on the `constraints:` line and names the compiler in
-  `with-compiler:`. The parser expected `constraints:` alone on its line and
-  never read `with-compiler:`, so every snapshot came back empty, with its GHC
-  version guessed from a table.
-- **hx could not install bhc 0.2.4 or later.** The known-version list stopped
-  at 0.2.3 and `install_bhc` rejects unknown versions. It now covers every
-  published release through 0.2.22, which is the new recommended version.
-- **`hx nix` generated flakes that do not evaluate** when the project pinned no
-  GHC: the fallback `ghc982` attribute is gone from nixpkgs.
-- **New projects could not build on GHC 9.12 or 9.14.** Templates and
-  `hx init` bounded `base` below 4.21.
-- Dead links in generated files: `bhc.dev` → `bhc.arcanist.sh`, and the
-  generated install script's `get.hx.dev` → `arcanist.sh/hx/install.sh`.
-
-### Changed
-- **Recommended toolchain is now GHC 9.10.3, Cabal 3.16.1.0, HLS 2.14.0.0**
-  (from 9.8.2 / 3.12.1.0 / 2.9.0.0), matching ghcup's recommendations and
-  Stackage LTS 24. Known versions add GHC 9.10.2–9.14.1 and 9.6.7, and Cabal
-  3.14–3.18.
-- **HLS compatibility is checked per GHC release.** HLS drops binaries for
-  deprecated GHC patch releases, so "HLS 2.x supports GHC 9.x" approved
-  combinations that do not work, such as HLS 2.14 with GHC 9.8.2. `hx doctor`
-  and `hx ide` now use the upstream support table and recommend the last HLS
-  that supports a deprecated GHC.
-- Snapshot → GHC defaults cover LTS 23 and 24; `hx import` from Stack reuses
-  that table instead of keeping its own (and no longer depends on hash-map
-  iteration order for prefix matches).
-
-### Internal
-- New `toolchain-direct` job in the nightly real-world workflow installs GHC
-  and Cabal with hx on Linux with ghcup removed from `PATH`, so the
-  direct-download path cannot regress behind the ghcup fallback.
+- Builds with Rust 1.99.1 (`rust-toolchain.toml`, `mise.toml`, workflows); the
+  MSRV stays 1.96. `async-trait` 0.1.92 is required for 1.99's clippy.
+- New tests cover Cabal zip extraction (including path-traversal rejection),
+  the `hx upgrade` archive path, real-world Stackage `cabal.config` parsing,
+  and the solver cache encoding.
+- A nightly `toolchain-direct` job installs GHC and Cabal with hx on a Linux
+  runner with ghcup removed from `PATH`.
 
 ## [0.9.2] - 2026-09-04
 
@@ -683,7 +660,8 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/arcanist-sh/hx/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/arcanist-sh/hx/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/arcanist-sh/hx/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/arcanist-sh/hx/compare/v0.8.2...v0.9.0
