@@ -1137,7 +1137,7 @@ pub enum NewCommands {
 /// `--registry` for `hx registry` subcommands (defaults to the arcanist.sh registry).
 #[derive(Args, Debug, Clone)]
 pub struct RegistryArg {
-    /// Registry name (from [registries]) or URL
+    /// Registry name (as configured) or URL
     #[arg(long, value_name = "NAME|URL", default_value = "arcanist")]
     pub registry: String,
 }
