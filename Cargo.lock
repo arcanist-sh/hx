@@ -1567,6 +1567,7 @@ dependencies = [
  "hx-lock",
  "hx-ls",
  "hx-plugins",
+ "hx-registry",
  "hx-solver",
  "hx-telemetry",
  "hx-toolchain",
@@ -1704,6 +1705,23 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "hx-registry"
+version = "0.9.3"
+dependencies = [
+ "hx-cache",
+ "hx-config",
+ "hx-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
  "tracing",
 ]
 

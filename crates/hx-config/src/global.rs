@@ -46,6 +46,9 @@ pub enum GlobalConfigError {
 ///
 /// [lint]
 /// hlint = true
+///
+/// [registries.arcanist]
+/// url = "https://registry.arcanist.sh"
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -76,6 +79,10 @@ pub struct GlobalConfig {
     /// Plugin configuration
     #[serde(default)]
     pub plugins: PluginConfig,
+
+    /// Named package registries (`[registries.<name>]`)
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub registries: std::collections::BTreeMap<String, crate::RegistryConfig>,
 }
 
 impl GlobalConfig {
@@ -266,6 +273,7 @@ hlint = false
             format: FormatConfig::default(),
             lint: LintConfig::default(),
             plugins: PluginConfig::default(),
+            registries: Default::default(),
         };
 
         let toml = original.to_string().unwrap();

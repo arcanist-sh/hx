@@ -1,7 +1,7 @@
 //! hx.toml manifest parsing.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use thiserror::Error;
 
@@ -377,6 +377,18 @@ impl Default for BuildConfig {
     }
 }
 
+/// A package registry hx can publish to and search (`[registries.<name>]`).
+///
+/// ```toml
+/// [registries.arcanist]
+/// url = "https://registry.arcanist.sh"
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryConfig {
+    /// Base URL of the registry (serves both the JSON API and the cabal repository).
+    pub url: String,
+}
+
 /// The hx.toml manifest.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Manifest {
@@ -414,6 +426,10 @@ pub struct Manifest {
     /// Plugin configuration
     #[serde(default)]
     pub plugins: PluginConfig,
+
+    /// Named package registries (`[registries.<name>]`), overriding global ones
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub registries: BTreeMap<String, RegistryConfig>,
 
     /// Dependencies (optional, can rely on .cabal)
     #[serde(default)]
@@ -460,6 +476,7 @@ impl Manifest {
             format: FormatConfig::default(),
             lint: LintConfig::default(),
             plugins: PluginConfig::default(),
+            registries: BTreeMap::new(),
             dependencies: HashMap::new(),
         }
     }
@@ -491,6 +508,14 @@ impl Manifest {
             lint: self.lint.combine(global.lint.clone()),
             // Merge plugins (project takes precedence)
             plugins: self.plugins.combine(global.plugins.clone()),
+            // Registries: project entries win, global ones fill in
+            registries: {
+                let mut regs = self.registries;
+                for (k, v) in &global.registries {
+                    regs.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                regs
+            },
             // Dependencies are project-specific only
             dependencies: self.dependencies,
         }
@@ -510,6 +535,40 @@ name = "myapp"
         let manifest = Manifest::parse(toml).unwrap();
         assert_eq!(manifest.project.name, "myapp");
         assert_eq!(manifest.project.kind, ProjectKind::Bin);
+    }
+
+    #[test]
+    fn test_parse_registries_and_global_fallback() {
+        let toml = r#"
+[project]
+name = "myapp"
+
+[registries.arcanist]
+url = "http://localhost:8787"
+"#;
+        let manifest = Manifest::parse(toml).unwrap();
+        assert_eq!(manifest.registries["arcanist"].url, "http://localhost:8787");
+
+        let global = crate::GlobalConfig::parse(
+            r#"
+[registries.arcanist]
+url = "https://registry.arcanist.sh"
+
+[registries.corp]
+url = "https://corp.example"
+"#,
+        )
+        .unwrap();
+        let merged = manifest.with_global_defaults(&global);
+        assert_eq!(merged.registries["arcanist"].url, "http://localhost:8787");
+        assert_eq!(merged.registries["corp"].url, "https://corp.example");
+        // empty tables are not serialized
+        assert!(
+            !Manifest::new("x", ProjectKind::Bin)
+                .to_string()
+                .unwrap()
+                .contains("registries")
+        );
     }
 
     #[test]

@@ -1,15 +1,17 @@
-//! Publish to Hackage command implementation.
+//! Publish command implementation (Hackage by default, or a registry).
 
 use anyhow::Result;
 use hx_config::{Project, find_project_root};
 use hx_core::CommandRunner;
+use hx_registry::{Credentials, RegistryError};
 use hx_ui::{Output, Spinner};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Run the publish command.
 pub async fn run(
     dry_run: bool,
+    registry: Option<String>,
     username: Option<String>,
     password: Option<String>,
     docs: bool,
@@ -17,6 +19,34 @@ pub async fn run(
 ) -> Result<i32> {
     let project_root = find_project_root(".")?;
     let _project = Project::load(&project_root)?;
+
+    // Resolve the target registry up front so a typo or a missing login fails
+    // before the (slow) pre-publish checks.
+    let target = match registry
+        .as_deref()
+        .map(super::registry::resolve)
+        .transpose()
+    {
+        Ok(t) => t,
+        Err(e) => return Ok(super::registry::report(&e, output)),
+    };
+    if let Some(reg) = &target {
+        if !dry_run {
+            let creds = match Credentials::load() {
+                Ok(c) => c,
+                Err(e) => return Ok(super::registry::report(&e, output)),
+            };
+            if creds.token_for(&reg.url).is_none() {
+                let e = RegistryError::NotLoggedIn {
+                    url: reg.url.clone(),
+                };
+                return Ok(super::registry::report(&e, output));
+            }
+        }
+        if docs {
+            output.warn("--docs is not supported for registries yet; skipping documentation");
+        }
+    }
 
     // Find the cabal file to get package info
     let cabal_files: Vec<_> = fs::read_dir(&project_root)?
@@ -132,10 +162,13 @@ pub async fn run(
         }
     }
 
+    let destination = target
+        .as_ref()
+        .map_or_else(|| "Hackage".to_string(), |r| r.url.clone());
     if dry_run {
         output.status("Dry run", "checking package...");
     } else {
-        output.status("Publishing", package_name);
+        output.status("Publishing", &format!("{package_name} to {destination}"));
     }
 
     // First, build the sdist
@@ -171,8 +204,28 @@ pub async fn run(
 
     if dry_run {
         output.status("Dry run", "complete - package is ready for publishing");
-        output.info("Run `hx publish` without --dry-run to upload");
+        output.info(&format!(
+            "Run `hx publish{}` without --dry-run to upload to {destination}",
+            registry
+                .as_deref()
+                .map(|r| format!(" --registry {r}"))
+                .unwrap_or_default()
+        ));
         return Ok(0);
+    }
+
+    if let Some(reg) = &target {
+        let Some(tarball) = sdist_path(
+            &sdist_output.stdout,
+            &project_root,
+            package_name,
+            cabal_version.as_deref(),
+        ) else {
+            output.error("Could not find the tarball written by `cabal sdist`");
+            output.info("hint: run `cabal sdist` and check dist-newstyle/sdist/");
+            return Ok(1);
+        };
+        return super::registry::upload(reg, &tarball, output).await;
     }
 
     // Upload to Hackage
@@ -245,6 +298,37 @@ pub async fn run(
     Ok(0)
 }
 
+/// Locate the tarball `cabal sdist` wrote: the last `.tar.gz` path in its
+/// output, else `dist-newstyle/sdist/<name>-<version>.tar.gz`.
+fn sdist_path(
+    stdout: &str,
+    project_root: &Path,
+    package_name: &str,
+    version: Option<&str>,
+) -> Option<PathBuf> {
+    let from_output = stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| l.ends_with(".tar.gz"))
+        .map(PathBuf::from)
+        .map(|p| {
+            if p.is_relative() {
+                project_root.join(p)
+            } else {
+                p
+            }
+        })
+        .filter(|p| p.exists());
+    from_output.or_else(|| {
+        let p = project_root
+            .join("dist-newstyle")
+            .join("sdist")
+            .join(format!("{package_name}-{}.tar.gz", version?));
+        p.exists().then_some(p)
+    })
+}
+
 /// Extract version from a .cabal file.
 fn extract_cabal_version(cabal_file: &Path) -> Option<String> {
     let content = fs::read_to_string(cabal_file).ok()?;
@@ -262,4 +346,29 @@ fn extract_cabal_version(cabal_file: &Path) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sdist_path_from_cabal_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let sdist = dir.path().join("dist-newstyle/sdist");
+        fs::create_dir_all(&sdist).unwrap();
+        let tarball = sdist.join("foo-1.0.tar.gz");
+        fs::write(&tarball, b"x").unwrap();
+        let out = format!("Wrote tarball sdist to\n{}\n", tarball.display());
+        assert_eq!(
+            sdist_path(&out, dir.path(), "foo", Some("1.0")),
+            Some(tarball.clone())
+        );
+        // falls back to the conventional location when the output is unhelpful
+        assert_eq!(
+            sdist_path("", dir.path(), "foo", Some("1.0")),
+            Some(tarball)
+        );
+        assert_eq!(sdist_path("", dir.path(), "foo", Some("2.0")), None);
+    }
 }

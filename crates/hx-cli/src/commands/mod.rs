@@ -31,6 +31,7 @@ mod nix;
 mod plugins;
 mod profile;
 mod publish;
+mod registry;
 mod run;
 mod script;
 mod search;
@@ -216,10 +217,12 @@ pub async fn run(cli: Cli) -> Result<i32> {
         }
         Some(Commands::Publish {
             dry_run,
+            registry,
             username,
             password,
             docs,
-        }) => publish::run(dry_run, username, password, docs, &output).await,
+        }) => publish::run(dry_run, registry, username, password, docs, &output).await,
+        Some(Commands::Registry { command }) => registry::run(command, &output).await,
         Some(Commands::Ide { command }) => ide::run(command, &output).await,
         Some(Commands::Index { command }) => match command {
             IndexCommands::Update { force, staleness } => {
@@ -271,9 +274,13 @@ pub async fn run(cli: Cli) -> Result<i32> {
         Some(Commands::Import { from, path }) => import::run(from, path, &output).await,
         Some(Commands::Search {
             query,
+            registry,
             limit,
             detailed,
-        }) => search::run(&query, limit, detailed, &output).await,
+        }) => match registry {
+            Some(r) => registry::search(&r, &query, limit, detailed, &output).await,
+            None => search::run(&query, limit, detailed, &output).await,
+        },
         Some(Commands::Install {
             package,
             git,

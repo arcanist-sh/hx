@@ -52,6 +52,13 @@ impl Combine for Manifest {
             format: self.format.combine(other.format),
             lint: self.lint.combine(other.lint),
             plugins: self.plugins.combine(other.plugins),
+            registries: {
+                let mut regs = self.registries;
+                for (k, v) in other.registries {
+                    regs.entry(k).or_insert(v);
+                }
+                regs
+            },
             dependencies: {
                 let mut deps = self.dependencies;
                 for (k, v) in other.dependencies {

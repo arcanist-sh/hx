@@ -221,6 +221,7 @@ hx list --direct             # List direct dependencies only
 hx deps graph --format dot   # Generate Graphviz graph (also: tree, list, json)
 
 hx search aeson              # Search Hackage for packages
+hx search aeson --registry arcanist  # Search the arcanist.sh registry instead
 hx audit                     # Check for deprecated dependencies
 hx audit --outdated          # Check for outdated packages
 ```
@@ -328,6 +329,30 @@ hx publish --dry-run         # Validate without uploading
 hx publish --docs            # Include documentation
 hx changelog                 # Generate CHANGELOG from commits
 hx changelog --preview       # Preview without writing
+```
+
+#### Package registries (preview)
+
+Hackage stays the default. You can also target a package registry such as
+the arcanist.sh registry (`https://registry.arcanist.sh`, not live yet), or
+any URL. Plain cabal consumes these registries as a secure (hackage-security)
+`repository`, so builds work without hx. See [docs/REGISTRY.md](docs/REGISTRY.md).
+
+```bash
+hx registry login --registry arcanist          # store an API token (prompted, kept 0600)
+hx publish --registry arcanist                 # same checks, then upload the sdist
+hx registry info my-lib                        # versions, owners, BHC verification
+hx registry yank my-lib 1.2.0 [--undo]         # cabal avoids yanked versions
+hx registry owner add my-lib alice
+hx registry token create ci --scope publish --package my-lib
+hx registry add --registry arcanist            # add the repository stanza to cabal.project
+```
+
+Name registries in `hx.toml` or the global `config.toml`:
+
+```toml
+[registries.arcanist]
+url = "https://registry.arcanist.sh"   # built in; override it here, e.g. for a local server
 ```
 
 ### Distribution
@@ -564,6 +589,7 @@ delegation to Cabal.
 | `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Route hx's downloads through a proxy (system proxy settings are also honoured) |
 | `SSL_CERT_FILE` / `SSL_CERT_DIR` | On Linux, read CA certificates from these locations instead of the system store. hx trusts the operating system's certificate store plus a bundled Mozilla root set, so a CA installed system-wide (for example a corporate TLS proxy's) is trusted on every platform |
+| `HX_REGISTRY_TOKEN` | API token for `--registry` commands (overrides `credentials.toml`) |
 
 ## Exit Codes
 
