@@ -4,13 +4,14 @@
 #
 # Proves the hx -> BHC build pipeline end to end against a real BHC toolchain:
 # detection, the correct CLI invocation, LIBRARY_PATH wiring for the runtime
-# libraries, linking, and honest failure reporting (BHC exits 0 even on errors).
+# libraries, linking, and honest failure reporting (older BHC releases exit 0
+# even on errors, so hx must not trust the exit status alone).
 #
-# It deliberately uses a *minimal* program that BHC 0.2.3 can actually compile.
-# The `numeric` and `server` templates are NOT exercised here: BHC 0.2.3 cannot
-# yet compile polymorphic numeric code (`sum` over `Double`, `fromIntegral`) or
-# provide Servant, so those remain gated until the compiler gains those
-# features (tracked in the BHC issue tracker).
+# It deliberately uses a *minimal* program, so a failure points at the hx
+# side of the pipeline rather than at a BHC language-coverage gap. The
+# `numeric` and `server` templates are NOT exercised here: they depend on
+# polymorphic numeric code and Servant, which are BHC feature work tracked in
+# the BHC issue tracker, not part of the hx contract this script checks.
 #
 # Usage:
 #   HX=/path/to/hx ./scripts/bhc-smoke.sh
@@ -37,7 +38,10 @@ fi
 echo "bhc: $(bhc --version 2>/dev/null || echo unknown)"
 
 # hx must detect BHC. Strip ANSI so the check does not depend on color state.
-if "$HX" doctor 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' | grep -qE 'bhc: [0-9]'; then
+# Capture first: `hx doctor` exits non-zero whenever *any* check fails (e.g.
+# no GHC on PATH), and under pipefail that would fail this BHC-only check.
+doctor_out="$("$HX" doctor 2>&1 || true)"
+if printf '%s\n' "$doctor_out" | sed -E 's/\x1b\[[0-9;]*m//g' | grep -qE 'bhc: [0-9]'; then
   ok "hx doctor detects BHC"
 else
   bad "hx doctor does not detect BHC"
@@ -98,7 +102,7 @@ else
   bad "BHC-built executable did not run as expected"
 fi
 
-# --- Scenario: hx reports BHC failures (BHC itself exits 0 on errors) -------
+# --- Scenario: hx reports BHC failures (BHC may exit 0 on errors) ----------
 badp="$WORK/bhc-bad"
 mkdir -p "$badp/src" "$badp/app"
 cp "$proj/hx.toml" "$badp/hx.toml"
