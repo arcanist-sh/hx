@@ -340,6 +340,9 @@ mod tests {
     use hx_cache::{BaseLocations, HxPaths};
     use std::ffi::OsString;
 
+    // Asserts on rendered Unix-style paths; the resolver itself is tested on
+    // Linux, macOS and Windows layouts in hx-cache.
+    #[cfg(unix)]
     #[test]
     fn format_paths_lists_every_location_with_its_source() {
         let base = BaseLocations {
