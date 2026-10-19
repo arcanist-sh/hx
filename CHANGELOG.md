@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-19
+
 ### Fixed
 - **`hx build --backend bhc` builds library-only packages.** A package
   without an `executable` stanza is now compiled and type-checked with BHC
@@ -750,7 +752,8 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/arcanist-sh/hx/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/arcanist-sh/hx/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/arcanist-sh/hx/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/arcanist-sh/hx/compare/v0.9.1...v0.9.2
