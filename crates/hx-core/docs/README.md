@@ -21,6 +21,7 @@ Core types, error handling, and command execution utilities for the hx toolchain
 | `version` | Semantic version parsing |
 | `diagnostic` | GHC diagnostic structures |
 | `env` | Environment variable utilities |
+| `http` | The shared HTTP client builder (rustls + ring, trust roots, User-Agent, timeouts); every crate builds its clients here |
 
 ## Quick Start
 

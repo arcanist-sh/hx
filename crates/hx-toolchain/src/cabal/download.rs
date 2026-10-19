@@ -10,7 +10,6 @@ use crate::verify;
 use futures_util::StreamExt;
 use hx_core::{CommandRunner, Error, Result};
 use hx_ui::{Progress, Spinner};
-use reqwest::Client;
 use std::fs::{self, File};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -140,7 +139,7 @@ pub async fn download_and_install_cabal(
 /// published alongside it; previously downloaded archives are re-verified
 /// before being reused.
 async fn download_cabal_archive(url: &str, dest: &Path, version: &str, timeout: u64) -> Result<()> {
-    let client = Client::builder()
+    let client = hx_core::http::builder()
         .timeout(Duration::from_secs(timeout))
         .build()
         .map_err(|e| Error::config(format!("Failed to create HTTP client: {}", e)))?;

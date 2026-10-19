@@ -232,9 +232,7 @@ fn registry_url_from(override_url: Option<String>) -> String {
 pub async fn fetch_snapshot_registry() -> Result<SnapshotRegistry, SnapshotError> {
     info!("Fetching BHC Platform snapshot registry");
 
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.6.0")
-        .build()
+    let client = hx_core::http::client()
         .map_err(|e| SnapshotError::FetchError(format!("failed to create HTTP client: {}", e)))?;
 
     let url = registry_url();
@@ -312,9 +310,7 @@ pub async fn fetch_remote_snapshot(
 
     info!("Fetching remote snapshot: {}", id);
 
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.6.0")
-        .build()
+    let client = hx_core::http::client()
         .map_err(|e| SnapshotError::FetchError(format!("failed to create HTTP client: {}", e)))?;
 
     let response = client.get(&entry.url).send().await.map_err(|e| {

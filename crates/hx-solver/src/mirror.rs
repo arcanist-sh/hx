@@ -8,7 +8,6 @@
 
 use chrono::{DateTime, Utc};
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
@@ -203,7 +202,7 @@ pub async fn update_index(options: &MirrorOptions) -> Result<UpdateResult, Mirro
     let existing_state = load_index_state().ok();
 
     // Build HTTP client
-    let client = Client::builder()
+    let client = hx_core::http::builder()
         .timeout(Duration::from_secs(options.timeout))
         .build()?;
 

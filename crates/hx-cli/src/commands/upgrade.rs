@@ -83,9 +83,7 @@ async fn upgrade(target_version: Option<String>, output: &Output) -> Result<i32>
         REPO_OWNER, REPO_NAME, target, archive_name
     );
 
-    let client = reqwest::Client::builder()
-        .user_agent(format!("hx/{}", CURRENT_VERSION))
-        .build()?;
+    let client = hx_core::http::client()?;
 
     output.status("Downloading", &archive_name);
     let archive_bytes = client
@@ -191,9 +189,7 @@ async fn get_latest_version() -> Result<String> {
         REPO_OWNER, REPO_NAME
     );
 
-    let client = reqwest::Client::builder()
-        .user_agent(format!("hx/{}", CURRENT_VERSION))
-        .build()?;
+    let client = hx_core::http::client()?;
 
     let response: serde_json::Value = client
         .get(&url)

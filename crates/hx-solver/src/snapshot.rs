@@ -366,7 +366,7 @@ pub fn snapshot_cache_path(snapshot: &SnapshotId) -> Option<PathBuf> {
 pub async fn fetch_snapshot(snapshot: &SnapshotId) -> Result<Snapshot, SnapshotError> {
     info!("Fetching Stackage snapshot: {}", snapshot);
 
-    let client = reqwest::Client::builder().user_agent("hx/0.3.6").build()?;
+    let client = hx_core::http::client()?;
 
     // Stackage provides snapshot data in multiple formats
     // We'll use the JSON API
@@ -651,8 +651,7 @@ impl CachedSnapshot {
 /// Get the latest LTS snapshot identifier.
 pub async fn get_latest_lts() -> Result<SnapshotId, SnapshotError> {
     // Stackage redirect to latest
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.3.6")
+    let client = hx_core::http::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
 
@@ -675,8 +674,7 @@ pub async fn get_latest_lts() -> Result<SnapshotId, SnapshotError> {
 
 /// Get the latest nightly snapshot identifier.
 pub async fn get_latest_nightly() -> Result<SnapshotId, SnapshotError> {
-    let client = reqwest::Client::builder()
-        .user_agent("hx/0.3.6")
+    let client = hx_core::http::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
 

@@ -109,7 +109,7 @@ pub async fn fetch_packages(
     // Ensure cache directory exists
     fs::create_dir_all(&options.cache_dir)?;
 
-    let client = Client::builder()
+    let client = hx_core::http::builder()
         .timeout(Duration::from_secs(options.timeout))
         .build()?;
 
