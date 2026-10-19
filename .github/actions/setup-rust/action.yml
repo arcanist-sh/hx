@@ -33,10 +33,18 @@ runs:
         fi
         echo "Rust toolchain from rust-toolchain.toml: $channel"
         echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
+        # Install the file's components with the toolchain. Otherwise the
+        # first cargo call makes rustup add them on the fly, which can race
+        # with binaries already in place ("detected conflict: bin/cargo-fmt").
+        pinned="$(sed -nE 's/^[[:space:]]*components[[:space:]]*=[[:space:]]*\[(.*)\].*/\1/p' rust-toolchain.toml | tr -d '" ' )"
+        extra="$(echo "${{ inputs.components }}" | tr -d ' ')"
+        components="$(printf '%s,%s' "$pinned" "$extra" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd, -)"
+        echo "components: ${components:-none}"
+        echo "components=$components" >> "$GITHUB_OUTPUT"
 
     - name: Install Rust ${{ steps.channel.outputs.toolchain }}
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ steps.channel.outputs.toolchain }}
-        components: ${{ inputs.components }}
+        components: ${{ steps.channel.outputs.components }}
         targets: ${{ inputs.targets }}
