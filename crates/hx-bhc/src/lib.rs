@@ -2,6 +2,7 @@
 //!
 //! This crate provides:
 //! - BHC compiler backend implementation
+//! - Test-suite discovery and builds for `hx test` (BHC has no `test` subcommand)
 //! - BHC-specific build options and diagnostics
 //! - bhc.toml manifest generation
 
@@ -16,6 +17,7 @@ pub mod native_builder;
 pub mod package_build;
 pub mod package_db;
 pub mod repl;
+pub mod test_suite;
 
 use async_trait::async_trait;
 use hx_compiler::{
@@ -34,6 +36,7 @@ use tracing::{debug, info};
 pub use build::BhcBuildOptions;
 pub use diagnostics::parse_bhc_output;
 pub use manifest::{BhcManifest, generate_bhc_manifest};
+pub use test_suite::{BhcTestSuite, TestFramework, TestSuiteDiscovery, discover_test_suites};
 
 /// BHC compiler backend.
 ///
@@ -99,32 +102,6 @@ impl BhcBackend {
             }
             Ok(version_str.trim().to_string())
         }
-    }
-
-    /// Build command-line arguments for BHC test.
-    pub fn test_args(
-        &self,
-        pattern: Option<&str>,
-        package: Option<&str>,
-        target: Option<&str>,
-    ) -> Vec<String> {
-        let mut args = vec!["test".to_string()];
-
-        if let Some(pkg) = package {
-            args.push(pkg.to_string());
-        }
-
-        if let Some(pat) = pattern {
-            args.push(format!("--pattern={}", pat));
-        }
-
-        if let Some(tgt) = target {
-            args.push(format!("--target={}", tgt));
-        } else if let Some(ref tgt) = self.config.target {
-            args.push(format!("--target={}", tgt));
-        }
-
-        args
     }
 
     /// Build the command-line arguments for a BHC compilation.
@@ -205,6 +182,169 @@ impl BhcBackend {
         [bin_dir.join("lib"), bin_dir.parent()?.join("lib")]
             .into_iter()
             .find(|cand| cand.join("libbhc_rts.a").exists())
+    }
+
+    /// Run one BHC compile-and-link invocation in `project_root`.
+    ///
+    /// Puts BHC's runtime libraries on `LIBRARY_PATH` and judges success on
+    /// both the exit status and the output, because BHC can exit 0 while
+    /// printing errors. Returns the duration and the parsed warnings and
+    /// errors on success, and a [`CompilerError::BuildFailed`] carrying the
+    /// error messages (or the raw stderr when none parse) on failure.
+    async fn run_compile(
+        &self,
+        project_root: &Path,
+        args: &[String],
+        verbose: bool,
+        output: &Output,
+    ) -> CompilerResult<(std::time::Duration, Vec<Diagnostic>, Vec<Diagnostic>)> {
+        let start = Instant::now();
+
+        // BHC's linker references `-lbhc_rts` without a `-L`; its runtime libs
+        // must be discoverable via LIBRARY_PATH or linking fails.
+        let mut command = Command::new(self.bhc_cmd());
+        command.args(args).current_dir(project_root);
+        if let Some(lib_dir) = self.lib_dir() {
+            let prev = std::env::var("LIBRARY_PATH").unwrap_or_default();
+            let combined = if prev.is_empty() {
+                lib_dir.to_string_lossy().to_string()
+            } else {
+                format!("{}:{}", lib_dir.display(), prev)
+            };
+            command.env("LIBRARY_PATH", combined);
+        }
+
+        let cmd_output = command.output()?;
+
+        let duration = start.elapsed();
+
+        let stdout = String::from_utf8_lossy(&cmd_output.stdout);
+        let stderr = String::from_utf8_lossy(&cmd_output.stderr);
+
+        // BHC may exit 0 while printing errors, so judge success on both the
+        // exit status and the output.
+        let success = cmd_output.status.success()
+            && !output_indicates_failure(&stderr)
+            && !output_indicates_failure(&stdout);
+
+        // Parse diagnostics from output
+        let diagnostics = diagnostics::parse_bhc_output(&stderr);
+        let (warnings, errors): (Vec<_>, Vec<_>) = diagnostics
+            .into_iter()
+            .partition(|d| d.severity == hx_compiler::DiagnosticSeverity::Warning);
+
+        if verbose || !success {
+            if !stdout.is_empty() {
+                output.verbose(&stdout);
+            }
+            if !stderr.is_empty() {
+                if success {
+                    output.verbose(&stderr);
+                } else {
+                    eprintln!("{}", stderr);
+                }
+            }
+        }
+
+        if !success {
+            // If the diagnostics parser found nothing structured (BHC's error
+            // format varies), fall back to the raw stderr so the failure is
+            // never silent.
+            let messages: Vec<String> = if errors.is_empty() {
+                let tail: String = stderr
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                vec![if tail.is_empty() {
+                    "BHC reported a build failure".to_string()
+                } else {
+                    tail
+                }]
+            } else {
+                errors.iter().map(|e| e.message.clone()).collect()
+            };
+            return Err(CompilerError::BuildFailed {
+                error_count: messages.len(),
+                errors: messages,
+            });
+        }
+
+        Ok((duration, warnings, errors))
+    }
+
+    /// Build the arguments that compile a test suite to `output_exe`.
+    ///
+    /// The same global flags as a project build (`--profile`, `-O`,
+    /// `--target`, `-j`, `-I`, extra flags), plus one `-X<ext>` per
+    /// `default-extensions` entry, then the suite's main file. BHC follows
+    /// the suite's imports through the `-I` dirs, so only the main file is
+    /// passed (other `Main` modules in those dirs must not be compiled).
+    /// Paths are resolved against `package_root`.
+    pub fn test_suite_build_args(
+        &self,
+        package_root: &Path,
+        suite: &BhcTestSuite,
+        options: &CompilerBuildOptions,
+        output_exe: &Path,
+    ) -> Vec<String> {
+        let mut extra_flags = options.extra_flags.clone();
+        extra_flags.extend(suite.extensions.iter().map(|ext| format!("-X{ext}")));
+        let suite_options = CompilerBuildOptions {
+            src_dirs: suite
+                .import_dirs
+                .iter()
+                .map(|d| package_root.join(d))
+                .collect(),
+            extra_flags,
+            ..options.clone()
+        };
+        self.build_args(
+            &suite_options,
+            &[package_root.join(&suite.main_file)],
+            output_exe,
+        )
+    }
+
+    /// Compile a test suite to a native executable at `output_exe`.
+    ///
+    /// Uses the same invocation, runtime-library wiring and failure detection
+    /// as [`CompilerBackend::build`]. The executable is not run.
+    pub async fn build_test_suite(
+        &self,
+        package_root: &Path,
+        suite: &BhcTestSuite,
+        options: &CompilerBuildOptions,
+        output_exe: &Path,
+        output: &Output,
+    ) -> CompilerResult<CompilerBuildResult> {
+        // BHC does not create the output directory itself.
+        if let Some(parent) = output_exe.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let args = self.test_suite_build_args(package_root, suite, options, output_exe);
+
+        info!(
+            "Building BHC test suite {} in {}",
+            suite.name,
+            package_root.display()
+        );
+        debug!("Args: {:?}", args);
+
+        let (duration, warnings, errors) = self
+            .run_compile(package_root, &args, options.verbose, output)
+            .await?;
+
+        Ok(CompilerBuildResult {
+            success: true,
+            duration,
+            modules_compiled: 0,
+            modules_skipped: 0,
+            executable: Some(output_exe.to_path_buf()),
+            library: None,
+            warnings,
+            errors,
+        })
     }
 }
 
@@ -287,8 +427,6 @@ impl CompilerBackend for BhcBackend {
         options: &CompilerBuildOptions,
         output: &Output,
     ) -> CompilerResult<CompilerBuildResult> {
-        let bhc_cmd = self.bhc_cmd();
-
         // Resolve the source dirs relative to the project root, defaulting to
         // `src` and `app` (the standard hx layout) when none are configured.
         let src_dirs: Vec<PathBuf> = if options.src_dirs.is_empty() {
@@ -352,85 +490,17 @@ impl CompilerBackend for BhcBackend {
             &format!("with BHC ({})", self.config.profile.as_str()),
         );
 
-        let start = Instant::now();
+        let (duration, warnings, errors) = self
+            .run_compile(project_root, &args, options.verbose, output)
+            .await?;
 
-        // BHC's linker references `-lbhc_rts` without a `-L`; its runtime libs
-        // must be discoverable via LIBRARY_PATH or linking fails.
-        let mut command = Command::new(&bhc_cmd);
-        command.args(&args).current_dir(project_root);
-        if let Some(lib_dir) = self.lib_dir() {
-            let prev = std::env::var("LIBRARY_PATH").unwrap_or_default();
-            let combined = if prev.is_empty() {
-                lib_dir.to_string_lossy().to_string()
-            } else {
-                format!("{}:{}", lib_dir.display(), prev)
-            };
-            command.env("LIBRARY_PATH", combined);
-        }
-
-        let cmd_output = command.output()?;
-
-        let duration = start.elapsed();
-
-        let stdout = String::from_utf8_lossy(&cmd_output.stdout);
-        let stderr = String::from_utf8_lossy(&cmd_output.stderr);
-
-        // BHC 0.2.3 may exit 0 while printing errors, so judge success on both
-        // the exit status and the output.
-        let success = cmd_output.status.success()
-            && !output_indicates_failure(&stderr)
-            && !output_indicates_failure(&stdout);
-
-        // Parse diagnostics from output
-        let diagnostics = diagnostics::parse_bhc_output(&stderr);
-        let (warnings, errors): (Vec<_>, Vec<_>) = diagnostics
-            .into_iter()
-            .partition(|d| d.severity == hx_compiler::DiagnosticSeverity::Warning);
-
-        if options.verbose || !success {
-            if !stdout.is_empty() {
-                output.verbose(&stdout);
-            }
-            if !stderr.is_empty() {
-                if success {
-                    output.verbose(&stderr);
-                } else {
-                    eprintln!("{}", stderr);
-                }
-            }
-        }
-
-        if success {
-            output.status(
-                "Finished",
-                &format!("BHC build in {:.2}s", duration.as_secs_f64()),
-            );
-        } else {
-            // If the diagnostics parser found nothing structured (BHC's error
-            // format varies), fall back to the raw stderr so the failure is
-            // never silent.
-            let messages: Vec<String> = if errors.is_empty() {
-                let tail: String = stderr
-                    .lines()
-                    .filter(|l| !l.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                vec![if tail.is_empty() {
-                    "BHC reported a build failure".to_string()
-                } else {
-                    tail
-                }]
-            } else {
-                errors.iter().map(|e| e.message.clone()).collect()
-            };
-            return Err(CompilerError::BuildFailed {
-                error_count: messages.len(),
-                errors: messages,
-            });
-        }
+        output.status(
+            "Finished",
+            &format!("BHC build in {:.2}s", duration.as_secs_f64()),
+        );
 
         Ok(CompilerBuildResult {
-            success,
+            success: true,
             duration,
             modules_compiled: 0, // Would need to parse BHC output
             modules_skipped: 0,
@@ -594,21 +664,48 @@ mod tests {
     }
 
     #[test]
-    fn test_test_args_default() {
-        let backend = BhcBackend::new();
-        let args = backend.test_args(None, None, None);
+    fn test_suite_build_args_compile_only_the_suite_main() {
+        let config = BhcConfig {
+            target: Some("aarch64-apple-darwin".to_string()),
+            ..Default::default()
+        };
+        let backend = BhcBackend::new().with_config(config);
+        let suite = BhcTestSuite {
+            name: "demo-test".to_string(),
+            main_file: PathBuf::from("test/Main.hs"),
+            import_dirs: vec![PathBuf::from("test"), PathBuf::from("src")],
+            extensions: vec!["OverloadedStrings".to_string()],
+            framework: TestFramework::Unknown,
+        };
+        let root = PathBuf::from("/proj");
+        let out = root.join(".hx/bhc-test/demo-test");
+        // Normalize the OS path separator (`\` on Windows) before comparing.
+        let args: Vec<String> = backend
+            .test_suite_build_args(&root, &suite, &CompilerBuildOptions::default(), &out)
+            .into_iter()
+            .map(|a| a.replace('\\', "/"))
+            .collect();
 
-        assert_eq!(args, vec!["test".to_string()]);
-    }
-
-    #[test]
-    fn test_test_args_with_pattern() {
-        let backend = BhcBackend::new();
-        let args = backend.test_args(Some("MyModule"), Some("my-pkg"), None);
-
-        assert!(args.contains(&"test".to_string()));
-        assert!(args.contains(&"my-pkg".to_string()));
-        assert!(args.contains(&"--pattern=MyModule".to_string()));
+        // No subcommand at all: BHC has no `test` (or working `build`).
+        assert!(!args.iter().any(|a| a == "test" || a == "build"));
+        assert!(args.windows(2).any(|w| w == ["--profile", "default"]));
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--target", "aarch64-apple-darwin"])
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-I" && w[1] == "/proj/test")
+        );
+        assert!(args.windows(2).any(|w| w[0] == "-I" && w[1] == "/proj/src"));
+        assert!(args.contains(&"-XOverloadedStrings".to_string()));
+        // Exactly one source file — the suite's main — after the flags.
+        let sources: Vec<&String> = args.iter().filter(|a| a.ends_with(".hs")).collect();
+        assert_eq!(sources, vec!["/proj/test/Main.hs"]);
+        let main = args.iter().position(|a| a == "/proj/test/Main.hs").unwrap();
+        let o = args.iter().position(|a| a == "-o").unwrap();
+        assert!(main < o);
+        assert_eq!(args[o + 1], "/proj/.hx/bhc-test/demo-test");
     }
 
     #[test]
