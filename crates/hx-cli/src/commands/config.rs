@@ -257,9 +257,9 @@ pub async fn init(force: bool, output: &Output) -> Result<i32> {
 # Project-local hx.toml settings take precedence.
 
 [toolchain]
-# ghc = "9.8.2"
-# cabal = "3.12.1.0"
-# hls = "2.9.0.0"
+# ghc = "9.10.3"
+# cabal = "3.16.1.0"
+# hls = "2.14.0.0"
 
 [build]
 optimization = 1     # 0 = none, 1 = default, 2 = aggressive

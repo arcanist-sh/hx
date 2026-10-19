@@ -36,7 +36,7 @@ jobs:
       - name: Install Haskell toolchain
         uses: haskell-actions/setup@v2
         with:
-          ghc-version: "9.8.2"
+          ghc-version: "9.10.3"
           cabal-version: "latest"
 
       - name: Refresh Hackage index
@@ -51,6 +51,38 @@ jobs:
         env:
           REAL_WORLD_FULL: ${{ (github.event_name == 'schedule' || inputs.full) && '1' || '0' }}
         run: HX="$PWD/target/release/hx" bash scripts/real-world-test.sh
+
+  toolchain-direct:
+    # `hx toolchain install` downloads GHC and Cabal straight from
+    # downloads.haskell.org. The real-world job gets its compiler from
+    # haskell-actions/setup, so without this job the direct path can break
+    # unnoticed (it did: upstream dropped the generic Linux bindist names).
+    name: toolchain-direct (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build hx
+        run: cargo build --release -p hx-cli
+
+      - name: Install GHC and Cabal without ghcup
+        # The runner image ships ghcup; drop it from PATH so a failed direct
+        # download cannot be masked by the ghcup fallback.
+        run: |
+          set -euo pipefail
+          PATH="$(echo "$PATH" | tr ':' '\n' | grep -v ghcup | paste -sd: -)"
+          if command -v ghcup; then echo "ghcup still on PATH" >&2; exit 1; fi
+          ./target/release/hx toolchain install 9.10.3 --cabal 3.18.2.0
+          "$HOME/.hx/toolchains/ghc/9.10.3/bin/ghc" --version
+          "$HOME/.hx/toolchains/cabal/3.18.2.0/bin/cabal" --version
 
   bhc:
     name: bhc-pipeline (ubuntu-latest)

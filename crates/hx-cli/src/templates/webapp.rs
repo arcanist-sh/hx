@@ -64,7 +64,7 @@ executable {{project_name}}
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         {{project_name}},
         warp ^>=3.3,
     hs-source-dirs:   app
@@ -77,7 +77,7 @@ library
         Server
         Types
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         aeson ^>=2.2,
         servant ^>=0.20,
         servant-server ^>=0.20,
@@ -91,7 +91,7 @@ test-suite {{project_name}}-test
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         {{project_name}},
         hspec ^>=2.11,
         hspec-wai ^>=0.11,
@@ -109,7 +109,7 @@ version = "0.1.0.0"
 
 [toolchain]
 # Uncomment to pin GHC version
-# ghc = "9.8.2"
+# ghc = "9.10.3"
 {{backend_config}}"#;
 
 const GITIGNORE: &str = r#"# hx build artifacts

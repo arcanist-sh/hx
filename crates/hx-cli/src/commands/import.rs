@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result, bail};
 use hx_ui::Output;
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -337,38 +336,15 @@ fn compiler_to_ghc(compiler: &str) -> String {
 
 /// Convert Stack resolver to GHC version.
 fn resolver_to_ghc(resolver: &str) -> String {
-    // LTS resolvers map to GHC versions
-    // This is a simplified mapping; a real implementation would use a lookup table
-    let resolver_ghc_map: HashMap<&str, &str> = [
-        ("lts-22", "9.6.4"),
-        ("lts-21", "9.4.8"),
-        ("lts-20", "9.2.8"),
-        ("lts-19", "9.0.2"),
-        ("lts-18", "8.10.7"),
-        ("nightly", "9.8.2"),
-    ]
-    .into_iter()
-    .collect();
-
-    // Try exact match first
-    if let Some(ghc) = resolver_ghc_map.get(resolver) {
-        return ghc.to_string();
-    }
-
-    // Try prefix match (e.g., lts-22.7 -> lts-22)
-    for (prefix, ghc) in &resolver_ghc_map {
-        if resolver.starts_with(prefix) {
-            return ghc.to_string();
-        }
-    }
-
-    // Check for ghc- prefix in resolver
+    // Compiler-only resolvers name the GHC directly
     if let Some(version) = resolver.strip_prefix("ghc-") {
         return version.to_string();
     }
 
-    // Default to recent GHC
-    "9.6.4".to_string()
+    // LTS and nightly resolvers map to the GHC their snapshot series uses
+    hx_solver::SnapshotId::parse(resolver)
+        .map(|id| id.default_ghc_version())
+        .unwrap_or_else(|_| hx_toolchain::RECOMMENDED_GHC_VERSION.to_string())
 }
 
 /// Parse a dependency string like "package-1.2.3" or "package-1.2.3@sha256:..."
@@ -539,7 +515,18 @@ packages:
             vec!["hledger-lib", "hledger", "hledger-ui", "hledger-web"]
         );
         // The resolver still maps to its GHC default when no compiler is set.
-        assert_eq!(resolver_to_ghc(&config.resolver), "9.6.4");
+        assert_eq!(resolver_to_ghc(&config.resolver), "9.6.7");
+    }
+
+    #[test]
+    fn test_resolver_to_ghc() {
+        assert_eq!(resolver_to_ghc("lts-24.64"), "9.10.3");
+        assert_eq!(resolver_to_ghc("lts-23"), "9.8.4");
+        assert_eq!(resolver_to_ghc("ghc-9.12.4"), "9.12.4");
+        assert_eq!(
+            resolver_to_ghc("not-a-resolver"),
+            hx_toolchain::RECOMMENDED_GHC_VERSION
+        );
     }
 
     #[test]

@@ -42,6 +42,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   required: older versions emit code that trips 1.99's `double_must_use`
   lint under `-D warnings`. The MSRV (`rust-version = "1.96"`) is unchanged.
 
+### Fixed
+- **Direct GHC install failed on every Linux machine.** GHC no longer
+  publishes generic `ghc-<v>-x86_64-unknown-linux` bindists, only
+  per-distribution builds, so the download 404'd and hx fell back to ghcup,
+  failing outright when ghcup was absent. hx now downloads the deb10 build
+  (glibc 2.28), which exists on both architectures for every release from
+  9.2.8 to 9.14.1 and is what ghcup uses for unrecognized distributions. The
+  installer also finds the unpacked directory instead of assuming its name,
+  since 9.2 bindists unpack to plain `ghc-<v>`.
+- **Cabal 3.18 could not be installed directly.** 3.18 renamed its release
+  assets (`x86_64-linux-unknown`, `aarch64-apple-darwin`, `x86_64-mingw64`).
+  The asset name now depends on the version.
+- **`hx toolchain install --cabal` required ghcup.** It now downloads
+  directly and falls back to ghcup, like GHC installs and like the automatic
+  toolchain check already did. `--ghcup` still forces ghcup.
+- **Stackage snapshots parsed to zero packages.** stackage.org puts the first
+  constraint on the `constraints:` line and names the compiler in
+  `with-compiler:`. The parser expected `constraints:` alone on its line and
+  never read `with-compiler:`, so every snapshot came back empty, with its GHC
+  version guessed from a table.
+- **hx could not install bhc 0.2.4 or later.** The known-version list stopped
+  at 0.2.3 and `install_bhc` rejects unknown versions. It now covers every
+  published release through 0.2.22, which is the new recommended version.
+- **`hx nix` generated flakes that do not evaluate** when the project pinned no
+  GHC: the fallback `ghc982` attribute is gone from nixpkgs.
+- **New projects could not build on GHC 9.12 or 9.14.** Templates and
+  `hx init` bounded `base` below 4.21.
+- Dead links in generated files: `bhc.dev` → `bhc.arcanist.sh`, and the
+  generated install script's `get.hx.dev` → `arcanist.sh/hx/install.sh`.
+
+### Changed
+- **Recommended toolchain is now GHC 9.10.3, Cabal 3.16.1.0, HLS 2.14.0.0**
+  (from 9.8.2 / 3.12.1.0 / 2.9.0.0), matching ghcup's recommendations and
+  Stackage LTS 24. Known versions add GHC 9.10.2–9.14.1 and 9.6.7, and Cabal
+  3.14–3.18.
+- **HLS compatibility is checked per GHC release.** HLS drops binaries for
+  deprecated GHC patch releases, so "HLS 2.x supports GHC 9.x" approved
+  combinations that do not work, such as HLS 2.14 with GHC 9.8.2. `hx doctor`
+  and `hx ide` now use the upstream support table and recommend the last HLS
+  that supports a deprecated GHC.
+- Snapshot → GHC defaults cover LTS 23 and 24; `hx import` from Stack reuses
+  that table instead of keeping its own (and no longer depends on hash-map
+  iteration order for prefix matches).
+
+### Internal
+- New `toolchain-direct` job in the nightly real-world workflow installs GHC
+  and Cabal with hx on Linux with ghcup removed from `PATH`, so the
+  direct-download path cannot regress behind the ghcup fallback.
+
 ## [0.9.2] - 2026-09-04
 
 ### Changed

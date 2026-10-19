@@ -538,7 +538,7 @@ pub fn generate_install_script(
     let script = format!(
         r#"#!/bin/sh
 # hx installer script
-# Usage: curl -fsSL https://get.hx.dev | sh
+# Usage: curl -fsSL https://arcanist.sh/hx/install.sh | sh
 #    or: sh install.sh
 
 set -e

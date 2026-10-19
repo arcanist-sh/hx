@@ -78,6 +78,14 @@ pub struct SnapshotId {
 }
 
 impl SnapshotId {
+    /// The GHC version this snapshot is built with, from hx's built-in table.
+    ///
+    /// Approximate (the latest GHC of the LTS series); the snapshot's own
+    /// `with-compiler:` field is authoritative when it is available.
+    pub fn default_ghc_version(&self) -> String {
+        infer_ghc_version(self)
+    }
+
     /// Parse a snapshot identifier string.
     ///
     /// Supports formats:
@@ -386,29 +394,30 @@ pub async fn fetch_snapshot(snapshot: &SnapshotId) -> Result<Snapshot, SnapshotE
 
 /// Parse a Stackage cabal.config format.
 ///
-/// Format:
+/// Format (as served by stackage.org):
 /// ```text
-/// -- Stackage snapshot lts-22.28
-/// constraints:
-///     aeson ==2.2.1.0,
-///     base ==4.18.2.0,
-///     ...
+/// -- Stackage snapshot from: http://www.stackage.org/snapshot/lts-24.64
+/// with-compiler: ghc-9.10.3
+/// constraints: abstract-deque ==0.3,
+///              aeson ==2.2.3.0,
+///              base installed,
+///              ...
 /// ```
 fn parse_cabal_config(content: &str, snapshot: &SnapshotId) -> Result<Snapshot, SnapshotError> {
     let mut packages = HashMap::new();
     let mut ghc_version = String::new();
     let mut in_constraints = false;
 
-    for line in content.lines() {
-        let line = line.trim();
+    for raw in content.lines() {
+        let line = raw.trim();
 
         // Skip comments but extract GHC version if present
         if line.starts_with("--") {
-            if line.contains("ghc-") {
-                // Try to extract GHC version from comment
-                if let Some(ver) = extract_ghc_version(line) {
-                    ghc_version = ver;
-                }
+            if ghc_version.is_empty()
+                && line.contains("ghc-")
+                && let Some(ver) = extract_ghc_version(line)
+            {
+                ghc_version = ver;
             }
             continue;
         }
@@ -418,34 +427,44 @@ fn parse_cabal_config(content: &str, snapshot: &SnapshotId) -> Result<Snapshot, 
             continue;
         }
 
-        // Start of constraints section
-        if line == "constraints:" {
-            in_constraints = true;
-            continue;
-        }
-
-        // Parse constraint lines
-        if in_constraints {
-            // Remove trailing comma
-            let line = line.trim_end_matches(',');
-
-            // Parse "package ==version" or "package installed"
-            if let Some((name, version)) = parse_constraint_line(line) {
-                // Skip base packages that are tied to GHC
-                if name == "ghc" && ghc_version.is_empty() {
-                    ghc_version = version.clone();
-                }
-
-                packages.insert(
-                    name.clone(),
-                    SnapshotPackage {
-                        name,
-                        version,
-                        flags: HashMap::new(),
-                        hidden: false,
-                    },
-                );
+        // A field starts at column 0; continuation lines are indented.
+        let constraint = if raw.starts_with(char::is_whitespace) {
+            if !in_constraints {
+                continue;
             }
+            line
+        } else if let Some(rest) = line.strip_prefix("constraints:") {
+            // The first constraint shares the line with the field name.
+            in_constraints = true;
+            rest.trim()
+        } else {
+            in_constraints = false;
+            if let Some(compiler) = line.strip_prefix("with-compiler:")
+                && let Some(ver) = extract_ghc_version(compiler)
+            {
+                ghc_version = ver;
+            }
+            continue;
+        };
+
+        // Remove trailing comma
+        let constraint = constraint.trim_end_matches(',');
+
+        // Parse "package ==version" or "package installed"
+        if let Some((name, version)) = parse_constraint_line(constraint) {
+            if name == "ghc" && ghc_version.is_empty() {
+                ghc_version = version.clone();
+            }
+
+            packages.insert(
+                name.clone(),
+                SnapshotPackage {
+                    name,
+                    version,
+                    flags: HashMap::new(),
+                    hidden: false,
+                },
+            );
         }
     }
 
@@ -524,18 +543,20 @@ fn infer_ghc_version(snapshot: &SnapshotId) -> String {
         SnapshotType::Lts => {
             if let Some(major) = snapshot.major {
                 match major {
-                    22 => "9.6.4".to_string(),
+                    24 => "9.10.3".to_string(),
+                    23 => "9.8.4".to_string(),
+                    22 => "9.6.7".to_string(),
                     21 => "9.4.8".to_string(),
                     20 => "9.2.8".to_string(),
                     19 => "9.0.2".to_string(),
                     18 => "8.10.7".to_string(),
-                    _ => "9.6.4".to_string(), // Default to recent
+                    _ => "9.10.3".to_string(), // Default to recent
                 }
             } else {
-                "9.6.4".to_string()
+                "9.10.3".to_string()
             }
         }
-        SnapshotType::Nightly => "9.8.2".to_string(), // Nightly typically uses latest
+        SnapshotType::Nightly => "9.12.4".to_string(), // Nightly typically uses latest
         SnapshotType::BhcPlatform => "9.8.2".to_string(), // BHC platforms target latest stable
     }
 }
@@ -682,6 +703,46 @@ pub async fn get_latest_nightly() -> Result<SnapshotId, SnapshotError> {
 mod tests {
     use super::*;
 
+    /// Header of a real stackage.org cabal.config (lts-24.64), trimmed.
+    const STACKAGE_CABAL_CONFIG: &str = "\
+-- NOTE: Due to revisions, this file may not work. See:
+-- https://github.com/commercialhaskell/stackage-server/issues/232
+
+-- Stackage snapshot from: http://www.stackage.org/snapshot/lts-24.64
+-- Please place this file next to your .cabal file as cabal.config
+-- To only use tested packages, uncomment the following line:
+-- remote-repo: stackage-lts-24.64:http://www.stackage.org/lts-24.64
+with-compiler: ghc-9.10.3
+constraints: abstract-deque ==0.3,
+             aeson ==2.2.3.0,
+             base installed,
+             zstd ==0.1.4.0
+";
+
+    #[test]
+    fn test_parse_cabal_config_stackage_format() {
+        let id = SnapshotId::parse("lts-24.64").unwrap();
+        let snapshot = parse_cabal_config(STACKAGE_CABAL_CONFIG, &id).unwrap();
+
+        assert_eq!(snapshot.metadata.ghc_version, "9.10.3");
+        assert_eq!(snapshot.packages.len(), 3);
+        assert_eq!(snapshot.packages["abstract-deque"].version, "0.3");
+        assert_eq!(snapshot.packages["aeson"].version, "2.2.3.0");
+        assert_eq!(snapshot.packages["zstd"].version, "0.1.4.0");
+        assert!(!snapshot.packages.contains_key("base"));
+    }
+
+    #[test]
+    fn test_parse_cabal_config_constraints_on_own_line() {
+        let content = "constraints:\n    aeson ==2.2.1.0,\n    text ==2.1\n";
+        let id = SnapshotId::parse("lts-22.28").unwrap();
+        let snapshot = parse_cabal_config(content, &id).unwrap();
+
+        assert_eq!(snapshot.packages.len(), 2);
+        // No compiler in the file: fall back to the LTS table
+        assert_eq!(snapshot.metadata.ghc_version, "9.6.7");
+    }
+
     #[test]
     fn test_parse_lts_full() {
         let id = SnapshotId::parse("lts-22.28").unwrap();
@@ -791,7 +852,10 @@ mod tests {
     #[test]
     fn test_infer_ghc_version() {
         let lts22 = SnapshotId::parse("lts-22.28").unwrap();
-        assert_eq!(infer_ghc_version(&lts22), "9.6.4");
+        assert_eq!(infer_ghc_version(&lts22), "9.6.7");
+
+        let lts24 = SnapshotId::parse("lts-24.64").unwrap();
+        assert_eq!(infer_ghc_version(&lts24), "9.10.3");
 
         let lts21 = SnapshotId::parse("lts-21").unwrap();
         assert_eq!(infer_ghc_version(&lts21), "9.4.8");

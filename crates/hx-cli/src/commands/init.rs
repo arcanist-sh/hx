@@ -228,7 +228,7 @@ executable {name}
     hs-source-dirs:   src
     default-language: GHC2021
     build-depends:
-        base ^>=4.17 || ^>=4.18 || ^>=4.19 || ^>=4.20
+        base ^>=4.17 || ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22
     ghc-options:      -Wall
 "#
         ),
@@ -247,7 +247,7 @@ library
     hs-source-dirs:   src
     default-language: GHC2021
     build-depends:
-        base ^>=4.17 || ^>=4.18 || ^>=4.19 || ^>=4.20
+        base ^>=4.17 || ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22
     ghc-options:      -Wall
 "#
         ),

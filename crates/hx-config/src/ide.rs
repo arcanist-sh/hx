@@ -136,13 +136,60 @@ impl HieYamlStatus {
     }
 }
 
+/// HLS release recommended for GHC versions that current HLS fully supports.
+///
+/// 2.14.0.0 rather than 2.15.0.0: both support the same GHC set, and 2.14 is
+/// what ghcup marks recommended, so `ghcup install hls` can fetch it.
+const CURRENT_HLS: &str = "2.14.0.0";
+
+/// GHC versions current HLS fully supports.
+const HLS_SUPPORTED_GHC: &[&str] = &["9.14.1", "9.12.4", "9.12.2", "9.10.3", "9.8.4", "9.6.7"];
+
+/// GHC versions no HLS release supports.
+const HLS_UNSUPPORTED_GHC: &[&str] = &["9.12.3", "9.12.1"];
+
+/// Last HLS release supporting each deprecated GHC version.
+///
+/// From the upstream support table:
+/// <https://haskell-language-server.readthedocs.io/en/latest/support/ghc-version-support.html>
+const HLS_LAST_SUPPORTING: &[(&str, &str)] = &[
+    ("9.10.2", "2.11.0.0"),
+    ("9.10.1", "2.10.0.0"),
+    ("9.8.2", "2.9.0.1"),
+    ("9.8.1", "2.6.0.0"),
+    ("9.6.6", "2.9.0.1"),
+    ("9.6.5", "2.9.0.1"),
+    ("9.6.4", "2.6.0.0"),
+    ("9.6.3", "2.5.0.0"),
+    ("9.6.2", "2.2.0.0"),
+    ("9.6.1", "2.0.0.0"),
+    ("9.4.8", "2.11.0.0"),
+    ("9.4.7", "2.5.0.0"),
+    ("9.4.6", "2.2.0.0"),
+    ("9.4.5", "2.2.0.0"),
+    ("9.4.4", "1.10.0.0"),
+    ("9.2.8", "2.9.0.0"),
+    ("9.2.7", "2.0.0.1"),
+    ("9.0.2", "2.4.0.0"),
+    ("8.10.7", "2.2.0.0"),
+];
+
 /// Known HLS/GHC version compatibility matrix.
 ///
 /// Returns true if the HLS version is compatible with the GHC version.
+/// HLS ships one binary per supported GHC, so support is per GHC patch
+/// release: a deprecated GHC is only served by HLS up to its last supporting
+/// release, and some releases (9.12.1, 9.12.3) have no HLS at all.
 pub fn is_hls_compatible(hls_version: &str, ghc_version: &str) -> bool {
-    // HLS compatibility is complex and changes frequently.
-    // This is a simplified check based on major/minor versions.
-    // See: https://haskell-language-server.readthedocs.io/en/latest/support/ghc-version-support.html
+    if HLS_UNSUPPORTED_GHC.contains(&ghc_version) {
+        return false;
+    }
+    if let Some((_, last)) = HLS_LAST_SUPPORTING
+        .iter()
+        .find(|(ghc, _)| *ghc == ghc_version)
+    {
+        return parse_version(hls_version) <= parse_version(last);
+    }
 
     let hls_major_minor = parse_major_minor(hls_version);
     let ghc_major_minor = parse_major_minor(ghc_version);
@@ -165,18 +212,35 @@ pub fn is_hls_compatible(hls_version: &str, ghc_version: &str) -> bool {
 }
 
 /// Get recommended HLS version for a GHC version.
+///
+/// Returns `None` when no HLS release supports that GHC.
 pub fn recommended_hls_for_ghc(ghc_version: &str) -> Option<&'static str> {
-    let ghc_major_minor = parse_major_minor(ghc_version)?;
+    if HLS_SUPPORTED_GHC.contains(&ghc_version) {
+        return Some(CURRENT_HLS);
+    }
+    if HLS_UNSUPPORTED_GHC.contains(&ghc_version) {
+        return None;
+    }
+    if let Some((_, last)) = HLS_LAST_SUPPORTING
+        .iter()
+        .find(|(ghc, _)| *ghc == ghc_version)
+    {
+        return Some(last);
+    }
 
-    match ghc_major_minor {
-        (9, 10) => Some("2.9.0.0"),
-        (9, 8) => Some("2.9.0.0"),
-        (9, 6) => Some("2.9.0.0"),
-        (9, 4) => Some("2.5.0.0"),
-        (9, 2) => Some("2.2.0.0"),
-        (8, 10) => Some("1.10.0.0"),
+    // Unlisted patch release: fall back to the series
+    match parse_major_minor(ghc_version)? {
+        (9, 14) | (9, 12) | (9, 10) | (9, 8) | (9, 6) => Some(CURRENT_HLS),
+        (9, 4) => Some("2.11.0.0"),
+        (9, 2) => Some("2.9.0.0"),
+        (9, 0) => Some("2.4.0.0"),
+        (8, 10) => Some("2.2.0.0"),
         _ => None,
     }
+}
+
+fn parse_version(version: &str) -> Vec<u32> {
+    version.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
 fn parse_major_minor(version: &str) -> Option<(u32, u32)> {
@@ -196,15 +260,26 @@ mod tests {
 
     #[test]
     fn test_hls_compatibility() {
+        assert!(is_hls_compatible("2.14.0.0", "9.10.3"));
+        assert!(is_hls_compatible("2.14.0.0", "9.14.1"));
         assert!(is_hls_compatible("2.9.0.0", "9.8.2"));
-        assert!(is_hls_compatible("2.9.0.0", "9.6.4"));
         assert!(is_hls_compatible("2.5.0.0", "9.4.8"));
+
+        // Deprecated GHC: newer HLS dropped its binaries
+        assert!(!is_hls_compatible("2.14.0.0", "9.8.2"));
+        assert!(!is_hls_compatible("2.9.0.0", "9.6.4"));
+
+        // No HLS release supports these
+        assert!(!is_hls_compatible("2.14.0.0", "9.12.3"));
     }
 
     #[test]
     fn test_recommended_hls() {
-        assert_eq!(recommended_hls_for_ghc("9.8.2"), Some("2.9.0.0"));
-        assert_eq!(recommended_hls_for_ghc("9.6.4"), Some("2.9.0.0"));
-        assert_eq!(recommended_hls_for_ghc("8.10.7"), Some("1.10.0.0"));
+        assert_eq!(recommended_hls_for_ghc("9.10.3"), Some("2.14.0.0"));
+        assert_eq!(recommended_hls_for_ghc("9.14.1"), Some("2.14.0.0"));
+        assert_eq!(recommended_hls_for_ghc("9.8.2"), Some("2.9.0.1"));
+        assert_eq!(recommended_hls_for_ghc("9.6.4"), Some("2.6.0.0"));
+        assert_eq!(recommended_hls_for_ghc("8.10.7"), Some("2.2.0.0"));
+        assert_eq!(recommended_hls_for_ghc("9.12.3"), None);
     }
 }
