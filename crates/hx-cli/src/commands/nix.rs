@@ -71,7 +71,12 @@ pub async fn shell(output_file: Option<String>, force: bool, output: &Output) ->
 /// Generate flake.nix content.
 fn generate_flake_nix(project: &Project, lockfile: Option<&Lockfile>) -> String {
     let name = project.name();
-    let ghc_version = project.manifest.toolchain.ghc.as_deref().unwrap_or("9.8.2");
+    let ghc_version = project
+        .manifest
+        .toolchain
+        .ghc
+        .as_deref()
+        .unwrap_or(hx_toolchain::RECOMMENDED_GHC_VERSION);
 
     // Convert GHC version to nixpkgs attribute name
     let ghc_attr = format!("ghc{}", ghc_version.replace('.', ""));
@@ -144,7 +149,12 @@ fn generate_flake_nix(project: &Project, lockfile: Option<&Lockfile>) -> String 
 
 /// Generate shell.nix content.
 fn generate_shell_nix(project: &Project) -> String {
-    let ghc_version = project.manifest.toolchain.ghc.as_deref().unwrap_or("9.8.2");
+    let ghc_version = project
+        .manifest
+        .toolchain
+        .ghc
+        .as_deref()
+        .unwrap_or(hx_toolchain::RECOMMENDED_GHC_VERSION);
 
     let ghc_attr = format!("ghc{}", ghc_version.replace('.', ""));
 

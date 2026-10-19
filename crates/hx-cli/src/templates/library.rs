@@ -77,7 +77,7 @@ library
     other-modules:
         {{module_name}}.Internal
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         text ^>=2.1,
     hs-source-dirs:   src
     default-language: GHC2021
@@ -89,7 +89,7 @@ test-suite {{project_name}}-test
     other-modules:
         {{module_name}}Spec
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         {{project_name}},
         hspec ^>=2.11,
         QuickCheck ^>=2.14,
@@ -106,7 +106,7 @@ version = "0.1.0.0"
 
 [toolchain]
 # Uncomment to pin GHC version
-# ghc = "9.8.2"
+# ghc = "9.10.3"
 {{backend_config}}"#;
 
 const GITIGNORE: &str = r#"# hx build artifacts

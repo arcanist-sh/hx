@@ -7,9 +7,9 @@ use hx_config::{Manifest, find_project_root};
 use hx_solver::bhc_platform::find_platform_for_bhc;
 use hx_toolchain::{
     BhcInstallOptions, GhcSource, InstallStrategy, RECOMMENDED_BHC_VERSION,
-    RECOMMENDED_CABAL_VERSION, RECOMMENDED_GHC_VERSION, SmartInstallOptions, Toolchain,
-    ToolchainManifest, create_symlinks, install, install_bhc, known_versions, remove_ghc,
-    set_active,
+    RECOMMENDED_CABAL_VERSION, RECOMMENDED_GHC_VERSION, SmartCabalInstallOptions,
+    SmartInstallOptions, Toolchain, ToolchainManifest, create_symlinks, install, install_bhc,
+    known_versions, remove_ghc, set_active,
 };
 use hx_ui::{Output, Style};
 
@@ -244,22 +244,26 @@ async fn install_toolchain(
         }
     }
 
-    // Install Cabal via ghcup (if requested)
+    // Install Cabal: direct download, falling back to ghcup
     if let Some(ref version) = cabal {
-        let toolchain = Toolchain::detect().await;
-        if !toolchain.has_ghcup() {
-            output.error("ghcup is required to install Cabal");
-            output.info(&format!(
-                "Install ghcup: {}",
-                install::ghcup_install_command()
-            ));
+        output.status("Installing", &format!("Cabal {}", version));
+
+        let strategy = if use_ghcup {
+            InstallStrategy::Ghcup
+        } else {
+            InstallStrategy::Smart
+        };
+
+        let options = SmartCabalInstallOptions::new(version)
+            .with_strategy(strategy)
+            .with_set_active(set_as_active)
+            .with_force(force);
+
+        if let Err(e) = install::install_cabal_smart(&options).await {
+            output.print_error(&e);
             success = false;
         } else {
-            output.status("Installing", &format!("Cabal {}", version));
-            if let Err(e) = install::install_cabal(version).await {
-                output.print_error(&e);
-                success = false;
-            }
+            output.status("Done", &format!("Cabal {} installed", version));
         }
     }
 

@@ -33,10 +33,11 @@ impl Platform {
         }
     }
 
-    /// Get the URL suffix for this platform.
+    /// Get the target triple GHC uses for this platform.
     ///
-    /// This is used to construct download URLs like:
-    /// `https://downloads.haskell.org/~ghc/9.8.2/ghc-9.8.2-{suffix}.tar.xz`
+    /// This names the directory a bindist unpacks into
+    /// (`ghc-9.8.2-{suffix}`). It is not the download file name on Linux;
+    /// see [`Platform::bindist_suffix`].
     pub fn url_suffix(&self) -> &'static str {
         match self {
             Self::X86_64Linux => "x86_64-unknown-linux",
@@ -44,6 +45,24 @@ impl Platform {
             Self::X86_64Darwin => "x86_64-apple-darwin",
             Self::Aarch64Darwin => "aarch64-apple-darwin",
             Self::X86_64Windows => "x86_64-unknown-mingw32",
+        }
+    }
+
+    /// Get the suffix of the bindist file published for this platform.
+    ///
+    /// This is used to construct download URLs like:
+    /// `https://downloads.haskell.org/~ghc/9.8.2/ghc-9.8.2-{suffix}.tar.xz`
+    ///
+    /// GHC stopped publishing generic `*-unknown-linux` bindists; Linux builds
+    /// are per distribution. The deb10 build links against glibc 2.28 and is
+    /// published for every release from 9.2.8 to 9.14.1 on both
+    /// architectures, so it runs on any current glibc distribution. ghcup
+    /// falls back to the same build for distributions it does not recognize.
+    pub fn bindist_suffix(&self) -> &'static str {
+        match self {
+            Self::X86_64Linux => "x86_64-deb10-linux",
+            Self::Aarch64Linux => "aarch64-deb10-linux",
+            _ => self.url_suffix(),
         }
     }
 
@@ -81,7 +100,7 @@ pub fn ghc_download_url(version: &str, platform: Platform) -> String {
     format!(
         "https://downloads.haskell.org/~ghc/{version}/ghc-{version}-{suffix}.tar.{ext}",
         version = version,
-        suffix = platform.url_suffix(),
+        suffix = platform.bindist_suffix(),
         ext = platform.archive_extension()
     )
 }
@@ -91,7 +110,7 @@ pub fn ghc_archive_filename(version: &str, platform: Platform) -> String {
     format!(
         "ghc-{version}-{suffix}.tar.{ext}",
         version = version,
-        suffix = platform.url_suffix(),
+        suffix = platform.bindist_suffix(),
         ext = platform.archive_extension()
     )
 }
@@ -121,6 +140,19 @@ mod tests {
     }
 
     #[test]
+    fn test_bindist_suffix() {
+        assert_eq!(Platform::X86_64Linux.bindist_suffix(), "x86_64-deb10-linux");
+        assert_eq!(
+            Platform::Aarch64Linux.bindist_suffix(),
+            "aarch64-deb10-linux"
+        );
+        assert_eq!(
+            Platform::Aarch64Darwin.bindist_suffix(),
+            Platform::Aarch64Darwin.url_suffix()
+        );
+    }
+
+    #[test]
     fn test_ghc_download_url() {
         let url = ghc_download_url("9.8.2", Platform::X86_64Darwin);
         assert_eq!(
@@ -128,10 +160,16 @@ mod tests {
             "https://downloads.haskell.org/~ghc/9.8.2/ghc-9.8.2-x86_64-apple-darwin.tar.xz"
         );
 
-        let url = ghc_download_url("9.6.4", Platform::Aarch64Linux);
+        let url = ghc_download_url("9.10.3", Platform::Aarch64Linux);
         assert_eq!(
             url,
-            "https://downloads.haskell.org/~ghc/9.6.4/ghc-9.6.4-aarch64-unknown-linux.tar.xz"
+            "https://downloads.haskell.org/~ghc/9.10.3/ghc-9.10.3-aarch64-deb10-linux.tar.xz"
+        );
+
+        let url = ghc_download_url("9.10.3", Platform::X86_64Linux);
+        assert_eq!(
+            url,
+            "https://downloads.haskell.org/~ghc/9.10.3/ghc-9.10.3-x86_64-deb10-linux.tar.xz"
         );
     }
 

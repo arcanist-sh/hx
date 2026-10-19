@@ -64,7 +64,10 @@ impl HxLanguageServer {
         };
 
         // Determine GHC flags
-        let ghc_version = workspace.ghc_version.as_deref().unwrap_or("9.8.0");
+        let ghc_version = workspace
+            .ghc_version
+            .as_deref()
+            .unwrap_or(hx_toolchain::RECOMMENDED_GHC_VERSION);
         let extra_flags = diagnostic_flags(ghc_version);
 
         // Build GHC command

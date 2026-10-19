@@ -7,15 +7,26 @@ use serde::{Deserialize, Serialize};
 /// This list is updated with each hx release and contains tested,
 /// working versions. Users can still install versions not in this list.
 pub static KNOWN_CABAL_VERSIONS: &[&str] = &[
+    // Cabal 3.18.x
+    "3.18.2.0", "3.18.1.0", //
+    // Cabal 3.16.x
+    "3.16.1.0", "3.16.0.0", //
+    // Cabal 3.14.x
+    "3.14.2.0", "3.14.1.1", "3.14.1.0", //
     // Cabal 3.12.x
-    "3.12.1.0", // Cabal 3.10.x
-    "3.10.3.0", "3.10.2.1", "3.10.2.0", "3.10.1.0", // Cabal 3.8.x
-    "3.8.1.0",  // Cabal 3.6.x
+    "3.12.1.0", //
+    // Cabal 3.10.x
+    "3.10.3.0", "3.10.2.1", "3.10.2.0", "3.10.1.0", //
+    // Cabal 3.8.x
+    "3.8.1.0", //
+    // Cabal 3.6.x
     "3.6.2.0",
 ];
 
 /// The recommended Cabal version for new projects.
-pub static RECOMMENDED_CABAL_VERSION: &str = "3.12.1.0";
+///
+/// Tracks ghcup's recommended release.
+pub static RECOMMENDED_CABAL_VERSION: &str = "3.16.1.0";
 
 /// Cabal version with metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,9 +160,10 @@ mod tests {
 
     #[test]
     fn test_cabal_version_new() {
-        let v = CabalVersion::new("3.12.1.0");
-        assert_eq!(v.version, "3.12.1.0");
+        let v = CabalVersion::new(RECOMMENDED_CABAL_VERSION);
+        assert_eq!(v.version, RECOMMENDED_CABAL_VERSION);
         assert!(v.is_recommended);
+        assert!(!CabalVersion::new("3.12.1.0").is_recommended);
         assert!(!v.is_installed);
     }
 

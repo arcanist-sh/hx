@@ -123,11 +123,7 @@ pub async fn download_and_install_ghc(options: &DownloadOptions) -> Result<Insta
     extract_ghc_archive(&archive_path, temp_dir.path(), &options.version)?;
 
     // Run configure and make install
-    // The extracted directory includes the platform suffix (e.g., ghc-9.8.2-aarch64-apple-darwin)
-    let extracted_dir =
-        temp_dir
-            .path()
-            .join(format!("ghc-{}-{}", options.version, platform.url_suffix()));
+    let extracted_dir = find_extracted_dir(temp_dir.path(), &options.version, platform)?;
     install_ghc_bindist(&extracted_dir, &install_dir).await?;
 
     // Verify installation
@@ -468,9 +464,52 @@ pub fn set_active(toolchain_dir: &Path, version: &str) -> Result<()> {
     Ok(())
 }
 
+/// Locate the directory a GHC bindist unpacked into.
+///
+/// Since 9.4 this is `ghc-{version}-{target}` (e.g.
+/// `ghc-9.10.3-x86_64-unknown-linux`, regardless of which distribution's
+/// bindist was downloaded); 9.2 and earlier unpack into plain `ghc-{version}`.
+fn find_extracted_dir(root: &Path, version: &str, platform: Platform) -> Result<PathBuf> {
+    let candidates = [
+        root.join(format!("ghc-{}-{}", version, platform.url_suffix())),
+        root.join(format!("ghc-{}", version)),
+    ];
+    candidates
+        .into_iter()
+        .find(|dir| dir.is_dir())
+        .ok_or_else(|| {
+            Error::config(format!(
+                "GHC {} archive did not contain the expected ghc-{}-{} directory",
+                version,
+                version,
+                platform.url_suffix()
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_find_extracted_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux).is_err());
+
+        let modern = tmp.path().join("ghc-9.10.3-x86_64-unknown-linux");
+        fs::create_dir(&modern).unwrap();
+        assert_eq!(
+            find_extracted_dir(tmp.path(), "9.10.3", Platform::X86_64Linux).unwrap(),
+            modern
+        );
+
+        let legacy = tmp.path().join("ghc-9.2.8");
+        fs::create_dir(&legacy).unwrap();
+        assert_eq!(
+            find_extracted_dir(tmp.path(), "9.2.8", Platform::X86_64Linux).unwrap(),
+            legacy
+        );
+    }
 
     #[test]
     fn test_download_options_default() {

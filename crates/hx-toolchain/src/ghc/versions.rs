@@ -8,17 +8,28 @@ use serde::{Deserialize, Serialize};
 /// This list is updated with each hx release and contains tested,
 /// working versions. Users can still install versions not in this list.
 pub static KNOWN_GHC_VERSIONS: &[&str] = &[
+    // GHC 9.14.x
+    "9.14.1", //
+    // GHC 9.12.x
+    "9.12.4", "9.12.3", "9.12.2", "9.12.1", //
     // GHC 9.10.x
-    "9.10.1", // GHC 9.8.x
-    "9.8.4", "9.8.3", "9.8.2", "9.8.1", // GHC 9.6.x
-    "9.6.6", "9.6.5", "9.6.4", "9.6.3", "9.6.2", "9.6.1", // GHC 9.4.x
-    "9.4.8", "9.4.7", "9.4.6", "9.4.5", "9.4.4", // GHC 9.2.x
-    "9.2.8", "9.2.7", // GHC 9.0.x
+    "9.10.3", "9.10.2", "9.10.1", //
+    // GHC 9.8.x
+    "9.8.4", "9.8.3", "9.8.2", "9.8.1", //
+    // GHC 9.6.x
+    "9.6.7", "9.6.6", "9.6.5", "9.6.4", "9.6.3", "9.6.2", "9.6.1", //
+    // GHC 9.4.x
+    "9.4.8", "9.4.7", "9.4.6", "9.4.5", "9.4.4", //
+    // GHC 9.2.x
+    "9.2.8", "9.2.7", //
+    // GHC 9.0.x
     "9.0.2",
 ];
 
 /// The recommended GHC version for new projects.
-pub static RECOMMENDED_GHC_VERSION: &str = "9.8.2";
+///
+/// Tracks ghcup's recommended release and the current Stackage LTS (24).
+pub static RECOMMENDED_GHC_VERSION: &str = "9.10.3";
 
 /// GHC version with metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,9 +165,10 @@ mod tests {
 
     #[test]
     fn test_ghc_version_new() {
-        let v = GhcVersion::new("9.8.2");
-        assert_eq!(v.version, "9.8.2");
+        let v = GhcVersion::new(RECOMMENDED_GHC_VERSION);
+        assert_eq!(v.version, RECOMMENDED_GHC_VERSION);
         assert!(v.is_recommended);
+        assert!(!GhcVersion::new("9.8.2").is_recommended);
         assert!(!v.is_installed);
     }
 

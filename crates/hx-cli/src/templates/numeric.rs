@@ -51,7 +51,7 @@ executable {{project_name}}
     import:           warnings
     main-is:          Main.hs
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         {{project_name}},
     hs-source-dirs:   app
     default-language: GHC2021
@@ -61,7 +61,7 @@ library
     exposed-modules:
         Compute
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         hmatrix ^>=0.20,
         vector ^>=0.13,
         statistics ^>=0.16,
@@ -74,7 +74,7 @@ test-suite {{project_name}}-test
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     build-depends:
-        base ^>=4.18 || ^>=4.19 || ^>=4.20,
+        base ^>=4.18 || ^>=4.19 || ^>=4.20 || ^>=4.21 || ^>=4.22,
         {{project_name}},
         hspec ^>=2.11,
         QuickCheck ^>=2.14,
@@ -91,7 +91,7 @@ version = "0.1.0.0"
 
 [toolchain]
 # Uncomment to pin GHC version
-# ghc = "9.8.2"
+# ghc = "9.10.3"
 
 [compiler]
 backend = "bhc"
@@ -117,7 +117,7 @@ dist-newstyle/
 
 const README: &str = r#"# {{project_name}}
 
-A numeric computing project built with [BHC](https://bhc.dev/) (numeric profile).
+A numeric computing project built with [BHC](https://bhc.arcanist.sh/) (numeric profile).
 
 ## Building
 

@@ -4,9 +4,20 @@ use crate::ghc::Platform;
 
 /// Get the Cabal platform suffix for download URLs.
 ///
-/// Cabal binaries use slightly different naming than GHC.
-/// Example: `cabal-install-3.12.1.0-x86_64-linux-ubuntu20_04.tar.xz`
-pub fn cabal_platform_suffix(platform: Platform) -> &'static str {
+/// Cabal binaries use slightly different naming than GHC, and the scheme
+/// changed in 3.18: earlier releases name the build distribution
+/// (`cabal-install-3.16.1.0-x86_64-linux-ubuntu20_04.tar.xz`), 3.18 and later
+/// publish a single build per target (`cabal-install-3.18.2.0-x86_64-linux-unknown.tar.xz`).
+pub fn cabal_platform_suffix(version: &str, platform: Platform) -> &'static str {
+    if uses_target_triple_names(version) {
+        return match platform {
+            Platform::X86_64Linux => "x86_64-linux-unknown",
+            Platform::Aarch64Linux => "aarch64-linux-unknown",
+            Platform::X86_64Darwin => "x86_64-apple-darwin",
+            Platform::Aarch64Darwin => "aarch64-apple-darwin",
+            Platform::X86_64Windows => "x86_64-mingw64",
+        };
+    }
     match platform {
         // Linux uses distribution-specific builds, we use the most compatible ones
         Platform::X86_64Linux => "x86_64-linux-ubuntu20_04",
@@ -17,6 +28,14 @@ pub fn cabal_platform_suffix(platform: Platform) -> &'static str {
         // Windows
         Platform::X86_64Windows => "x86_64-windows",
     }
+}
+
+/// Whether this Cabal release uses the per-target asset names introduced in 3.18.
+fn uses_target_triple_names(version: &str) -> bool {
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let major = parts.next().unwrap_or(0);
+    let minor = parts.next().unwrap_or(0);
+    (major, minor) >= (3, 18)
 }
 
 /// Get the archive extension for Cabal binaries on this platform.
@@ -31,7 +50,7 @@ pub fn cabal_archive_extension(platform: Platform) -> &'static str {
 ///
 /// URL pattern: `https://downloads.haskell.org/cabal/cabal-install-{version}/cabal-install-{version}-{platform}.tar.{ext}`
 pub fn cabal_download_url(version: &str, platform: Platform) -> String {
-    let suffix = cabal_platform_suffix(platform);
+    let suffix = cabal_platform_suffix(version, platform);
     let ext = cabal_archive_extension(platform);
 
     // Windows uses .zip, others use .tar.xz
@@ -54,7 +73,7 @@ pub fn cabal_download_url(version: &str, platform: Platform) -> String {
 
 /// Construct the expected archive filename.
 pub fn cabal_archive_filename(version: &str, platform: Platform) -> String {
-    let suffix = cabal_platform_suffix(platform);
+    let suffix = cabal_platform_suffix(version, platform);
     let ext = cabal_archive_extension(platform);
 
     if matches!(platform, Platform::X86_64Windows) {
@@ -81,16 +100,40 @@ mod tests {
     #[test]
     fn test_cabal_platform_suffix() {
         assert_eq!(
-            cabal_platform_suffix(Platform::X86_64Linux),
+            cabal_platform_suffix("3.16.1.0", Platform::X86_64Linux),
             "x86_64-linux-ubuntu20_04"
         );
         assert_eq!(
-            cabal_platform_suffix(Platform::Aarch64Darwin),
+            cabal_platform_suffix("3.16.1.0", Platform::Aarch64Darwin),
             "aarch64-darwin"
         );
         assert_eq!(
-            cabal_platform_suffix(Platform::X86_64Windows),
+            cabal_platform_suffix("3.16.1.0", Platform::X86_64Windows),
             "x86_64-windows"
+        );
+    }
+
+    #[test]
+    fn test_cabal_platform_suffix_3_18() {
+        assert_eq!(
+            cabal_platform_suffix("3.18.2.0", Platform::X86_64Linux),
+            "x86_64-linux-unknown"
+        );
+        assert_eq!(
+            cabal_platform_suffix("3.18.2.0", Platform::Aarch64Linux),
+            "aarch64-linux-unknown"
+        );
+        assert_eq!(
+            cabal_platform_suffix("3.18.1.0", Platform::Aarch64Darwin),
+            "aarch64-apple-darwin"
+        );
+        assert_eq!(
+            cabal_download_url("3.18.2.0", Platform::X86_64Windows),
+            "https://downloads.haskell.org/cabal/cabal-install-3.18.2.0/cabal-install-3.18.2.0-x86_64-mingw64.zip"
+        );
+        assert_eq!(
+            cabal_platform_suffix("3.20.0.0", Platform::X86_64Darwin),
+            "x86_64-apple-darwin"
         );
     }
 
