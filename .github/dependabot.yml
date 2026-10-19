@@ -12,3 +12,23 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # Rust dependencies. Minor and patch bumps are batched into one weekly PR so
+  # they are cheap to land; major bumps (API changes) get a PR each so they
+  # can be reviewed and reverted on their own. Security updates are opened
+  # immediately by Dependabot regardless of this schedule.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
