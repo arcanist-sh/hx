@@ -566,6 +566,8 @@ pub enum Commands {
     ///   hx install --git https://github.com/ndmitchell/hlint --rev v3.8
     ///   hx install --path .                  # The executable in this project
     ///   hx install --list                    # Show installed packages
+    // The doc comment doubles as CLI help, where `<url>` would print literally.
+    #[allow(rustdoc::bare_urls)]
     #[command(verbatim_doc_comment)]
     #[command(group(
         clap::ArgGroup::new("install_source")
