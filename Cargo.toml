@@ -59,7 +59,7 @@ owo-colors = "4"
 anstream = "1"
 
 # Hashing
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Paths
 directories = "5"
