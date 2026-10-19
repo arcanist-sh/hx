@@ -272,6 +272,27 @@ hx server start              # Start the persistent build server
 hx server status             # Show build server status
 ```
 
+### Installing Executables
+
+Like `cargo install`: build a package's executables and put them in
+`~/.hx/bin` (add that directory to your `PATH`).
+
+```bash
+hx install hlint             # Latest version from Hackage
+hx install fourmolu@0.18.0   # A specific version
+hx install --git <url> --rev v1.2 # From a git repository
+hx install --path .          # From a local project
+hx install --ghc 9.8.2 hlint # Build with a specific (installed) GHC
+hx install --list            # Show installed packages and executables
+hx uninstall hlint           # Remove exactly what `hx install` put there
+```
+
+The build runs `cabal install` with hx's GHC and Cabal; hx records what it
+installed in `~/.hx/installed.toml`. Re-running `hx install` for an installed
+version is a no-op (use `--force` to rebuild). An executable that would
+overwrite one owned by another package, or a file `hx install` didn't put
+there, is reported instead of replaced, unless you pass `--force`.
+
 ### IDE & Agent Integration
 
 ```bash
@@ -521,7 +542,7 @@ delegation to Cabal.
 | `HX_CONFIG_FILE` | Path to config file |
 | `HX_CACHE_DIR` | Cache directory location (see [Where hx Stores Things](#where-hx-stores-things)) |
 | `HX_STORE_DIR` | Cabal store location |
-| `HX_HOME` | hx home (default `~/.hx`: toolchains and tool symlinks) |
+| `HX_HOME` | hx home (default `~/.hx`): toolchains, `bin` and the `hx install` manifest |
 | `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` | Honoured on every platform |
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |

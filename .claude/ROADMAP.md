@@ -421,11 +421,11 @@ Just `hx`.
   - [ ] Lockfile includes BHC version, profile, platform snapshot
 
 ### Binary Installation
-- [ ] `hx install <package>` — build and install a binary to `~/.hx/bin/`
-  - [ ] Like `cargo install`: fetch, build, link, put on PATH
+- [x] `hx install <package>` — build and install a binary to `~/.hx/bin/`
+  - [x] Like `cargo install`: fetch, build, link, put on PATH
   - [ ] Pre-built binary cache (download instead of compile when available)
-  - [ ] `hx install --list` to see installed binaries
-  - [ ] `hx uninstall <package>`
+  - [x] `hx install --list` to see installed binaries
+  - [x] `hx uninstall <package>`
 
 ### Workspaces 2.0
 - [ ] `hx workspace` commands for multi-package monorepos

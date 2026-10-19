@@ -400,6 +400,12 @@ pub fn hx_home_dir() -> Result<PathBuf> {
     Ok(current()?.hx_home.path)
 }
 
+/// Manifest of executables installed by `hx install`: `<hx home>/installed.toml`,
+/// next to the `bin` directory it describes.
+pub fn installed_manifest_path() -> Result<PathBuf> {
+    Ok(hx_home_dir()?.join("installed.toml"))
+}
+
 /// Get the toolchain directory for hx-managed installations.
 ///
 /// `<hx home>/toolchains`, i.e. `~/.hx/toolchains` unless `$HX_HOME` is set.

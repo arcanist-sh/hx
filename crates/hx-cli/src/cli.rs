@@ -555,6 +555,76 @@ pub enum Commands {
         detailed: bool,
     },
 
+    /// Build and install a package's executables into ~/.hx/bin
+    ///
+    /// Builds with the active GHC and Cabal (or `--ghc`) and records what was
+    /// installed in ~/.hx/installed.toml. Add ~/.hx/bin to your PATH to use them.
+    ///
+    /// Examples:
+    ///   hx install hlint                     # Latest version from Hackage
+    ///   hx install fourmolu@0.18.0           # A specific version
+    ///   hx install --git https://github.com/ndmitchell/hlint --rev v3.8
+    ///   hx install --path .                  # The executable in this project
+    ///   hx install --list                    # Show installed packages
+    // The doc comment doubles as CLI help, where `<url>` would print literally.
+    #[allow(rustdoc::bare_urls)]
+    #[command(verbatim_doc_comment)]
+    #[command(group(
+        clap::ArgGroup::new("install_source")
+            .args(["package", "git", "path", "list"])
+            .required(true)
+            .multiple(true)
+    ))]
+    Install {
+        /// Package (`name` or `name@version`), or a member of a --git/--path project
+        package: Option<String>,
+
+        /// Install from a git repository instead of Hackage
+        #[arg(long, value_name = "URL", conflicts_with = "path")]
+        git: Option<String>,
+
+        /// Commit, tag or branch to check out (with --git)
+        #[arg(long, value_name = "REV", requires = "git")]
+        rev: Option<String>,
+
+        /// Install from a local project directory
+        #[arg(long, value_name = "DIR")]
+        path: Option<std::path::PathBuf>,
+
+        /// GHC version to build with (default: the active GHC)
+        #[arg(long, value_name = "VERSION")]
+        ghc: Option<String>,
+
+        /// Number of parallel build jobs
+        #[arg(short, long)]
+        jobs: Option<usize>,
+
+        /// Rebuild even if installed; replace conflicting executables
+        #[arg(long)]
+        force: bool,
+
+        /// List packages installed with `hx install`
+        #[arg(
+            long,
+            conflicts_with_all = ["package", "git", "path", "ghc", "jobs", "force"]
+        )]
+        list: bool,
+    },
+
+    /// Remove executables installed with `hx install`
+    ///
+    /// Removes exactly the files `hx install` put in ~/.hx/bin for each package.
+    ///
+    /// Examples:
+    ///   hx uninstall hlint
+    ///   hx uninstall hlint fourmolu
+    #[command(verbatim_doc_comment)]
+    Uninstall {
+        /// Packages to uninstall
+        #[arg(required = true)]
+        packages: Vec<String>,
+    },
+
     /// Audit dependencies for vulnerabilities and issues
     Audit {
         /// Attempt to fix issues automatically

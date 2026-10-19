@@ -17,6 +17,7 @@ pub mod fetch;
 pub mod freeze;
 pub mod full_native;
 pub mod ghc_diagnostics;
+pub mod install;
 pub mod native;
 pub mod package_build;
 pub mod package_db;
@@ -35,6 +36,7 @@ pub use full_native::{
 pub use ghc_diagnostics::{
     diagnostic_flags, parse_ghc_json, parse_ghc_text, supports_json_diagnostics,
 };
+pub use install::InstallOptions;
 pub use native::{
     BuildState, CCompileOptions, CCompileResult, CCompilerConfig, CCompilerType, GhcConfig,
     ModuleCompileResult, ModuleState, NativeBuildOptions, NativeBuildResult, NativeBuilder,
