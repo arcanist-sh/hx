@@ -489,6 +489,34 @@ mod hex {
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Store cache keys and build fingerprints name cache entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn package_cache_key_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            calculate_package_cache_key("aeson", "2.2.3.0", "9.8.2", &deps),
+            "sha256:05d9ce3fe729f49c442a4eb90efab17117588f913aca99ec14161736bb5e4004"
+        );
+    }
+
+    #[test]
+    fn fingerprint_is_stable() {
+        let packages = vec![
+            ("text".to_string(), "2.1.1".to_string()),
+            ("aeson".to_string(), "2.2.3.0".to_string()),
+        ];
+        assert_eq!(
+            calculate_fingerprint(Some("9.8.2"), Some("3.12.1.0"), "aarch64-osx", &packages),
+            "sha256:50384536da9d8ba012e2f374ac11bfec1760818564e5c2fb0ffd9ac6f5b75043"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

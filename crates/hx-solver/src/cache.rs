@@ -330,6 +330,41 @@ fn hash_file(path: &Path) -> Result<String, std::io::Error> {
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Resolution-cache fingerprints are cache keys. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn deps_fingerprint_is_stable() {
+        let deps = vec![
+            ("text".to_string(), ">= 2".to_string()),
+            ("aeson".to_string(), "^>= 2.2".to_string()),
+        ];
+        assert_eq!(
+            compute_deps_fingerprint(&deps),
+            "2f44dcce22bb74836c4f4589816ac705454962f7714807ab377cb9dfc0176823"
+        );
+    }
+
+    #[test]
+    fn file_hash_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("01-index.tar");
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            hash_file(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::package::{Dependency, PackageVersion};

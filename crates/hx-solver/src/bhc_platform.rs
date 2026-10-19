@@ -625,6 +625,34 @@ pub async fn load_bhc_platform_with_overlays(
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Snapshot hashes are published in the registry. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn sha256_verification_is_stable() {
+        assert!(verify_sha256(
+            b"abc",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        ));
+        assert!(!verify_sha256(
+            b"abc",
+            "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+        ));
+        assert!(verify_sha256(
+            &large_input(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

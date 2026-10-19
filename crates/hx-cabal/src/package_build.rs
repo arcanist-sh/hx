@@ -931,6 +931,22 @@ fn generate_registration_file(
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Package IDs name store directories and package-db entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn package_id_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            compute_package_id("aeson", "2.2.3.0", "9.8.2", &deps),
+            "aeson-2.2.3.0-05d9ce3fe729"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

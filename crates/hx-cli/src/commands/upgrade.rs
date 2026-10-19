@@ -115,10 +115,7 @@ async fn upgrade(target_version: Option<String>, output: &Output) -> Result<i32>
         .context("Malformed .sha256 file")?
         .to_ascii_lowercase();
 
-    let actual = {
-        use sha2::{Digest, Sha256};
-        hex::encode(Sha256::digest(&archive_bytes))
-    };
+    let actual = archive_sha256(&archive_bytes);
 
     if actual != expected {
         anyhow::bail!(
@@ -233,6 +230,37 @@ fn get_target() -> String {
         ("aarch64", "macos") => "aarch64-apple-darwin".to_string(),
         ("x86_64", "windows") => "x86_64-pc-windows-msvc".to_string(),
         _ => format!("{}-unknown-{}", arch, os),
+    }
+}
+
+/// Lowercase hex SHA-256 of a downloaded release archive, as published in
+/// the release's `.sha256` file.
+fn archive_sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! The archive checksum is compared with the release's `.sha256`. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn archive_checksum_is_stable() {
+        assert_eq!(
+            archive_sha256(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            archive_sha256(&large_input()),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
     }
 }
 

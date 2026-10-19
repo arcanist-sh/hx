@@ -173,6 +173,22 @@ pub fn calculate_bhc_cache_key(
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! BHC cache keys name store entries. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn bhc_cache_key_is_stable() {
+        let deps = vec!["text-2.1.1-abc".to_string(), "base-4.19.0.0".to_string()];
+        assert_eq!(
+            calculate_bhc_cache_key("aeson", "2.2.3.0", "0.2.17", "numeric", true, &deps),
+            "sha256:9c831dfd0cae426d63f6dfcf5dd3fabf4c8b14b4ee129ab696d7c7e8a9df9520"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

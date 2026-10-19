@@ -743,3 +743,27 @@ main "$@"
 
     Ok(0)
 }
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Release checksums are published next to the archives. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn checksum_file_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("hx-demo.tar.gz");
+        std::fs::write(&archive, large_input()).unwrap();
+        let path = generate_checksum(&archive, &Output::new()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb  hx-demo.tar.gz\n"
+        );
+    }
+}

@@ -208,3 +208,19 @@ async fn run_executable(exe: &Path, args: &[String], output: &Output) -> Result<
 
     Ok(status.code().unwrap_or(1))
 }
+
+#[cfg(test)]
+mod hash_golden_tests {
+    //! Script hashes name cached script environments. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn script_hash_is_stable() {
+        let deps = vec!["text".to_string(), "aeson >= 2".to_string()];
+        assert_eq!(
+            compute_script_hash("main = putStrLn \"hi\"\n", &deps),
+            "8c6ca178d9879ca2"
+        );
+    }
+}

@@ -443,6 +443,41 @@ fn format_size(bytes: u64) -> String {
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Artifact hashes are build-cache keys. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn artifact_hash_is_stable() {
+        let mut deps = HashMap::new();
+        deps.insert("text".to_string(), "2.1.1".to_string());
+        deps.insert("base".to_string(), "4.19.0.0".to_string());
+        let flags = vec!["-O2".to_string(), "-Wall".to_string()];
+        assert_eq!(
+            compute_artifact_hash("sha256:src", "9.8.2", &flags, &deps),
+            "5d932f7abb4916e1ffcd021cbcead8266998f883045ed65b5a401748fa55eb82"
+        );
+    }
+
+    #[test]
+    fn file_hash_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Main.o");
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            hash_file(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;

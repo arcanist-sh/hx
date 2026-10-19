@@ -157,6 +157,34 @@ pub fn require_checksum_or_opt_out(label: &str, url: &str) -> Result<()> {
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Checksums are compared with published `.sha256` files. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    /// 200 kB of deterministic bytes: crosses every read-buffer size used.
+    fn large_input() -> Vec<u8> {
+        (0..200_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn file_checksum_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ghc.tar.xz");
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_of_file(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        std::fs::write(&path, large_input()).unwrap();
+        assert_eq!(
+            sha256_of_file(&path).unwrap(),
+            "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;

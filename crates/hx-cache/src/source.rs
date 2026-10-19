@@ -173,6 +173,29 @@ mod hex {
 }
 
 #[cfg(test)]
+mod hash_golden_tests {
+    //! Source fingerprints decide whether a build is up to date. Pinned to exact output so a hashing-library upgrade cannot
+    //! silently change them.
+    use super::*;
+
+    #[test]
+    fn source_fingerprint_is_stable() {
+        // Root-level files only, so relative paths have no separator and the
+        // fingerprint is the same on every OS.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hx.toml"), b"[project]\nname = \"demo\"\n").unwrap();
+        std::fs::write(dir.path().join("demo.cabal"), b"name: demo\n").unwrap();
+        std::fs::write(dir.path().join("Main.hs"), b"main = pure ()\n").unwrap();
+        let fp = compute_source_fingerprint(dir.path()).unwrap();
+        assert_eq!(fp.file_count, 3);
+        assert_eq!(
+            fp.hash,
+            "sha256:ebc8cdfa4f3263cf60e75f53f86f93a94f7b7fc639d3113e8dc8223246a20ad5"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
