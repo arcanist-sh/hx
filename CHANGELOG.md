@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `number_prefix` from the tree. The 5 `cargo audit` warnings that remain
   (all *unmaintained*, none vulnerabilities) come from steel-core.
 
+### Internal
+- Build toolchain moves from Rust 1.96.0 to 1.99.1 (`rust-toolchain.toml`,
+  `mise.toml`, release and real-world workflows). `async-trait` 0.1.92 is
+  required: older versions emit code that trips 1.99's `double_must_use`
+  lint under `-D warnings`. The MSRV (`rust-version = "1.96"`) is unchanged.
+
 ## [0.9.2] - 2026-09-04
 
 ### Changed
