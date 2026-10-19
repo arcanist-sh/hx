@@ -2,10 +2,11 @@
 //!
 //! Run with: cargo bench -p hx-solver
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use hx_solver::{
     Dependency, PackageIndex, PackageVersion, Resolver, ResolverConfig, VersionConstraint,
 };
+use std::hint::black_box;
 
 /// Create a synthetic package index with N packages, each with M versions.
 fn create_synthetic_index(num_packages: usize, versions_per_package: usize) -> PackageIndex {
