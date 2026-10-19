@@ -11,7 +11,7 @@ use super::installed::{Collision, InstallSource, InstalledManifest, InstalledPac
 use anyhow::Result;
 use chrono::Utc;
 use hx_cabal::install::{self as cabal_install, InstallOptions};
-use hx_cache::{hx_home, installed_manifest_path, toolchain_bin_dir};
+use hx_cache::{hx_home_dir, installed_manifest_path, toolchain_bin_dir};
 use hx_core::{CommandRunner, Error, Fix};
 use hx_solver::Version;
 use hx_toolchain::{
@@ -248,7 +248,7 @@ async fn install(
 
     // Stage inside the hx home so the final move into bin is a same-filesystem
     // rename: an executable in bin is either the old file or the new one.
-    let home = hx_home()?;
+    let home = hx_home_dir()?;
     std::fs::create_dir_all(&home)?;
     let staging = tempfile::Builder::new()
         .prefix(".install-")
