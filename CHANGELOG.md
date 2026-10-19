@@ -18,7 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the bump keeps it on a maintained line, and it now has tests for both
   properties. `self_update` moves 0.42 → 1.3, which drops `quick-xml`
   (two DoS advisories) from the tree; hx only uses its extract-and-replace
-  helpers, so it now builds without self_update's release-backend features.
+  helpers, so it now builds without self_update's release-backend features,
+  and on its ureq backend (rustls + ring): its reqwest backend would have
+  switched every rustls in the build to aws-lc-rs, a C dependency the
+  cross-compiled release targets do not need.
 - Replaced the unmaintained, unsound `atty` with `std::io::IsTerminal`.
 
 ## [0.9.2] - 2026-09-04
