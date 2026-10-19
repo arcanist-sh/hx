@@ -472,6 +472,7 @@ delegation to Cabal.
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
 | `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
+| `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
 
 ## Exit Codes
 
