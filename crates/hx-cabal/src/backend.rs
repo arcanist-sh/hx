@@ -181,6 +181,7 @@ impl CompilerBackend for GhcBackend {
             package_count: None,
             project_name: None,
             toolchain_bin_dirs: self.toolchain_bin_dirs.clone(),
+            extra_args: Vec::new(),
         };
 
         let start = Instant::now();

@@ -36,6 +36,7 @@ mod run;
 mod script;
 mod search;
 mod server;
+mod sources;
 mod stackage;
 mod toolchain;
 mod upgrade;
@@ -155,9 +156,10 @@ pub async fn run(cli: Cli) -> Result<i32> {
             cabal,
             update,
             snapshot,
-        }) => lock::run(cabal, update, snapshot, &output).await,
+            check,
+        }) => lock::run(cabal, update, snapshot, check, &output).await,
         Some(Commands::Fetch { jobs }) => fetch::run(jobs, &output).await,
-        Some(Commands::Sync { force }) => lock::sync(force, &output).await,
+        Some(Commands::Sync { force, offline }) => lock::sync(force, offline, &output).await,
         Some(Commands::Clean { global }) => clean::run(global, &output).await,
         Some(Commands::Toolchain { command }) => toolchain::run(command, &output).await,
         Some(Commands::Add {

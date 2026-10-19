@@ -18,6 +18,7 @@ let options = BuildOptions {
     package_count: Some(1),
     project_name: Some("my-project".into()),
     toolchain_bin_dirs: vec![],
+    extra_args: vec![],
 };
 
 let result = build(&project_root, &build_dir, &options, &output).await?;
@@ -56,6 +57,10 @@ pub struct BuildOptions {
 
     /// Toolchain bin directories to add to PATH
     pub toolchain_bin_dirs: Vec<PathBuf>,
+
+    /// Extra `cabal build` arguments (e.g. lockfile `--constraint` /
+    /// `--index-state` pins and `--offline`, as used by `hx sync`)
+    pub extra_args: Vec<String>,
 }
 ```
 
