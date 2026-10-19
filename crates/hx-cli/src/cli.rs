@@ -242,7 +242,7 @@ pub enum Commands {
         #[arg(long, num_args = 0..)]
         update: Option<Vec<String>>,
 
-        /// Set Stackage snapshot before locking (e.g., lts-22.28, nightly)
+        /// Set Stackage snapshot before locking (e.g., lts-24.64, nightly)
         #[arg(long)]
         snapshot: Option<String>,
     },
@@ -1047,7 +1047,7 @@ pub enum StackageCommands {
 
     /// Show information about a snapshot
     Info {
-        /// Snapshot identifier (e.g., lts-22.28, nightly-2024-01-15)
+        /// Snapshot identifier (e.g., lts-24.64, nightly-2026-10-19)
         snapshot: String,
 
         /// Show all packages in the snapshot
@@ -1057,7 +1057,7 @@ pub enum StackageCommands {
 
     /// Set the Stackage snapshot for the current project
     Set {
-        /// Snapshot identifier (e.g., lts-22.28, nightly-2024-01-15, lts, nightly)
+        /// Snapshot identifier (e.g., lts-24.64, nightly-2026-10-19, lts, nightly)
         snapshot: String,
     },
 }

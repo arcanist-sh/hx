@@ -37,7 +37,7 @@ pub async fn run(
                     "Invalid snapshot identifier '{}': {}",
                     snapshot_str, e
                 ));
-                output.info("Examples: lts-22.28, lts-22, nightly-2024-01-15, nightly");
+                output.info("Examples: lts-24.64, lts-24, nightly-2026-10-19, nightly");
                 return Ok(1);
             }
         };

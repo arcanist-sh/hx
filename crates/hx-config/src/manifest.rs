@@ -192,7 +192,7 @@ impl Default for CompilerConfig {
 /// Stackage snapshot configuration section.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StackageConfig {
-    /// Stackage snapshot to use (e.g., "lts-22.28", "nightly-2024-01-15")
+    /// Stackage snapshot to use (e.g., "lts-24.64", "nightly-2026-10-19")
     pub snapshot: Option<String>,
     /// Whether to allow packages not in the snapshot (from Hackage)
     #[serde(default)]

@@ -74,7 +74,7 @@ pub struct LockedPlan {
     /// Hackage index state
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_state: Option<String>,
-    /// Stackage snapshot (e.g., "lts-22.28", "nightly-2024-01-15")
+    /// Stackage snapshot (e.g., "lts-24.64", "nightly-2026-10-19")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<String>,
     /// Overall plan hash

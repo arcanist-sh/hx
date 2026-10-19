@@ -75,7 +75,7 @@ async fn list(lts_only: bool, nightly_only: bool, limit: usize, output: &Output)
             }
             Err(e) => {
                 output.warn(&format!("Could not fetch latest LTS: {}", e));
-                output.info("  Try: lts-22, lts-21, lts-20, lts-19");
+                output.info("  Try: lts-24, lts-23, lts-22");
             }
         }
     }
@@ -96,7 +96,7 @@ async fn list(lts_only: bool, nightly_only: bool, limit: usize, output: &Output)
             }
             Err(e) => {
                 output.warn(&format!("Could not fetch latest nightly: {}", e));
-                output.info("  Try: nightly, nightly-2024-01-15");
+                output.info("  Try: nightly, nightly-2026-10-19");
             }
         }
     }
@@ -118,7 +118,7 @@ async fn info(snapshot_str: &str, show_packages: bool, output: &Output) -> Resul
                 "Invalid snapshot identifier '{}': {}",
                 snapshot_str, e
             ));
-            output.info("Examples: lts-22.28, lts-22, nightly-2024-01-15, nightly");
+            output.info("Examples: lts-24.64, lts-24, nightly-2026-10-19, nightly");
             return Ok(1);
         }
     };
@@ -174,7 +174,7 @@ async fn set(snapshot_str: &str, output: &Output) -> Result<i32> {
                 "Invalid snapshot identifier '{}': {}",
                 snapshot_str, e
             ));
-            output.info("Examples: lts-22.28, lts-22, nightly-2024-01-15, nightly");
+            output.info("Examples: lts-24.64, lts-24, nightly-2026-10-19, nightly");
             return Ok(1);
         }
     };
