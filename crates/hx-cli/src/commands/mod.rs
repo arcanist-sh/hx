@@ -24,6 +24,7 @@ mod install;
 mod installed;
 mod lint;
 mod lock;
+mod locked;
 mod lsp;
 mod mcp;
 mod new;
@@ -87,6 +88,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
     }
 
     let policy = auto_install_policy(&cli.global);
+    let lock = locked::LockMode::from_flag(cli.global.locked);
 
     let result = match cli.command {
         Some(Commands::Init {
@@ -107,7 +109,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
         }) => {
             let selection = build::PackageArgs { package, changed };
             build::run(
-                release, jobs, target, selection, native, backend, policy, &output,
+                release, jobs, target, selection, native, backend, policy, lock, &output,
             )
             .await
         }
@@ -120,7 +122,10 @@ pub async fn run(cli: Cli) -> Result<i32> {
             backend,
         }) => {
             let selection = build::PackageArgs { package, changed };
-            build::test(pattern, selection, target, native, backend, policy, &output).await
+            build::test(
+                pattern, selection, target, native, backend, policy, lock, &output,
+            )
+            .await
         }
         Some(Commands::Run {
             args,
@@ -128,8 +133,13 @@ pub async fn run(cli: Cli) -> Result<i32> {
             target,
             native,
             backend,
-        }) => run::run(args, package, target, native, backend, policy, &output).await,
-        Some(Commands::Repl { backend }) => run::repl(backend, policy, &output).await,
+        }) => {
+            run::run(
+                args, package, target, native, backend, policy, lock, &output,
+            )
+            .await
+        }
+        Some(Commands::Repl { backend }) => run::repl(backend, policy, lock, &output).await,
         Some(Commands::Check {
             package,
             changed,
@@ -138,7 +148,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
             // Check is just a fast build
             let selection = build::PackageArgs { package, changed };
             build::run(
-                false, None, None, selection, false, backend, policy, &output,
+                false, None, None, selection, false, backend, policy, lock, &output,
             )
             .await
         }
@@ -317,7 +327,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
             clear,
             debounce,
             package,
-        }) => watch::run(test, clear, Some(debounce), package, policy, &output).await,
+        }) => watch::run(test, clear, Some(debounce), package, policy, lock, &output).await,
         Some(Commands::Deps { command }) => match command {
             DepsCommands::Graph {
                 format,

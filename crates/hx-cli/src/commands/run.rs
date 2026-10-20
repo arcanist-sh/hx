@@ -7,9 +7,11 @@ use hx_plugins::HookEvent;
 use hx_toolchain::{AutoInstallPolicy, Toolchain, ensure_toolchain};
 use hx_ui::Output;
 
+use super::locked::{self, LockMode};
 use crate::plugins::PluginHooks;
 
 /// Run the project.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     args: Vec<String>,
     package: Option<String>,
@@ -17,6 +19,7 @@ pub async fn run(
     native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     // Find project root
@@ -68,6 +71,19 @@ pub async fn run(
     // Get GHC version for plugin context
     let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
 
+    let lock_args = match locked::plan_args(
+        &project,
+        ghc_version.as_deref(),
+        toolchain.cabal.status.path().map(|p| p.as_path()),
+        lock,
+        output,
+    )
+    .await?
+    {
+        Ok(args) => args,
+        Err(code) => return Ok(code),
+    };
+
     // Initialize plugin hooks
     let mut hooks = PluginHooks::from_project(&project, ghc_version);
     if let Some(ref mut h) = hooks {
@@ -108,6 +124,7 @@ pub async fn run(
         package.as_deref(),
         target.as_deref(),
         &toolchain_bin_dirs,
+        &lock_args,
         output,
     )
     .await?;
@@ -124,6 +141,7 @@ pub async fn run(
 pub async fn repl(
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     // Find project root
@@ -155,6 +173,20 @@ pub async fn repl(
         toolchain = Toolchain::detect().await;
     }
 
+    let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
+    let lock_args = match locked::plan_args(
+        &project,
+        ghc_version.as_deref(),
+        toolchain.cabal.status.path().map(|p| p.as_path()),
+        lock,
+        output,
+    )
+    .await?
+    {
+        Ok(args) => args,
+        Err(code) => return Ok(code),
+    };
+
     output.status("Starting", "REPL");
 
     // Collect toolchain bin directories for PATH
@@ -172,7 +204,8 @@ pub async fn repl(
 
     let build_dir = project.cabal_build_dir();
 
-    let exit_code = cabal_build::repl(&project.root, &build_dir, &toolchain_bin_dirs).await?;
+    let exit_code =
+        cabal_build::repl(&project.root, &build_dir, &toolchain_bin_dirs, &lock_args).await?;
     Ok(exit_code)
 }
 

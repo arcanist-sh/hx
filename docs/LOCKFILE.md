@@ -10,6 +10,8 @@ dependency plan was resolved for. Commit it.
 | `hx lock --cabal` | Same, using `cabal freeze` as the resolver |
 | `hx lock --check` | Verify `hx.lock` without changing it; non-zero exit on any mismatch (for CI) |
 | `hx fetch` | Download every locked source in parallel and verify it against its hash |
+| `hx build`, `test`, `run`, `check`, `repl` | Build with the locked versions, flags and index state when `hx.lock` is current |
+| `hx build --locked` | Same, but a missing or out-of-date `hx.lock` is an error, and cached sources must match their hashes |
 | `hx sync` | Build with the locked versions, flags and index state |
 | `hx sync --offline` | Same, but only from cached sources; fails up front if anything is missing |
 
@@ -173,6 +175,44 @@ Hackage never changes a published tarball, so a mismatch means a corrupted
 download, a tampered mirror or cache, or an edited lockfile. Metadata-only
 Hackage revisions do not change the tarball; they are pinned separately via
 `revision`/`cabal_sha256`.
+
+## Builds use the lockfile
+
+`hx build`, `hx test`, `hx run`, `hx check` and `hx repl` pass cabal the same
+pins as `hx sync` (`--index-state` and a `--constraint` per locked package and
+flag) whenever `hx.lock` exists and still describes the project. They compare
+it with the project first, using only local files:
+
+- every dependency in the `.cabal` files is locked, at a version inside its
+  declared range;
+- workspace members, the Stackage snapshot, a GHC pin in `hx.toml` and the BHC
+  profile are unchanged;
+- the active GHC is the one the plan was resolved for (`compiler_id`).
+
+If any of that fails, the build prints what changed, suggests `hx lock`, and
+lets cabal plan on its own, so adding a dependency never blocks a build.
+Without an `hx.lock` cabal plans as usual.
+
+cabal cannot build at an index state newer than its own copy of the Hackage
+index, and `hx lock` refreshes hx's index rather than cabal's. When cabal's
+index is older than `index_state`, the build runs `cabal update` first. If that
+does not help (for example without a network), the build keeps the locked
+versions and drops the index state, with a warning; `hx sync` and `--locked`
+stop instead.
+
+With `--locked` (or `HX_LOCKED=1`), a missing, unreadable, old-format or
+out-of-date `hx.lock` stops the build with exit code `3`, and every cached
+source tarball must match its `sha256` (as in `hx sync`), so a mismatch stops it
+with exit code `1`. Use it in CI next to `hx lock --check`:
+
+```yaml
+- run: hx lock --check
+- run: hx test --locked
+```
+
+The pins apply to cabal builds. Native builds (`--native`) already read
+`hx.lock` for their dependencies, and the BHC backend resolves against its
+BHC Platform snapshot.
 
 ## `hx lock --check` in CI
 

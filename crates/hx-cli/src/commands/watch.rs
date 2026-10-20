@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tracing::info;
 
 use super::build;
+use super::locked::LockMode;
 
 /// Default debounce delay in milliseconds.
 const DEFAULT_DEBOUNCE_MS: u64 = 500;
@@ -23,6 +24,7 @@ pub async fn run(
     debounce_ms: Option<u64>,
     package: Option<String>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     let project_root = find_project_root(".")?;
@@ -51,7 +53,7 @@ pub async fn run(
     }
 
     let start = Instant::now();
-    let result = run_action(test, package.clone(), policy, output).await;
+    let result = run_action(test, package.clone(), policy, lock, output).await;
     print_build_status(result, start.elapsed(), output);
 
     // Set up file watcher
@@ -144,7 +146,7 @@ pub async fn run(
                     println!();
 
                     let start = Instant::now();
-                    let result = run_action(test, package.clone(), policy, output).await;
+                    let result = run_action(test, package.clone(), policy, lock, output).await;
                     print_build_status(result, start.elapsed(), output);
                 }
             }
@@ -166,6 +168,7 @@ async fn run_action(
     test: bool,
     package: Option<String>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     let selection = build::PackageArgs {
@@ -173,9 +176,12 @@ async fn run_action(
         changed: None,
     };
     if test {
-        build::test(None, selection, None, false, None, policy, output).await
+        build::test(None, selection, None, false, None, policy, lock, output).await
     } else {
-        build::run(false, None, None, selection, false, None, policy, output).await
+        build::run(
+            false, None, None, selection, false, None, policy, lock, output,
+        )
+        .await
     }
 }
 

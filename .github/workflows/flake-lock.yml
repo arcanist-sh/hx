@@ -1,0 +1,59 @@
+name: Update flake.lock
+
+# Keeps the Nix flake's inputs (nixpkgs, flake-utils) pinned in flake.lock and
+# current: once a week, and on demand, it runs `nix flake update`, builds the
+# result, and opens (or refreshes) a pull request with the new lockfile. The
+# first run creates flake.lock. Like Dependabot for Cargo, the change lands
+# only through review.
+#
+# Pull requests opened with the workflow token do not trigger other workflows,
+# so this job checks and builds the updated flake itself, and opens the PR only
+# when that succeeds. It needs
+# "Allow GitHub Actions to create and approve pull requests" enabled in the
+# repository's Actions settings.
+
+on:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: flake-lock
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Update the flake inputs
+        run: nix flake update
+
+      - name: Check flake outputs
+        run: nix flake check --no-build --all-systems
+
+      - name: Build hx with the updated inputs
+        run: nix build .#hx --print-build-logs && ./result/bin/hx --version
+
+      # Only reached when the updated flake builds. Opens or refreshes one PR on
+      # a fixed branch; does nothing when flake.lock did not change.
+      - name: Open a pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: chore/flake-lock
+          add-paths: flake.lock
+          commit-message: "chore(nix): update flake.lock"
+          title: "chore(nix): update flake.lock"
+          labels: dependencies
+          delete-branch: true
+          body: |
+            Automated update of the Nix flake's pinned inputs (`nix flake update`).
+
+            Before opening this PR the workflow ran `nix flake check --all-systems` and built `.#hx` with the new inputs.

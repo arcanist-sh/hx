@@ -63,7 +63,7 @@ pub use fetch::{
 };
 pub use index::{
     IndexError, IndexMetadata, IndexOptions, IndexPackageMeta, cabal_repo_cache_dir,
-    default_index_path, load_index, scan_index_metadata,
+    default_index_path, load_index, scan_index_metadata, tar_index_newest_time,
 };
 pub use mirror::{
     IndexState, IndexStatus, MirrorError, MirrorOptions, UpdateResult, best_index_path,

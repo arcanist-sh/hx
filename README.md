@@ -595,7 +595,12 @@ revision = 0
 cabal_sha256 = "11cc66be32854dc6b9c04c1e4f9a3ecb4939399a3b54bf00c6c085d538470b12"
 ```
 
-`hx sync` builds with exactly these pins. For offline or air-gapped builds,
+`hx build`, `hx test`, `hx run`, `hx check` and `hx repl` build with these
+pins whenever hx.lock is current. If it no longer matches the project (a new
+dependency, a changed bound, another GHC), they say so and let cabal plan
+until you run `hx lock`; with `--locked` (or `HX_LOCKED=1`) that is an error
+instead, and cached sources must match their hashes, which is what CI wants.
+`hx sync` always builds with the pins. For offline or air-gapped builds,
 run `hx fetch` once while online (it downloads and verifies every source),
 then `hx sync --offline` (or `HX_OFFLINE=1`). In CI, `hx lock --check` fails
 when hx.lock is stale or a cached source does not match its hash. See
@@ -625,6 +630,7 @@ delegation to Cabal.
 | `HX_AUTO_INSTALL` | Auto-install missing toolchains |
 | `HX_NO_AUTO_INSTALL` | Never auto-install toolchains |
 | `HX_ALLOW_UNVERIFIED_DOWNLOADS` | Allow toolchain installs without a published checksum |
+| `HX_LOCKED` | Require a current hx.lock for `build`/`test`/`run`/`check`/`repl` (like `--locked`) |
 | `HX_OFFLINE` | Work offline: never refresh ghcup release metadata (use the cache or built-in tables), and build `hx sync` from cached sources only (like `--offline`) |
 | `HX_GHCUP_METADATA_URL` | Alternative ghcup metadata file (mirror, or `file://` path) |
 | `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |

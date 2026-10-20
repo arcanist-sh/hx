@@ -166,6 +166,7 @@ pub async fn build(
 }
 
 /// Run cabal test.
+#[allow(clippy::too_many_arguments)]
 pub async fn test(
     project_root: &Path,
     build_dir: &Path,
@@ -173,6 +174,7 @@ pub async fn test(
     targets: &[String],
     target: Option<&str>,
     toolchain_bin_dirs: &[PathBuf],
+    extra_args: &[String],
     output: &Output,
 ) -> Result<BuildResult> {
     let store_dir = cabal_store_dir()?;
@@ -183,6 +185,7 @@ pub async fn test(
         "test".to_string(),
         format!("--builddir={}", build_dir.display()),
     ];
+    args.extend(extra_args.iter().cloned());
 
     // Add cross-compilation target if specified
     if let Some(t) = target {
@@ -242,6 +245,7 @@ pub async fn test(
 }
 
 /// Run cabal run.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     project_root: &Path,
     build_dir: &Path,
@@ -249,6 +253,7 @@ pub async fn run(
     package: Option<&str>,
     target: Option<&str>,
     toolchain_bin_dirs: &[PathBuf],
+    extra_args: &[String],
     _output: &Output,
 ) -> Result<i32> {
     let store_dir = cabal_store_dir()?;
@@ -259,6 +264,7 @@ pub async fn run(
         "run".to_string(),
         format!("--builddir={}", build_dir.display()),
     ];
+    cmd_args.extend(extra_args.iter().cloned());
 
     // Add cross-compilation target if specified
     if let Some(t) = target {
@@ -297,15 +303,17 @@ pub async fn repl(
     project_root: &Path,
     build_dir: &Path,
     toolchain_bin_dirs: &[PathBuf],
+    extra_args: &[String],
 ) -> Result<i32> {
     let store_dir = cabal_store_dir()?;
 
     // Global options must come before the subcommand
-    let args = [
+    let mut args = vec![
         format!("--store-dir={}", store_dir.display()),
         "repl".to_string(),
         format!("--builddir={}", build_dir.display()),
     ];
+    args.extend(extra_args.iter().cloned());
 
     info!("Running cabal repl in {}", project_root.display());
 

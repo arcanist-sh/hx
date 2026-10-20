@@ -251,6 +251,7 @@ impl CompilerBackend for GhcBackend {
             options.package.as_deref(),
             options.target.as_deref(),
             &self.toolchain_bin_dirs,
+            &[],
             output,
         )
         .await
