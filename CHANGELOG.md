@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-20
+
 ### Added
 - **`--locked` / `HX_LOCKED=1`**: `hx build`, `test`, `run`, `check` and `repl`
   fail with exit code 3 when `hx.lock` is missing or out of date, and refuse
@@ -774,7 +776,8 @@ See the 0.7.11–0.7.16 entries below for full detail.
 - Integration test infrastructure with assert_cmd
 - CI/CD with GitHub Actions (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/arcanist-sh/hx/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/arcanist-sh/hx/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/arcanist-sh/hx/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/arcanist-sh/hx/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/arcanist-sh/hx/compare/v0.9.2...v0.9.3
