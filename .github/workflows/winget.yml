@@ -8,8 +8,9 @@ name: Submit to winget
 # fire). It can also be run by hand for an existing tag.
 #
 # Needs a repository secret WINGET_TOKEN: a classic token with the
-# `public_repo` scope for an account that has a fork of microsoft/winget-pkgs
-# (raffaelschneider/winget-pkgs). Without it the job is skipped with a notice.
+# `public_repo` scope. komac opens the PR from that account's fork of
+# microsoft/winget-pkgs (raffaelschneider/winget-pkgs). Without the secret the
+# job is skipped with a notice.
 # The token is only exposed to this job, which has read-only repository access.
 
 on:
@@ -48,13 +49,31 @@ jobs:
             echo "::notice::WINGET_TOKEN is not set; skipping the winget submission"
           fi
 
+      # komac is what winget-releaser wraps; calling it directly shows its own
+      # errors (the wrapper reported every failure as "package does not exist")
+      # and lets the version be pinned and checksum-verified.
+      - name: Install komac
+        if: steps.token.outputs.present == 'true'
+        env:
+          KOMAC_VERSION: 2.17.1
+          KOMAC_SHA256: e694e79cd451afabf47bead66ed34586fef4814f7b94e4b61a098f419978d5d7
+        run: |
+          curl -fsSL -o komac.tar.gz "https://github.com/russellbanks/Komac/releases/download/v${KOMAC_VERSION}/komac-${KOMAC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${KOMAC_SHA256}  komac.tar.gz" | sha256sum -c -
+          tar xzf komac.tar.gz komac
+          sudo install -m 0755 komac /usr/local/bin/komac
+          komac --version
+
       - name: Open the winget-pkgs pull request
         if: steps.token.outputs.present == 'true'
-        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
-        with:
-          identifier: raskell-io.hx
-          release-tag: ${{ inputs.tag }}
-          installers-regex: 'x86_64-pc-windows-msvc\.zip$'
-          fork-user: raffaelschneider
-          release-notes-url: https://github.com/arcanist-sh/hx/blob/main/CHANGELOG.md
-          token: ${{ secrets.WINGET_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          KOMAC_CREATED_WITH: arcanist-sh/hx winget.yml
+        run: |
+          komac list-versions raskell-io.hx
+          komac update raskell-io.hx \
+            --version "${TAG#v}" \
+            --urls "https://github.com/arcanist-sh/hx/releases/download/${TAG}/hx-${TAG}-x86_64-pc-windows-msvc.zip" \
+            --release-notes-url https://github.com/arcanist-sh/hx/blob/main/CHANGELOG.md \
+            --submit
