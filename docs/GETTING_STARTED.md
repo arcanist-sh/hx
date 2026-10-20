@@ -387,7 +387,7 @@ Browse them at `crates/<name>/docs/README.md`.
 ## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/arcanist-sh/hx/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/arcanist-sh/hx/discussions)
+- **Discussions**: [GitHub Discussions](https://github.com/orgs/arcanist-sh/discussions)
 - **Discord**: [raskell.io Discord](https://discord.gg/raskell)
 
 Welcome to hx. We're glad you're here.
