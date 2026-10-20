@@ -73,6 +73,9 @@ impl EnvVars {
     /// Build without network access, using only cached sources (`hx sync`).
     pub const HX_OFFLINE: &'static str = "HX_OFFLINE";
 
+    /// Require a current hx.lock for builds (`--locked`).
+    pub const HX_LOCKED: &'static str = "HX_LOCKED";
+
     /// Base URL of the Hackage mirror `hx fetch` downloads sources from
     /// (default `https://hackage.haskell.org`; `file://` mirrors work too).
     pub const HX_HACKAGE_URL: &'static str = "HX_HACKAGE_URL";

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`--locked` / `HX_LOCKED=1`**: `hx build`, `test`, `run`, `check` and `repl`
+  fail with exit code 3 when `hx.lock` is missing or out of date, and refuse
+  cached sources that do not match their pinned hashes, like `hx sync`. For CI,
+  next to `hx lock --check`.
+- A workflow keeps the Nix flake's inputs pinned in `flake.lock` and opens a
+  weekly pull request when they change, after building the updated flake.
+
+### Changed
+- **`hx build`, `test`, `run`, `check` and `repl` build with the plan pinned in
+  `hx.lock`** (index state, versions and flags) whenever it is current, so they
+  build what `hx sync` and `hx lock --check` describe. When the lockfile no
+  longer matches the project they say what changed, suggest `hx lock`, and let
+  cabal plan as before.
+
+### Fixed
+- `hx sync` (and now every locked build) runs `cabal update` first when
+  cabal's own Hackage index is older than the index state `hx.lock` pins,
+  instead of failing with Cabal-7159 after `hx lock` refreshed only hx's index.
+
 ## [0.10.1] - 2026-10-19
 
 ### Fixed

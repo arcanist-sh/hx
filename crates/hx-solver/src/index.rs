@@ -445,6 +445,63 @@ fn parse_package_json_target(content: &[u8], tarball: &str) -> Option<(String, O
     Some((sha, len))
 }
 
+/// Timestamp of the newest entry in an uncompressed `01-index.tar` (cabal's
+/// index state), read from the end of the file only.
+///
+/// The index is append-only and in time order, so its newest entry is among
+/// the last ones. Scanning the final megabyte for valid ustar headers (checked
+/// by checksum) is enough, and costs a single small read instead of the whole
+/// ~140 MB index. `None` if the file cannot be read or holds no valid header.
+pub fn tar_index_newest_time(path: &std::path::Path) -> Option<i64> {
+    use std::io::{Read, Seek, SeekFrom};
+    const BLOCK: u64 = 512;
+    const TAIL: u64 = 1024 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(TAIL) / BLOCK * BLOCK;
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    file.read_to_end(&mut buf).ok()?;
+
+    let octal = |field: &[u8]| -> Option<u64> {
+        let s = std::str::from_utf8(field).ok()?;
+        let s = s.trim_matches(|c: char| c == '\0' || c == ' ');
+        if s.is_empty() || !s.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+            return None;
+        }
+        u64::from_str_radix(s, 8).ok()
+    };
+    let mut newest: Option<i64> = None;
+    let (headers, _) = buf.as_chunks::<{ BLOCK as usize }>();
+    for header in headers {
+        if &header[257..262] != b"ustar" {
+            continue;
+        }
+        let Some(stored) = octal(&header[148..156]) else {
+            continue;
+        };
+        let sum: u64 = header
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| {
+                if (148..156).contains(&i) {
+                    0x20
+                } else {
+                    u64::from(b)
+                }
+            })
+            .sum();
+        if sum != stored {
+            continue;
+        }
+        if let Some(mtime) = octal(&header[136..148]) {
+            let mtime = mtime as i64;
+            newest = Some(newest.map_or(mtime, |n| n.max(mtime)));
+        }
+    }
+    newest
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,5 +686,19 @@ library
         let index = load_from_tar(cursor, &options).unwrap();
         // Should only have loaded 1 package-version entry
         assert!(index.version_count() <= 1);
+    }
+
+    #[test]
+    fn test_tar_index_newest_time_reads_the_tail() {
+        let mut builder = Builder::new(Vec::new());
+        append(&mut builder, "a/1.0/a.cabal", b"name: a\n", 1_700_000_000);
+        append(&mut builder, "b/1.0/b.cabal", b"name: b\n", 1_760_000_000);
+        append(&mut builder, "a/1.1/a.cabal", b"name: a\n", 1_750_000_000);
+        let bytes = builder.into_inner().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("01-index.tar");
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(tar_index_newest_time(&path), Some(1_760_000_000));
+        assert_eq!(tar_index_newest_time(&dir.path().join("missing.tar")), None);
     }
 }

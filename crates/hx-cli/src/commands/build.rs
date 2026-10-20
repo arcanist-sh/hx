@@ -21,6 +21,7 @@ use hx_ui::Output;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use super::locked::{self, LockMode};
 use crate::commands::workspace::{self, Selection};
 use crate::plugins::PluginHooks;
 
@@ -43,6 +44,7 @@ pub async fn run(
     native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     // Find project root
@@ -93,6 +95,22 @@ pub async fn run(
 
     let build_target = project.name();
 
+    // The plan pinned in hx.lock (checked before any build, so `--locked` fails
+    // fast even when nothing needs rebuilding).
+    let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
+    let lock_args = match locked::plan_args(
+        &project,
+        ghc_version.as_deref(),
+        toolchain.cabal.status.path().map(|p| p.as_path()),
+        lock,
+        output,
+    )
+    .await?
+    {
+        Ok(args) => args,
+        Err(code) => return Ok(code),
+    };
+
     // Use native build if requested.
     if native {
         // For a project with external dependencies, build them from source
@@ -114,9 +132,6 @@ pub async fn run(
             return run_native_build(&project, release, jobs, target, &toolchain, output).await;
         }
     }
-
-    // Get GHC version early for plugin context
-    let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
 
     // Initialize plugin hooks
     let mut hooks = PluginHooks::from_project(&project, ghc_version.clone());
@@ -200,7 +215,7 @@ pub async fn run(
         package_count: Some(package_count),
         project_name: Some(project.name().to_string()),
         toolchain_bin_dirs,
-        extra_args: Vec::new(),
+        extra_args: lock_args,
     };
 
     let build_dir = project.cabal_build_dir();
@@ -277,6 +292,7 @@ fn get_build_fingerprint(project: &Project) -> (Option<String>, usize) {
 }
 
 /// Run the test command.
+#[allow(clippy::too_many_arguments)]
 pub async fn test(
     pattern: Option<String>,
     packages: PackageArgs,
@@ -284,6 +300,7 @@ pub async fn test(
     _native: bool,
     backend_override: Option<CompilerBackend>,
     policy: AutoInstallPolicy,
+    lock: LockMode,
     output: &Output,
 ) -> Result<i32> {
     // Find project root
@@ -343,6 +360,19 @@ pub async fn test(
     // Get GHC version for plugin context
     let ghc_version = toolchain.ghc.status.version().map(|v| v.to_string());
 
+    let lock_args = match locked::plan_args(
+        &project,
+        ghc_version.as_deref(),
+        toolchain.cabal.status.path().map(|p| p.as_path()),
+        lock,
+        output,
+    )
+    .await?
+    {
+        Ok(args) => args,
+        Err(code) => return Ok(code),
+    };
+
     // Initialize plugin hooks
     let mut hooks = PluginHooks::from_project(&project, ghc_version);
     if let Some(ref mut h) = hooks {
@@ -388,6 +418,7 @@ pub async fn test(
         &test_targets,
         target.as_deref(),
         &toolchain_bin_dirs,
+        &lock_args,
         output,
     )
     .await

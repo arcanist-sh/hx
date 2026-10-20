@@ -932,74 +932,9 @@ async fn run_check(output: &Output) -> Result<i32> {
         ));
     }
 
-    // Consistency with hx.toml and the .cabal files.
+    // Consistency with hx.toml, the .cabal files and the workspace.
     let ctx = lock_context(&project).await;
-    for dep in collect_project_deps(&project, &ctx)? {
-        if hx_lock::is_non_reinstallable(&dep.name) {
-            continue;
-        }
-        match lockfile.package(&dep.name) {
-            None => problems.push(format!(
-                "dependency `{}` (from the .cabal file) is not in {}",
-                dep.name, LOCKFILE_FILENAME
-            )),
-            Some(locked) => {
-                if let Ok(v) = locked.version.parse::<hx_solver::Version>()
-                    && !dep.constraint.matches(&v)
-                {
-                    problems.push(format!(
-                        "`{}` is locked at {}, which does not satisfy `{}`",
-                        dep.name, locked.version, dep.constraint
-                    ));
-                }
-            }
-        }
-    }
-
-    let mut current: Vec<String> = project
-        .package_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    let mut locked: Vec<String> = lockfile
-        .workspace_package_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    current.sort();
-    locked.sort();
-    if project.is_workspace() != lockfile.is_workspace()
-        || (project.is_workspace() && current != locked)
-    {
-        problems.push("workspace packages changed since the lock was created".to_string());
-    }
-
-    let manifest = &project.manifest;
-    if manifest.stackage.snapshot != lockfile.plan.snapshot {
-        problems.push(format!(
-            "Stackage snapshot is {} in hx.toml but {} in {}",
-            manifest.stackage.snapshot.as_deref().unwrap_or("unset"),
-            lockfile.plan.snapshot.as_deref().unwrap_or("unset"),
-            LOCKFILE_FILENAME
-        ));
-    }
-    if let (Some(pin), Some(id)) = (&manifest.toolchain.ghc, &lockfile.plan.compiler_id)
-        && id != &format!("ghc-{pin}")
-    {
-        problems.push(format!(
-            "hx.toml pins GHC {pin}, but the lock was resolved for {id}"
-        ));
-    }
-    if manifest.compiler.backend == hx_config::CompilerBackend::Bhc
-        && lockfile.toolchain.bhc_profile.as_deref() != Some(manifest.compiler.bhc.profile.as_str())
-    {
-        problems.push(format!(
-            "BHC profile is {} in hx.toml but {} in {}",
-            manifest.compiler.bhc.profile.as_str(),
-            lockfile.toolchain.bhc_profile.as_deref().unwrap_or("unset"),
-            LOCKFILE_FILENAME
-        ));
-    }
+    problems.extend(plan_problems(&project, &lockfile, &ctx)?);
 
     // Every sdist must be pinned.
     let unpinned: Vec<String> = lockfile
@@ -1113,6 +1048,87 @@ async fn run_check(output: &Output) -> Result<i32> {
         output.info("fix: Run `hx lock` to update the lockfile, and commit the result");
     }
     Ok(3)
+}
+
+/// Ways hx.lock no longer describes the project: dependencies in the `.cabal`
+/// files it lacks or pins outside their bounds, changed workspace members, and
+/// a different Stackage snapshot, GHC pin or BHC profile in hx.toml. Empty when
+/// the lockfile is current. Reads local files only, so builds can call it on
+/// every run; `hx lock --check` adds the index and source-hash checks on top.
+pub(crate) fn plan_problems(
+    project: &Project,
+    lockfile: &Lockfile,
+    ctx: &CabalContext,
+) -> Result<Vec<String>> {
+    let mut problems: Vec<String> = Vec::new();
+    for dep in collect_project_deps(project, ctx)? {
+        if hx_lock::is_non_reinstallable(&dep.name) {
+            continue;
+        }
+        match lockfile.package(&dep.name) {
+            None => problems.push(format!(
+                "dependency `{}` (from the .cabal file) is not in {}",
+                dep.name, LOCKFILE_FILENAME
+            )),
+            Some(locked) => {
+                if let Ok(v) = locked.version.parse::<hx_solver::Version>()
+                    && !dep.constraint.matches(&v)
+                {
+                    problems.push(format!(
+                        "`{}` is locked at {}, which does not satisfy `{}`",
+                        dep.name, locked.version, dep.constraint
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut current: Vec<String> = project
+        .package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut locked: Vec<String> = lockfile
+        .workspace_package_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    current.sort();
+    locked.sort();
+    if project.is_workspace() != lockfile.is_workspace()
+        || (project.is_workspace() && current != locked)
+    {
+        problems.push("workspace packages changed since the lock was created".to_string());
+    }
+
+    let manifest = &project.manifest;
+    if manifest.stackage.snapshot != lockfile.plan.snapshot {
+        problems.push(format!(
+            "Stackage snapshot is {} in hx.toml but {} in {}",
+            manifest.stackage.snapshot.as_deref().unwrap_or("unset"),
+            lockfile.plan.snapshot.as_deref().unwrap_or("unset"),
+            LOCKFILE_FILENAME
+        ));
+    }
+    if let (Some(pin), Some(id)) = (&manifest.toolchain.ghc, &lockfile.plan.compiler_id)
+        && id != &format!("ghc-{pin}")
+    {
+        problems.push(format!(
+            "hx.toml pins GHC {pin}, but the lock was resolved for {id}"
+        ));
+    }
+    if manifest.compiler.backend == hx_config::CompilerBackend::Bhc
+        && lockfile.toolchain.bhc_profile.as_deref() != Some(manifest.compiler.bhc.profile.as_str())
+    {
+        problems.push(format!(
+            "BHC profile is {} in hx.toml but {} in {}",
+            manifest.compiler.bhc.profile.as_str(),
+            lockfile.toolchain.bhc_profile.as_deref().unwrap_or("unset"),
+            LOCKFILE_FILENAME
+        ));
+    }
+
+    Ok(problems)
 }
 
 /// Collect workspace package information from the project.
@@ -1240,6 +1256,20 @@ pub async fn sync(force: bool, offline: bool, output: &Output) -> Result<i32> {
         output.info("fix: Set HOME (or CABAL_DIR) and run `hx fetch`");
         return Ok(1);
     }
+    // cabal cannot build at an index state newer than its own index, and
+    // `hx lock` refreshes hx's index, not cabal's: bring cabal's up to date.
+    if !offline
+        && let Some(state) = lockfile.plan.index_state.as_deref()
+        && !super::locked::ensure_cabal_index_covers(state, None, output).await
+    {
+        output.error(&format!(
+            "cabal's Hackage index is older than the index state {} pins ({state})",
+            LOCKFILE_FILENAME
+        ));
+        output.info("fix: Run `cabal update` (online), then `hx sync` again");
+        return Ok(1);
+    }
+
     // Deliberately no `cabal --offline` here: cabal-install (verified with
     // 3.12.1.0) refuses *every* not-yet-built Hackage package under
     // `--offline`, even when its tarball is already cached, so first builds

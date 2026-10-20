@@ -101,6 +101,15 @@ pub struct GlobalArgs {
     /// Always install missing toolchain components without prompting
     #[arg(long, global = true, env = "HX_AUTO_INSTALL")]
     pub auto_install: bool,
+
+    /// Require a current hx.lock: fail instead of building without its pins
+    #[arg(
+        long,
+        global = true,
+        env = EnvVars::HX_LOCKED,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub locked: bool,
 }
 
 #[derive(Subcommand, Debug)]
