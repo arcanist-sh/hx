@@ -42,7 +42,7 @@ rustPlatform.buildRustPackage rec {
   '';
 
   meta = {
-    description = "Fast, opinionated Haskell toolchain CLI";
+    description = "The whole Haskell toolchain in one fast binary";
     homepage = "https://github.com/arcanist-sh/hx";
     license = lib.licenses.mit;
     maintainers = with lib.maintainers; [ ];

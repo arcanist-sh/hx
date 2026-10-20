@@ -6,11 +6,11 @@ Tracking all places where hx is or could be available.
 
 | Channel | Install Command | Link |
 |---------|-----------------|------|
-| GitHub Releases | `curl -fsSL https://arcanist.sh/hx/install.sh \| sh` | [releases](https://github.com/raskell-io/hx/releases) |
+| GitHub Releases | `curl -fsSL https://arcanist.sh/hx/install.sh \| sh` | [releases](https://github.com/arcanist-sh/hx/releases) |
 | Homebrew | `brew install arcanist-sh/tap/hx` | [homebrew-tap](https://github.com/arcanist-sh/homebrew-tap) |
-| Nix Flake | `nix run github:raskell-io/hx` | [flake.nix](../flake.nix) |
+| Nix Flake | `nix run github:arcanist-sh/hx` | [flake.nix](../flake.nix) |
 | Scoop | `scoop bucket add raskell-io ...` | [scoop-bucket](https://github.com/raskell-io/scoop-bucket) |
-| aqua | `aqua g -i raskell-io/hx` | [aqua-registry](https://github.com/aquaproj/aqua-registry) |
+| aqua | `aqua g -i arcanist-sh/hx` | [aqua-registry](https://github.com/aquaproj/aqua-registry) |
 | pkgx | `pkgx hx` | [pantry](https://github.com/pkgxdev/pantry) |
 | WinGet | `winget install raskell-io.hx` | [winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/r/raskell-io/hx) |
 

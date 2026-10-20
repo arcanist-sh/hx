@@ -1,6 +1,6 @@
 # Getting Started with hx Development
 
-Welcome to the codebase behind **Haskell, finally fast.** This guide is for people *building* hx — the project's philosophy, its architecture, and how to find your way around the code. (Looking to *use* hx? Start at the [README](../README.md) or [docs.arcanist.sh/hx](https://docs.arcanist.sh/hx/docs/).)
+Welcome to the codebase behind **the whole Haskell toolchain in one fast binary.** This guide is for people *building* hx — the project's philosophy, its architecture, and how to find your way around the code. (Looking to *use* hx? Start at the [README](../README.md) or [docs.arcanist.sh/hx](https://docs.arcanist.sh/hx/docs/).)
 
 ---
 
@@ -323,7 +323,7 @@ For end-user documentation on how to use hx, visit the official docs site:
 | Resource | URL |
 |----------|-----|
 | **Documentation** | [docs.arcanist.sh/hx/docs](https://docs.arcanist.sh/hx/docs/) |
-| **Features** | [arcanist.sh/hx/features](https://arcanist.sh/hx/features/) |
+| **Website** | [arcanist.sh/hx](https://arcanist.sh/hx/) |
 | **Benchmarks** | [arcanist.sh/hx/benchmarks](https://arcanist.sh/hx/benchmarks/) |
 
 ### Project-Level (Developer)

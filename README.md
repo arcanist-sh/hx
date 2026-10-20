@@ -1,83 +1,110 @@
 <div align="center">
 
-<h1 align="center">
-  <img src=".github/static/hx-logo.svg" alt="hx" height="80" />
-</h1>
+<a href="https://arcanist.sh/hx/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/static/hx-lockup-dark.svg">
+    <img src=".github/static/hx-lockup.svg" alt="hx" height="72">
+  </picture>
+</a>
 
-<p align="center">
-  <strong>Haskell, finally fast.</strong><br>
-  <em>One opinionated, batteries-included toolchain for Haskell.</em><br>
-  <em>Fast, unified, futuristic.</em>
+<h3>The whole Haskell toolchain. One fast binary.</h3>
+
+<p>
+  <a href="https://github.com/arcanist-sh/hx/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/arcanist-sh/hx?color=179299&label=release&style=flat-square"></a>
+  <a href="https://crates.io/crates/hx-cli"><img alt="crates.io" src="https://img.shields.io/crates/v/hx-cli?color=179299&style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-179299?style=flat-square"></a>
 </p>
 
-<p align="center">
-  <a href="https://www.rust-lang.org/">
-    <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white&style=for-the-badge">
-  </a>
-  <a href="https://www.haskell.org/">
-    <img alt="Haskell" src="https://img.shields.io/badge/For-Haskell-5e5086?logo=haskell&logoColor=white&style=for-the-badge">
-  </a>
-  <a href="LICENSE">
-    <img alt="License" src="https://img.shields.io/badge/License-MIT-c6a0f6?style=for-the-badge">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://docs.arcanist.sh/hx/docs/">Documentation</a> •
-  <a href="https://arcanist.sh/hx/features/">Features</a> •
-  <a href="https://arcanist.sh/hx/benchmarks/">Benchmarks</a> •
-  <a href="CONTRIBUTING.md">Contributing</a>
+<p>
+  <a href="https://arcanist.sh/hx/">Website</a> ·
+  <a href="https://docs.arcanist.sh/hx/">Documentation</a> ·
+  <a href="https://arcanist.sh/hx/benchmarks/">Benchmarks</a> ·
+  <a href="https://arcanist.sh/hx/blog/">Blog</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 </div>
 
 ---
 
-Haskell's tooling is powerful — and scattered. Starting a project means juggling `ghcup`, `cabal`, `stack`, `fourmolu`, `hlint`, and `hpc`, each with its own flags, config, and failure modes.
+hx installs GHC and Cabal, builds, tests, formats and lints your code, pins
+every dependency by hash, and publishes your packages. It is written in Rust,
+starts in milliseconds, and works with the `.cabal` files and Hackage you
+already use.
 
-**hx** collapses all of it into a single, fast binary. Written in Rust, it drives the tools you already trust behind one coherent interface — with deterministic builds, errors that tell you how to fix them, and a feedback loop quick enough to stay out of your way.
+```bash
+curl -fsSL https://arcanist.sh/hx/install.sh | sh
+hx init my-app && cd my-app
+hx run
+```
 
-> **One command to install. One file to configure. One tool to learn.**
+## Six tools, one interface
 
-<div align="center">
-  <img src=".github/static/demo.gif" alt="hx demo" width="600" />
-</div>
+A Haskell project usually means ghcup for the compiler, cabal or Stack to
+build, fourmolu and hlint for style, hpc for coverage, and a set of shell
+scripts to hold it together. hx gives all of it one command line and one
+config file.
 
-## Why hx?
+| Task | Today | With hx |
+|------|-------|---------|
+| Install a compiler | `ghcup install ghc 9.12.2` | `hx toolchain install 9.12.2` |
+| Build and test | `cabal build && cabal test` | `hx build && hx test` |
+| Format and lint | `fourmolu -i src && hlint src` | `hx fmt && hx lint` |
+| Pin dependencies | `cabal freeze` | `hx lock` |
+| Measure coverage | `cabal test --enable-coverage` | `hx coverage --html` |
+| Install a tool | `cabal install hlint` | `hx install hlint` |
 
-- **Batteries included** — Build, test, run, format, lint, profile, and publish. Watch mode, coverage reports, and IDE setup. Everything in one tool.
-- **Managed toolchains** — Automatic GHC installation and per-project version pinning in `hx.toml`. No ghcup required.
-- **Deterministic builds** — TOML lockfiles with fingerprint verification. Reproducible across machines and CI — correct by construction, not by luck.
-- **Excellent errors** — Actionable messages with fix suggestions. `hx doctor` diagnoses your setup and tells you exactly what to do.
-- **Drop-in compatible** — Works with existing `.cabal` files and Hackage. Import from Stack or Cabal — your workflow stays the same, just better.
-- **Extensible** — Plugin system with Steel (Scheme), pre/post-build hooks, and Nix integration.
-- **Agent-ready** — A built-in MCP server (`hx mcp`), an [AGENTS.md](AGENTS.md), and a Claude skill let AI agents drive the whole toolchain.
-- **Blazingly fast** — Native builds bypass Cabal overhead: ~5.6× faster cold builds, ~4.8× faster no-op rebuilds, measured on hx 0.9.2 — see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-- **Futuristic** — A first-class [BHC](docs/BHC_PLATFORM.md) backend: a next-generation Haskell compiler with curated Platform snapshots.
+hx drives GHC and Cabal rather than replacing them. Your `.cabal` files stay
+the source of truth, and the project still builds with plain cabal.
+
+## What you get
+
+- **The current GHC, the day it ships.** hx reads GHC, Cabal and HLS releases
+  and checksums from the metadata ghcup publishes, verifies every download,
+  and picks the build made for your Linux distribution, Alpine included. Pin
+  versions per project in `hx.toml`; no ghcup or Stack install required.
+- **Same inputs, same build.** `hx.lock` pins every dependency by the SHA-256
+  of its source tarball and its exact Hackage revision, with the index state,
+  compiler and platform. `hx fetch` verifies every source, `hx sync --offline`
+  builds without a network, and `hx lock --check` fails CI when the lockfile
+  drifts.
+- **Workspaces.** `cabal.project` stays the single member list. Commands cover
+  every member at the root or the current one inside it, and
+  `hx test --changed main` runs only what a branch affects.
+- **Fast where you feel it.** On a three-module project, hx 0.9.2 starts
+  6.0× faster than cabal, cold-builds 5.6× faster and finishes a no-op rebuild
+  4.8× faster ([method and numbers](https://arcanist.sh/hx/benchmarks/)).
+- **Built for the agent in the loop.** `hx mcp` serves build, test, run, lock,
+  doctor and dependency tools over the Model Context Protocol, with structured
+  errors and exit codes. See [AGENTS.md](AGENTS.md) and the
+  [llms.txt](https://arcanist.sh/hx/llms.txt) project map.
+- **Everything else you reach for.** `hx install` (the `cargo install` of
+  Haskell), publishing to Hackage or the signed
+  [arcanist.sh registry](https://arcanist.sh/registry/), `hx import` for
+  existing Cabal and Stack projects, watch mode, coverage, profiling, HLS
+  setup, Steel plugins that only run once you trust the project, and release
+  tooling (`hx dist`, Homebrew formulas, Nix flakes).
+- **One switch to a second compiler.** hx is the front end for
+  [BHC](https://arcanist.sh/bhc/), the Basel Haskell Compiler: set
+  `backend = "bhc"` and build and test with the same commands.
 
 ## Installation
 
-### From releases
+| Platform | Command |
+|----------|---------|
+| macOS and Linux | `curl -fsSL https://arcanist.sh/hx/install.sh \| sh` |
+| Homebrew | `brew install arcanist-sh/tap/hx` (installs as `hxs`) |
+| Cargo | `cargo install hx-cli` |
+| Nix | `nix run github:arcanist-sh/hx` (also on FlakeHub as `arcanist-sh/hx`) |
+| aqua | `aqua g -i arcanist-sh/hx` |
+| Windows | `winget install raskell-io.hx`, or the zip from the [latest release](https://github.com/arcanist-sh/hx/releases/latest) |
+| Container | `docker run --rm ghcr.io/arcanist-sh/hx --help` |
 
-```bash
-# macOS/Linux
-curl -fsSL https://arcanist.sh/hx/install.sh | sh
-
-# Or download from releases
-https://github.com/arcanist-sh/hx/releases
-```
-
-### Windows
-
-```
-winget install raskell-io.hx
-```
-
-### From source
-
-```bash
-cargo install --git https://github.com/arcanist-sh/hx hx-cli
-```
+The install script puts a single binary in `~/.local/bin`. On x86_64 Linux it
+is the fully static build, so it runs on any distribution; the other Linux
+builds need glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8). Release
+binaries cover macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and
+Windows (x86_64). `hx upgrade` moves to the newest release.
 
 ### If you already use Helix
 
@@ -333,11 +360,11 @@ hx changelog                 # Generate CHANGELOG from commits
 hx changelog --preview       # Preview without writing
 ```
 
-#### Package registries (preview)
+#### Package registries
 
 Hackage stays the default. You can also target a package registry such as
-the arcanist.sh registry (`https://registry.arcanist.sh`, not live yet), or
-any URL. Plain cabal consumes these registries as a secure (hackage-security)
+the [arcanist.sh registry](https://arcanist.sh/registry/)
+(`https://registry.arcanist.sh`), or any URL. Plain cabal consumes these registries as a secure (hackage-security)
 `repository`, so builds work without hx. See [docs/REGISTRY.md](docs/REGISTRY.md).
 
 ```bash
@@ -641,6 +668,7 @@ hx is a Rust workspace with these crates:
 | `hx-telemetry` | Tracing and metrics |
 | `hx-compiler` | Compiler backend abstraction (GHC, BHC) |
 | `hx-bhc` | BHC (Basel Haskell Compiler) native build pipeline |
+| `hx-registry` | Package registry client (publish, search, tokens) |
 
 ## Development
 
@@ -669,8 +697,8 @@ hx follows the [Astral](https://astral.sh/) playbook — earn trust by improving
 2. **Tame second** — Layer on better UX, error messages, and workflows until the rough edges disappear.
 3. **Replace last** — Swap in faster paths (native builds) and a next-generation compiler ([BHC](docs/BHC_PLATFORM.md)) only where they earn their place.
 
-The destination: a Haskell toolchain that's **fast, unified, and futuristic** — without asking you to throw away what already works.
+The destination is the whole Haskell toolchain in one fast binary, without asking you to throw away what already works.
 
 ## License
 
-MIT — part of [arcanist.sh](https://arcanist.sh).
+MIT. hx is part of [arcanist.sh](https://arcanist.sh): Haskell tooling for the age of AI-authored code.
