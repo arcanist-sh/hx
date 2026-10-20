@@ -57,6 +57,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  winget:
+    name: Submit to winget
+    needs: release
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
   publish-crates:
     name: Publish to crates.io
     needs: release
