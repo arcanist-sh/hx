@@ -1,11 +1,12 @@
 [package]
 name = "hx-cli"
-description = "Command-line interface for hx"
+description = "hx, the whole Haskell toolchain in one fast binary: installs GHC and Cabal, builds, tests, formats, locks and publishes Haskell projects"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true

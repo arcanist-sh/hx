@@ -1,5 +1,5 @@
 {
-  description = "hx - Fast, opinionated Haskell toolchain CLI";
+  description = "hx: The whole Haskell toolchain in one fast binary";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -43,7 +43,7 @@
           doCheck = false;
 
           meta = with pkgs.lib; {
-            description = "Fast, opinionated Haskell toolchain CLI";
+            description = "The whole Haskell toolchain in one fast binary";
             homepage = "https://github.com/arcanist-sh/hx";
             license = licenses.mit;
             platforms = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];

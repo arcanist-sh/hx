@@ -58,7 +58,11 @@ pub fn command() -> clap::Command {
 /// hx - Haskell Toolchain CLI
 #[derive(Parser, Debug)]
 #[command(name = "hx")]
-#[command(author, version, about = "A fast, opinionated Haskell toolchain CLI")]
+#[command(
+    author,
+    version,
+    about = "The whole Haskell toolchain in one fast binary"
+)]
 #[command(long_about = None)]
 #[command(propagate_version = true)]
 #[command(styles = STYLES)]

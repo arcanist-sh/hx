@@ -20,7 +20,9 @@ fn test_help() {
     hx().arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Haskell toolchain CLI"))
+        .stdout(predicate::str::contains(
+            "Haskell toolchain in one fast binary",
+        ))
         .stdout(predicate::str::contains("Commands:"))
         .stdout(predicate::str::contains("init"))
         .stdout(predicate::str::contains("build"))
@@ -38,9 +40,9 @@ fn test_version() {
 
 #[test]
 fn test_no_command_shows_help() {
-    hx().assert()
-        .success()
-        .stdout(predicate::str::contains("Haskell toolchain CLI"));
+    hx().assert().success().stdout(predicate::str::contains(
+        "Haskell toolchain in one fast binary",
+    ));
 }
 
 #[test]
