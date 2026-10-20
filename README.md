@@ -85,7 +85,7 @@ the source of truth, and the project still builds with plain cabal.
   setup, Steel plugins that only run once you trust the project, and release
   tooling (`hx dist`, Homebrew formulas, Nix flakes).
 - **One switch to a second compiler.** hx is the front end for
-  [BHC](https://arcanist.sh/bhc/), the Basel Haskell Compiler: set
+  [bhc](https://arcanist.sh/bhc/), the Basel Haskell Compiler: set
   `backend = "bhc"` and build and test with the same commands.
 
 ## Installation
@@ -301,14 +301,14 @@ hx toolchain list --installed # List installed versions only
 
 hx toolchain install 9.8.2   # Install GHC version
 hx toolchain install --set   # Install and set as active
-hx toolchain install --bhc <version> # Install the BHC toolchain
+hx toolchain install --bhc <version> # Install the bhc toolchain
 hx toolchain remove 9.6.4    # Remove a GHC version
 
 hx toolchain use 9.8.2       # Switch GHC version
 hx toolchain use project     # Use project's toolchain
 
 hx stackage list             # List Stackage snapshots
-hx bhc-platform list         # List BHC Platform snapshots
+hx bhc-platform list         # List bhc Platform snapshots
 hx server start              # Start the persistent build server
 hx server status             # Show build server status
 ```
@@ -370,7 +370,7 @@ the [arcanist.sh registry](https://arcanist.sh/registry/)
 ```bash
 hx registry login --registry arcanist          # store an API token (prompted, kept 0600)
 hx publish --registry arcanist                 # same checks, then upload the sdist
-hx registry info my-lib                        # versions, owners, BHC verification
+hx registry info my-lib                        # versions, owners, bhc verification
 hx registry yank my-lib 1.2.0 [--undo]         # cabal avoids yanked versions
 hx registry owner add my-lib alice
 hx registry token create ci --scope publish --package my-lib
@@ -533,11 +533,11 @@ machine, with the setting that chose it (`default`, `$XDG_CACHE_HOME`,
 | Package sources and native package store | `~/.cache/hx/packages` | `~/.cache/hx/packages` | `%USERPROFILE%\.cache\hx\packages` |
 | Hackage index mirror | `~/.cache/hx/index` | `~/.cache/hx/index` | `%USERPROFILE%\.cache\hx\index` |
 | Stackage snapshots | `~/.cache/hx/stackage` | `~/Library/Caches/hx/stackage` | `%LOCALAPPDATA%\hx\stackage` |
-| BHC Platform snapshots | `~/.cache/hx/bhc-platform` | `~/Library/Caches/hx/bhc-platform` | `%LOCALAPPDATA%\hx\bhc-platform` |
+| bhc Platform snapshots | `~/.cache/hx/bhc-platform` | `~/Library/Caches/hx/bhc-platform` | `%LOCALAPPDATA%\hx\bhc-platform` |
 | `hx script` builds | `~/.cache/hx/scripts` | `~/Library/Caches/hx/scripts` | `%LOCALAPPDATA%\hx\scripts` |
 | GHC / Cabal / HLS installs | `~/.hx/toolchains` | `~/.hx/toolchains` | `%USERPROFILE%\.hx\toolchains` |
 | Active tool symlinks | `~/.hx/bin` | `~/.hx/bin` | `%USERPROFILE%\.hx\bin` |
-| BHC installs | `~/.bhc` | `~/.bhc` | `%USERPROFILE%\.bhc` |
+| bhc installs | `~/.bhc` | `~/.bhc` | `%USERPROFILE%\.bhc` |
 | Per-project build state | `<project>/.hx/` | `<project>/.hx/` | `<project>\.hx\` |
 
 On macOS and Windows a few caches keep the location earlier releases used, so
@@ -633,8 +633,8 @@ delegation to Cabal.
 | `HX_LOCKED` | Require a current hx.lock for `build`/`test`/`run`/`check`/`repl` (like `--locked`) |
 | `HX_OFFLINE` | Work offline: never refresh ghcup release metadata (use the cache or built-in tables), and build `hx sync` from cached sources only (like `--offline`) |
 | `HX_GHCUP_METADATA_URL` | Alternative ghcup metadata file (mirror, or `file://` path) |
-| `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for BHC Platform snapshot verification |
-| `HX_BHC_PLATFORM_URL` | BHC Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
+| `HX_BHC_PLATFORM_PUBKEY` | Pinned Ed25519 key for bhc Platform snapshot verification |
+| `HX_BHC_PLATFORM_URL` | bhc Platform snapshot registry URL (default `https://arcanist.sh/bhc-platform/index.json`) |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Route hx's downloads through a proxy (system proxy settings are also honoured) |
 | `SSL_CERT_FILE` / `SSL_CERT_DIR` | On Linux, read CA certificates from these locations instead of the system store. hx trusts the operating system's certificate store plus a bundled Mozilla root set, so a CA installed system-wide (for example a corporate TLS proxy's) is trusted on every platform |
 | `HX_REGISTRY_TOKEN` | API token for `--registry` commands (overrides `credentials.toml`) |
@@ -672,8 +672,8 @@ hx is a Rust workspace with these crates:
 | `hx-ui` | Terminal output utilities |
 | `hx-warnings` | Warning system |
 | `hx-telemetry` | Tracing and metrics |
-| `hx-compiler` | Compiler backend abstraction (GHC, BHC) |
-| `hx-bhc` | BHC (Basel Haskell Compiler) native build pipeline |
+| `hx-compiler` | Compiler backend abstraction (GHC, bhc) |
+| `hx-bhc` | bhc (Basel Haskell Compiler) native build pipeline |
 | `hx-registry` | Package registry client (publish, search, tokens) |
 
 ## Development
@@ -701,7 +701,7 @@ hx follows the [Astral](https://astral.sh/) playbook — earn trust by improving
 
 1. **Wrap first** — Drive the tools you already rely on (GHC, Cabal) instead of reimplementing them.
 2. **Tame second** — Layer on better UX, error messages, and workflows until the rough edges disappear.
-3. **Replace last** — Swap in faster paths (native builds) and a next-generation compiler ([BHC](docs/BHC_PLATFORM.md)) only where they earn their place.
+3. **Replace last** — Swap in faster paths (native builds) and a next-generation compiler ([bhc](docs/BHC_PLATFORM.md)) only where they earn their place.
 
 The destination is the whole Haskell toolchain in one fast binary, without asking you to throw away what already works.
 
