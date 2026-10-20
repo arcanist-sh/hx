@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next to `hx lock --check`.
 - A workflow keeps the Nix flake's inputs pinned in `flake.lock` and opens a
   weekly pull request when they change, after building the updated flake.
+- Releases are submitted to winget (`raskell-io.hx`) automatically by a new
+  `winget.yml` workflow, which can also be run by hand for an existing tag.
 
 ### Changed
 - **`hx build`, `test`, `run`, `check` and `repl` build with the plan pinned in

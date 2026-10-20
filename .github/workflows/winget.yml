@@ -1,0 +1,60 @@
+name: Submit to winget
+
+# Opens a pull request at microsoft/winget-pkgs that adds a release to the
+# `raskell-io.hx` package, using the Windows zip from the GitHub release.
+#
+# release.yml calls this after publishing a release (a release created with the
+# workflow token does not trigger other workflows, so `on: release` would never
+# fire). It can also be run by hand for an existing tag.
+#
+# Needs a repository secret WINGET_TOKEN: a classic token with the
+# `public_repo` scope for an account that has a fork of microsoft/winget-pkgs
+# (raffaelschneider/winget-pkgs). Without it the job is skipped with a notice.
+# The token is only exposed to this job, which has read-only repository access.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to submit (e.g. v0.11.0)
+        required: true
+        type: string
+    secrets:
+      WINGET_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to submit (e.g. v0.11.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Submit ${{ inputs.tag }} to winget
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for WINGET_TOKEN
+        id: token
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -n "$WINGET_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::WINGET_TOKEN is not set; skipping the winget submission"
+          fi
+
+      - name: Open the winget-pkgs pull request
+        if: steps.token.outputs.present == 'true'
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: raskell-io.hx
+          release-tag: ${{ inputs.tag }}
+          installers-regex: 'x86_64-pc-windows-msvc\.zip$'
+          fork-user: raffaelschneider
+          release-notes-url: https://github.com/arcanist-sh/hx/blob/main/CHANGELOG.md
+          token: ${{ secrets.WINGET_TOKEN }}

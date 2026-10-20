@@ -12,7 +12,10 @@ Tracking all places where hx is or could be available.
 | Scoop | `scoop bucket add raskell-io ...` | [scoop-bucket](https://github.com/raskell-io/scoop-bucket) |
 | aqua | `aqua g -i arcanist-sh/hx` | [aqua-registry](https://github.com/aquaproj/aqua-registry) |
 | pkgx | `pkgx hx` | [pantry](https://github.com/pkgxdev/pantry) |
-| WinGet | `winget install raskell-io.hx` | [winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/r/raskell-io/hx) |
+| WinGet | `winget install raskell-io.hx` | [winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/r/raskell-io/hx); each release is submitted by [winget.yml](../.github/workflows/winget.yml) (needs the `WINGET_TOKEN` secret) |
+| crates.io | `cargo install hx-cli` | [hx-cli](https://crates.io/crates/hx-cli) (all crates published by [release.yml](../.github/workflows/release.yml)) |
+| FlakeHub | `nix profile install "https://flakehub.com/f/arcanist-sh/hx/*"` | [workflow](../.github/workflows/flakehub.yml) |
+| Docker/GHCR | `docker run --rm ghcr.io/arcanist-sh/hx --help` | [workflow](../.github/workflows/docker.yml) |
 
 ## Pending (PRs submitted)
 
@@ -26,11 +29,8 @@ Tracking all places where hx is or could be available.
 
 | Channel | Blocker | Files Ready |
 |---------|---------|-------------|
-| Cargo | Need to publish to crates.io | `cargo publish -p hx-cli` |
 | AUR | Need Arch Linux to solve CAPTCHA for account creation | [aur-hx-bin](https://github.com/raskell-io/aur-hx-bin) |
-| FlakeHub | Publishes on next tag release | [workflow](../.github/workflows/flakehub.yml) |
 | Chocolatey | Need Windows + Chocolatey account to publish | [chocolatey-hx](https://github.com/raskell-io/chocolatey-hx) |
-| Docker/GHCR | Publishes on next tag release | [workflow](../.github/workflows/docker.yml) |
 
 ## Plugin/Package repos
 
