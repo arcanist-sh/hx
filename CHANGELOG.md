@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `hx build --backend bhc --native` finds the resolution `hx lock` made on a
+  machine with GHC installed. It looked it up under a key without the
+  versions that GHC fixes, so right after `hx lock` it said "no cached
+  resolution — run `hx lock` first" and built without the dependencies.
 - `hx toolchain install --bhc latest` installs the newest bhc release, looked
   up on GitHub (it was fixed at 0.2.22 while 0.2.30 was current), and any
   well-formed bhc version can be installed, not only those this hx knows.

@@ -979,44 +979,19 @@ async fn try_bhc_full_native_build(
     use hx_bhc::package_db::BhcPackageDb;
     use std::collections::HashSet;
 
-    // Stackage-snapshot projects resolve differently; defer for now.
-    if project.manifest.stackage.snapshot.is_some() {
-        return Ok(None);
-    }
-
-    // Cabal conditionals resolve against a GHC version (BHC targets GHC
-    // compatibility); take it from the manifest, falling back to a default. No
-    // GHC toolchain installation is required.
-    let ghc_str = project
-        .manifest
-        .toolchain
-        .ghc
-        .clone()
-        .unwrap_or_else(|| "9.8.2".to_string());
-    let ghc = ghc_str
-        .parse()
-        .unwrap_or_else(|_| "9.8.2".parse().expect("valid default GHC version"));
-    let ctx = CabalContext::host(ghc);
-
-    let all_deps = collect_project_deps(project, &ctx);
-    if all_deps.is_empty() {
-        // No external dependencies — the local-only build is sufficient.
-        return Ok(None);
-    }
-
-    // Reuse the lockfile's cached resolution, keyed by the dependency fingerprint.
-    let pairs: Vec<(String, String)> = all_deps
-        .iter()
-        .map(|d| (d.name.clone(), d.constraint.to_string()))
-        .collect();
-    let fingerprint = compute_deps_fingerprint(&pairs);
-    let plan = match load_cached_resolution(&fingerprint) {
-        Ok(p) => p,
-        Err(_) => {
-            output.info("BHC native build: no cached resolution — run `hx lock` first");
+    // The resolution `hx lock` made, looked up by its own key. Cabal
+    // conditionals resolve against the GHC version it locked for (BHC targets
+    // GHC compatibility); no GHC installation is required.
+    let (plan, ctx) = match super::lock::cached_lock_resolution(project, output).await? {
+        Some(found) => found,
+        None => {
+            if project_has_external_deps(project) {
+                output.info("BHC native build: no cached resolution — run `hx lock` first");
+            }
             return Ok(None);
         }
     };
+    let ghc_str = ctx.ghc_version.to_string();
 
     // Topologically ordered build plan. BHC's builtin packages are treated as
     // pre-installed so they are neither fetched nor built from source; every

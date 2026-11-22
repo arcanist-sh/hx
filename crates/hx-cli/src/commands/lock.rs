@@ -311,25 +311,16 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         None
     };
 
-    // Compute fingerprint for dependencies (for resolution cache)
-    // Include snapshot name in fingerprint if configured
-    let mut deps_for_fingerprint: Vec<(String, String)> = all_deps
-        .iter()
-        .map(|d| (d.name.clone(), d.constraint.to_string()))
-        .collect();
-    if let Some((ref snapshot_name, _)) = snapshot {
-        deps_for_fingerprint.push(("__snapshot__".to_string(), snapshot_name.clone()));
-    }
-
     // Versions the installed GHC fixes (see `toolchain_fixed_packages`); they
     // shape the plan, so they are part of the resolution cache key.
     let direct_names: Vec<String> = all_deps.iter().map(|d| d.name.clone()).collect();
     let toolchain_pins =
         toolchain_fixed_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
-    for (name, version) in &toolchain_pins {
-        deps_for_fingerprint.push((format!("__ghc__{name}"), version.clone()));
-    }
-    let deps_fingerprint = compute_deps_fingerprint(&deps_for_fingerprint);
+    let deps_fingerprint = resolution_fingerprint(
+        &all_deps,
+        snapshot.as_ref().map(|(name, _)| name.as_str()),
+        &toolchain_pins,
+    );
 
     // Skip cache if we're updating packages
     let use_cache = !is_update_mode;
@@ -622,6 +613,56 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
 }
 
 /// The context `.cabal` conditionals are evaluated in when locking: the GHC
+/// The resolution cache key for a project's direct dependencies: their
+/// constraints, the Stackage snapshot if any, and the versions the installed
+/// GHC fixes.
+fn resolution_fingerprint(
+    all_deps: &[Dependency],
+    snapshot: Option<&str>,
+    toolchain_pins: &std::collections::BTreeMap<String, String>,
+) -> String {
+    let mut deps_for_fingerprint: Vec<(String, String)> = all_deps
+        .iter()
+        .map(|d| (d.name.clone(), d.constraint.to_string()))
+        .collect();
+    if let Some(snapshot_name) = snapshot {
+        deps_for_fingerprint.push(("__snapshot__".to_string(), snapshot_name.to_string()));
+    }
+    for (name, version) in toolchain_pins {
+        deps_for_fingerprint.push((format!("__ghc__{name}"), version.clone()));
+    }
+    compute_deps_fingerprint(&deps_for_fingerprint)
+}
+
+/// The resolution `hx lock` cached for this project, found by the key `hx
+/// lock` used, with the context it resolved in. `None` when the project has
+/// no dependencies or has not been locked (or uses a Stackage snapshot).
+///
+/// The BHC native build computed its own key, without the versions the
+/// installed GHC fixes, so on a machine with GHC installed it never found
+/// the resolution: "no cached resolution — run `hx lock` first" right after
+/// `hx lock`.
+pub(crate) async fn cached_lock_resolution(
+    project: &Project,
+    output: &Output,
+) -> Result<Option<(hx_solver::InstallPlan, CabalContext)>> {
+    if project.manifest.stackage.snapshot.is_some() {
+        return Ok(None);
+    }
+    let cabal_ctx = lock_context(project).await;
+    let all_deps = collect_project_deps(project, &cabal_ctx)?;
+    if all_deps.is_empty() {
+        return Ok(None);
+    }
+    let direct_names: Vec<String> = all_deps.iter().map(|d| d.name.clone()).collect();
+    let toolchain_pins =
+        toolchain_fixed_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
+    let fingerprint = resolution_fingerprint(&all_deps, None, &toolchain_pins);
+    Ok(load_cached_resolution(&fingerprint)
+        .ok()
+        .map(|plan| (plan, cabal_ctx)))
+}
+
 /// version we're locking for (manifest pin, else detected, else a sensible
 /// default) plus the host platform. This keeps platform/compiler-specific deps
 /// (e.g. `Win32` on Windows, `semigroups` on old GHC) out of the lockfile.
