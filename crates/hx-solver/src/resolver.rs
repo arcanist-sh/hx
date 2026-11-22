@@ -84,6 +84,13 @@ pub struct ResolverConfig {
     pub prefer_newest: bool,
     /// Packages that are already installed (don't need resolution)
     pub installed: HashMap<String, Version>,
+    /// Versions present in the compiler's package database. Selecting one of
+    /// these exact versions uses the installed instance, whose dependencies
+    /// are installed with it, so the release's Hackage bounds are not
+    /// re-checked: GHC 9.14 ships `array-0.5.8.0` built against `base-4.22`,
+    /// although every `array` release on Hackage requires `base < 4.22`
+    /// (hx#83). cabal uses the installed instance the same way.
+    pub installed_instances: HashMap<String, Version>,
 }
 
 impl Default for ResolverConfig {
@@ -92,6 +99,7 @@ impl Default for ResolverConfig {
             max_attempts: 100_000,
             prefer_newest: true,
             installed: HashMap::new(),
+            installed_instances: HashMap::new(),
         }
     }
 }
@@ -276,6 +284,13 @@ impl<'a> Resolver<'a> {
             // diamond — e.g. `deepseq` depending on both `array` and `text`,
             // with `text` also depending on `array` — was flagged as a false
             // cycle.)
+            if self.config.installed_instances.get(&req.package) == Some(&version) {
+                debug!(
+                    "Using the installed instance of {} {}; its dependencies are installed",
+                    req.package, version
+                );
+                continue;
+            }
             if let Some(pv) = package.get_version(&version) {
                 for dep in &pv.dependencies {
                     state.add_requirement(
@@ -582,6 +597,53 @@ mod tests {
         assert!(plan.get_version("shared").is_some());
         assert!(plan.get_version("left").is_some());
         assert!(plan.get_version("right").is_some());
+    }
+
+    /// GHC 9.14 installs `array-0.5.8.0` against `base-4.22`, but every
+    /// `array` release on Hackage requires `base < 4.22` (hx#83). The
+    /// installed instance must be usable; without it nothing resolves.
+    fn index_with_outdated_bounds() -> PackageIndex {
+        let mut index = PackageIndex::new();
+        for v in ["0.5.2.0", "0.5.8.0"] {
+            let mut array = PackageVersion::new("array", v.parse().unwrap());
+            array.add_dependency(Dependency::with_constraint(
+                "base",
+                VersionConstraint::LessThan("4.22".parse().unwrap()),
+            ));
+            index.add_package_version(array);
+        }
+        let mut stm = PackageVersion::new("stm", "2.5.3.1".parse().unwrap());
+        stm.add_dependency(Dependency::new("array"));
+        index.add_package_version(stm);
+        index
+    }
+
+    fn base_4_22() -> HashMap<String, Version> {
+        HashMap::from([("base".to_string(), "4.22.0.0".parse().unwrap())])
+    }
+
+    #[test]
+    fn test_hackage_bounds_alone_reject_the_installed_base() {
+        let index = index_with_outdated_bounds();
+        let config = ResolverConfig {
+            installed: base_4_22(),
+            ..ResolverConfig::default()
+        };
+        let resolver = Resolver::with_config(&index, config);
+        assert!(resolver.resolve("stm", &VersionConstraint::Any).is_err());
+    }
+
+    #[test]
+    fn test_installed_instance_skips_its_hackage_bounds() {
+        let index = index_with_outdated_bounds();
+        let config = ResolverConfig {
+            installed: base_4_22(),
+            installed_instances: HashMap::from([("array".to_string(), "0.5.8.0".parse().unwrap())]),
+            ..ResolverConfig::default()
+        };
+        let resolver = Resolver::with_config(&index, config);
+        let plan = resolver.resolve("stm", &VersionConstraint::Any).unwrap();
+        assert_eq!(plan.get_version("array").unwrap().to_string(), "0.5.8.0");
     }
 
     #[test]

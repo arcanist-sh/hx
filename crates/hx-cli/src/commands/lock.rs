@@ -311,15 +311,15 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
         None
     };
 
-    // Versions the installed GHC fixes (see `toolchain_fixed_packages`); they
+    // Versions the installed GHC fixes (see `toolchain_packages`); they
     // shape the plan, so they are part of the resolution cache key.
     let direct_names: Vec<String> = all_deps.iter().map(|d| d.name.clone()).collect();
-    let toolchain_pins =
-        toolchain_fixed_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
+    let toolchain = toolchain_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
+    let toolchain_pins = &toolchain.fixed;
     let deps_fingerprint = resolution_fingerprint(
         &all_deps,
         snapshot.as_ref().map(|(name, _)| name.as_str()),
-        &toolchain_pins,
+        &toolchain,
     );
 
     // Skip cache if we're updating packages
@@ -438,9 +438,15 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
 
         // Packages fixed by the installed GHC override everything else: a
         // plan that disagrees with them cannot be built.
-        for (name, version) in &toolchain_pins {
+        for (name, version) in toolchain_pins {
             if let Ok(v) = version.parse() {
                 config.installed.insert(name.clone(), v);
+            }
+        }
+        // The other packages GHC installs are usable as they are (hx#83).
+        for (name, version) in &toolchain.installed {
+            if let Ok(v) = version.parse() {
+                config.installed_instances.insert(name.clone(), v);
             }
         }
 
@@ -612,14 +618,13 @@ async fn run_native(update: Option<Vec<String>>, output: &Output) -> Result<i32>
     Ok(0)
 }
 
-/// The context `.cabal` conditionals are evaluated in when locking: the GHC
 /// The resolution cache key for a project's direct dependencies: their
-/// constraints, the Stackage snapshot if any, and the versions the installed
-/// GHC fixes.
+/// constraints, the Stackage snapshot if any, and the package versions the
+/// installed GHC fixes or provides.
 fn resolution_fingerprint(
     all_deps: &[Dependency],
     snapshot: Option<&str>,
-    toolchain_pins: &std::collections::BTreeMap<String, String>,
+    toolchain: &ToolchainPackages,
 ) -> String {
     let mut deps_for_fingerprint: Vec<(String, String)> = all_deps
         .iter()
@@ -628,8 +633,11 @@ fn resolution_fingerprint(
     if let Some(snapshot_name) = snapshot {
         deps_for_fingerprint.push(("__snapshot__".to_string(), snapshot_name.to_string()));
     }
-    for (name, version) in toolchain_pins {
+    for (name, version) in &toolchain.fixed {
         deps_for_fingerprint.push((format!("__ghc__{name}"), version.clone()));
+    }
+    for (name, version) in &toolchain.installed {
+        deps_for_fingerprint.push((format!("__installed__{name}"), version.clone()));
     }
     compute_deps_fingerprint(&deps_for_fingerprint)
 }
@@ -655,14 +663,14 @@ pub(crate) async fn cached_lock_resolution(
         return Ok(None);
     }
     let direct_names: Vec<String> = all_deps.iter().map(|d| d.name.clone()).collect();
-    let toolchain_pins =
-        toolchain_fixed_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
-    let fingerprint = resolution_fingerprint(&all_deps, None, &toolchain_pins);
+    let toolchain = toolchain_packages(&cabal_ctx.ghc_version, &direct_names, output).await;
+    let fingerprint = resolution_fingerprint(&all_deps, None, &toolchain);
     Ok(load_cached_resolution(&fingerprint)
         .ok()
         .map(|plan| (plan, cabal_ctx)))
 }
 
+/// The context `.cabal` conditionals are evaluated in when locking: the GHC
 /// version we're locking for (manifest pin, else detected, else a sensible
 /// default) plus the host platform. This keeps platform/compiler-specific deps
 /// (e.g. `Win32` on Windows, `semigroups` on old GHC) out of the lockfile.
@@ -686,19 +694,21 @@ async fn lock_context(project: &Project) -> CabalContext {
     CabalContext::host(ghc)
 }
 
-/// Package versions the installed GHC fixes for any build: its
-/// compiler-internal packages (`base`, `template-haskell`, ...) and every
-/// package they depend on in the global package database (e.g. `deepseq`,
-/// `pretty`). Cabal cannot pick other versions of these, because the installed
-/// compiler-internal libraries were built against exactly these instances.
+/// The packages the installed GHC provides. `fixed` are the versions it
+/// fixes for any build: its compiler-internal packages (`base`,
+/// `template-haskell`, ...) and every package they depend on in the global
+/// package database (e.g. `deepseq`, `pretty`). Cabal cannot pick other
+/// versions of these, because the installed compiler-internal libraries were
+/// built against exactly these instances. `installed` is everything in the
+/// package databases.
 ///
 /// Empty when `ghc-pkg` is unavailable or belongs to a different GHC than the
 /// one being locked for (the plan then cannot account for installed versions).
-async fn toolchain_fixed_packages(
+async fn toolchain_packages(
     ghc: &hx_solver::Version,
     direct_deps: &[String],
     output: &Output,
-) -> std::collections::BTreeMap<String, String> {
+) -> ToolchainPackages {
     let mut fixed = std::collections::BTreeMap::new();
     let runner = hx_core::CommandRunner::new();
     let version_ok = match runner.run("ghc-pkg", ["--version"]).await {
@@ -713,10 +723,14 @@ async fn toolchain_fixed_packages(
         output.verbose(&format!(
             "ghc-pkg for GHC {ghc} not found; installed package versions are not pinned"
         ));
-        return fixed;
+        return ToolchainPackages::default();
     }
 
     let packages = hx_cabal::query_all_packages(&[]).await;
+    let installed: std::collections::BTreeMap<String, String> = packages
+        .iter()
+        .map(|p| (p.name.clone(), p.version.clone()))
+        .collect();
     let by_id: std::collections::HashMap<&str, &hx_cabal::PackageInfo> =
         packages.iter().map(|p| (p.id.as_str(), p)).collect();
     // Roots: the compiler-internal packages every plan may use, plus any
@@ -744,7 +758,19 @@ async fn toolchain_fixed_packages(
             ghc
         ));
     }
-    fixed
+    ToolchainPackages { fixed, installed }
+}
+
+/// What the installed GHC brings to a plan.
+#[derive(Debug, Default)]
+struct ToolchainPackages {
+    /// Versions a plan must use (see [`toolchain_packages`]).
+    fixed: std::collections::BTreeMap<String, String>,
+    /// Every package in its package databases, with its version. A plan may
+    /// use one of these instead of building that release from Hackage, and
+    /// then its Hackage bounds do not apply: they can be older than the
+    /// installed instance's (hx#83).
+    installed: std::collections::BTreeMap<String, String>,
 }
 
 /// GHC-API packages that only constrain a plan when it actually uses them.
