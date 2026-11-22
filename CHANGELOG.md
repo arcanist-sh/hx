@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A locked build pins each package's flags in every scope, as it already
+  pinned versions. Pinned only at the top level, a flag was chosen afresh in a
+  package's custom-setup scope while the versions stayed pinned there:
+  `pretty-simple` failed to build after `hx lock`, because `directory`'s
+  `os-string` flag and the pinned `filepath` disagreed. Broken since 0.11.0,
+  which applied `hx.lock` to `hx build`.
+
 ## [0.11.0] - 2026-10-20
 
 ### Added

@@ -555,10 +555,16 @@ impl Lockfile {
             .filter(|p| p.source_kind() != SourceKind::Path)
             .collect();
         packages.sort_by(|a, b| a.name.cmp(&b.name));
+        // Flags are pinned in every scope, like versions. Unqualified, a
+        // flag constraint binds only the top-level scope, so in a package's
+        // custom-setup scope cabal chose the flag afresh while the `any.`
+        // version pins still held there: with `directory`'s `os-string` flag
+        // free and `filepath` pinned to 1.4, `pretty-simple`'s setup could
+        // not be solved.
         for pkg in packages {
             args.push(format!("--constraint=any.{} =={}", pkg.name, pkg.version));
             if let Some(flags) = pkg.flag_string() {
-                args.push(format!("--constraint={} {}", pkg.name, flags));
+                args.push(format!("--constraint=any.{} {}", pkg.name, flags));
             }
         }
         args
@@ -888,7 +894,7 @@ version = "2.2.1.0"
             vec![
                 "--index-state=2026-09-30T08:15:00Z",
                 "--constraint=any.aeson ==2.2.3.0",
-                "--constraint=aeson -cffi +ordered-keymap",
+                "--constraint=any.aeson -cffi +ordered-keymap",
                 "--constraint=any.my-fork ==0.3.0",
                 "--constraint=any.text-short ==0.1.6",
             ]
