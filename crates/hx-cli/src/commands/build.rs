@@ -996,10 +996,20 @@ async fn try_bhc_full_native_build(
     // Topologically ordered build plan. BHC's builtin packages are treated as
     // pre-installed so they are neither fetched nor built from source; every
     // other package is, GHC's boot packages (`time`, `stm`) included.
-    let pre_installed: HashSet<String> = hx_bhc::builtin_packages::builtin_packages()
+    let mut pre_installed: HashSet<String> = hx_bhc::builtin_packages::builtin_packages()
         .keys()
         .map(|s| s.to_string())
         .collect();
+    // GHC's compiler-internal packages (`rts`, `ghc-bignum`,
+    // `system-cxx-std-lib`) enter the plan when the lock was made next to an
+    // installed GHC. They are not on Hackage and bhc has its own runtime, so
+    // they are neither fetched nor built; fetching them failed the whole build.
+    pre_installed.extend(
+        plan.packages
+            .iter()
+            .filter(|p| hx_solver::resolver::is_ghc_builtin(&p.name))
+            .map(|p| p.name.clone()),
+    );
 
     // Fetch dependency sources from Hackage.
     let fetch_options = FetchOptions {
