@@ -31,11 +31,16 @@
           cargoLock.lockFile = ./Cargo.lock;
 
           # Some transitive crates probe for system libraries via pkg-config;
-          # ring (0.17) and zstd-sys compile their bundled C with the stdenv cc.
+          # ring (0.17) compiles its bundled C with the stdenv cc.
           nativeBuildInputs = [ pkgs.pkg-config ];
 
+          # zstd-sys links the system libzstd it finds through pkg-config:
+          # with nixpkgs from November 2026 on, it no longer falls back to its
+          # bundled copy, and the weekly flake.lock update failed with
+          # "Package libzstd was not found in the pkg-config search path".
           # libiconv is needed when linking on Darwin; harmless elsewhere.
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
+          buildInputs =
+            [ pkgs.zstd ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
 
           # The workspace's tests shell out to cabal/ghc and touch the network,
           # neither of which exists in the Nix sandbox. CI runs the full suite;
