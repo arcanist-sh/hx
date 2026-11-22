@@ -390,7 +390,7 @@ enum BhcOutput {
 /// With a `.cabal` file this follows its stanzas: a package without an
 /// `executable` stanza is a library and is compiled without linking. Without
 /// one, the project links when one of its sources is a `Main` module.
-fn links_executable(project_root: &Path, sources: &[PathBuf]) -> bool {
+pub fn links_executable(project_root: &Path, sources: &[PathBuf]) -> bool {
     if let Some(cabal) = hx_config::workspace::find_cabal_file(project_root)
         && let Ok(content) = std::fs::read_to_string(&cabal)
     {
