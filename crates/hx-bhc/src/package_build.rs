@@ -232,8 +232,16 @@ pub async fn build_package(
                     for w in &result.warnings {
                         all_warnings.push(w.message.clone());
                     }
+                    // The module and the detail lines go with the message:
+                    // "lowering failed: 1 lowering error(s):" alone does not
+                    // say what failed.
                     for e in &result.errors {
-                        all_errors.push(e.message.clone());
+                        let mut text = format!("{}: {}", result.module_name, e.message);
+                        if !e.notes.is_empty() {
+                            text.push(' ');
+                            text.push_str(&e.notes.join(" "));
+                        }
+                        all_errors.push(text);
                     }
                 }
                 Ok(Err(e)) => {

@@ -232,7 +232,12 @@ impl BhcNativeBuilder {
                             all_warnings.push(w.message.clone());
                         }
                         for e in &result.errors {
-                            all_errors.push(e.message.clone());
+                            let mut text = format!("{}: {}", result.module_name, e.message);
+                            if !e.notes.is_empty() {
+                                text.push(' ');
+                                text.push_str(&e.notes.join(" "));
+                            }
+                            all_errors.push(text);
                         }
                     }
                     Ok(Err(e)) => {

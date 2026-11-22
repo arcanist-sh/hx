@@ -7,10 +7,9 @@ use hx_config::{Manifest, find_project_root};
 use hx_solver::bhc_platform::find_platform_for_bhc;
 use hx_toolchain::metadata::{self, Tool, VersionListing};
 use hx_toolchain::{
-    BhcInstallOptions, GhcSource, InstallStrategy, RECOMMENDED_BHC_VERSION,
-    RECOMMENDED_CABAL_VERSION, RECOMMENDED_GHC_VERSION, SmartCabalInstallOptions,
-    SmartInstallOptions, Toolchain, ToolchainManifest, create_symlinks, install, install_bhc,
-    remove_ghc, set_active,
+    BhcInstallOptions, GhcSource, InstallStrategy, RECOMMENDED_CABAL_VERSION,
+    RECOMMENDED_GHC_VERSION, SmartCabalInstallOptions, SmartInstallOptions, Toolchain,
+    ToolchainManifest, create_symlinks, install, install_bhc, remove_ghc, set_active,
 };
 use hx_ui::{Output, Style};
 
@@ -383,9 +382,9 @@ async fn install_toolchain(
 
     // Install BHC (if requested)
     if let Some(ref version) = bhc {
-        // Handle "latest" as an alias for the recommended version
+        // "latest" is the newest published release.
         let version = if version == "latest" {
-            RECOMMENDED_BHC_VERSION.to_string()
+            hx_toolchain::bhc::resolve_latest_version().await
         } else {
             version.clone()
         };

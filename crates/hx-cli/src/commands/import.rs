@@ -425,10 +425,8 @@ fn find_cabal_package_name() -> Result<Option<String>> {
         let path = entry.path();
         if path.extension().map(|e| e == "cabal").unwrap_or(false) {
             let content = fs::read_to_string(&path)?;
-            for line in content.lines() {
-                if let Some(name) = line.strip_prefix("name:") {
-                    return Ok(Some(name.trim().to_string()));
-                }
+            if let Some(name) = cabal_package_name(&content) {
+                return Ok(Some(name));
             }
         }
     }
@@ -436,9 +434,31 @@ fn find_cabal_package_name() -> Result<Option<String>> {
     Ok(None)
 }
 
+/// The top-level `name:` field of a `.cabal` file. Field names are
+/// case-insensitive, and older packages write `Name:` (`split`), which made
+/// `hx import` report that there was no `.cabal` file.
+fn cabal_package_name(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("name")
+            .then(|| value.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cabal_package_name_any_case() {
+        assert_eq!(cabal_package_name("name: foo\n"), Some("foo".into()));
+        assert_eq!(
+            cabal_package_name("Name:          split\nVersion: 0.2.5\n"),
+            Some("split".into())
+        );
+        assert_eq!(cabal_package_name("  build-depends: base\n"), None);
+    }
 
     #[test]
     fn test_strip_yaml_comment() {

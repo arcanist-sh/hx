@@ -87,15 +87,51 @@ impl std::fmt::Display for BhcVersion {
     }
 }
 
-/// Known BHC versions published at `arcanist-sh/bhc`.
+/// BHC versions published at `arcanist-sh/bhc` when this hx was released. A
+/// newer release installs too (see [`install_bhc`]); this list is for
+/// listing and for platform lookups.
 pub const KNOWN_BHC_VERSIONS: &[&str] = &[
     "0.2.0", "0.2.1", "0.2.2", "0.2.3", "0.2.4", "0.2.5", "0.2.6", "0.2.7", "0.2.8", "0.2.9",
     "0.2.10", "0.2.11", "0.2.12", "0.2.13", "0.2.14", "0.2.15", "0.2.16", "0.2.17", "0.2.18",
-    "0.2.19", "0.2.20", "0.2.21", "0.2.22",
+    "0.2.19", "0.2.20", "0.2.21", "0.2.22", "0.2.23", "0.2.24", "0.2.25", "0.2.26", "0.2.27",
+    "0.2.28", "0.2.29", "0.2.30",
 ];
 
-/// Recommended BHC version.
-pub const RECOMMENDED_BHC_VERSION: &str = "0.2.22";
+/// Recommended BHC version: what `latest` means when the newest release
+/// cannot be looked up (see [`resolve_latest_version`]).
+pub const RECOMMENDED_BHC_VERSION: &str = "0.2.30";
+
+/// The newest published BHC release, from GitHub, or
+/// [`RECOMMENDED_BHC_VERSION`] when it cannot be looked up (offline, rate
+/// limited). `latest` was a fixed version in hx, so every hx release fell
+/// behind bhc's: hx 0.11.0 installed 0.2.22 when 0.2.30 was current.
+pub async fn resolve_latest_version() -> String {
+    let lookup = async {
+        let client = hx_core::http::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .ok()?;
+        let response = client
+            .get("https://api.github.com/repos/arcanist-sh/bhc/releases/latest")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .ok()?
+            .error_for_status()
+            .ok()?;
+        let body: serde_json::Value = response.json().await.ok()?;
+        let tag = body.get("tag_name")?.as_str()?;
+        let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
+        is_valid_version(&version).then_some(version)
+    };
+    match lookup.await {
+        Some(version) => version,
+        None => {
+            debug!("could not look up the latest BHC release; using {RECOMMENDED_BHC_VERSION}");
+            RECOMMENDED_BHC_VERSION.to_string()
+        }
+    }
+}
 
 /// Check if a version string is a known BHC version.
 pub fn is_known_version(version: &str) -> bool {
@@ -362,8 +398,10 @@ pub struct BhcInstallResult {
 
 /// Download and install BHC.
 pub async fn install_bhc(options: &BhcInstallOptions) -> Result<BhcInstallResult> {
-    // Validate version
-    if !is_known_version(&options.version) {
+    // Any well-formed version may be installed: a release newer than this hx
+    // is not in `KNOWN_BHC_VERSIONS`, and its download (checked against the
+    // release's SHA256SUMS) fails cleanly if it does not exist.
+    if !is_valid_version(&options.version) {
         return Err(BhcError::UnknownVersion(options.version.clone()));
     }
 

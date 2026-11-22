@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `hx toolchain install --bhc latest` installs the newest bhc release, looked
+  up on GitHub (it was fixed at 0.2.22 while 0.2.30 was current), and any
+  well-formed bhc version can be installed, not only those this hx knows.
+- `hx build --backend bhc --native` fails when a module of the project does
+  not compile: it reported "Finished" and exited 0.
+- bhc's errors are read in its own layout (`error[E0003]: ...` with the
+  location on a `-->` line, or a message with numbered details), so a failed
+  build says why. A dependency that failed to build was reported with no
+  reason; now each failing module is named with bhc's message.
+- `hx import --from cabal` reads a `.cabal` file that writes `Name:` with a
+  capital, as older packages do (`split`): field names are case-insensitive.
 - A locked build pins each package's flags in every scope, as it already
   pinned versions. Pinned only at the top level, a flag was chosen afresh in a
   package's custom-setup scope while the versions stayed pinned there:
