@@ -187,6 +187,17 @@ impl BhcFullNativeBuilder {
 
             match builder.build(project_root, &local_options, output).await {
                 Ok(project_result) => {
+                    // A module that failed to compile fails the build: it was
+                    // reported as "Finished" with exit status 0.
+                    if !project_result.success {
+                        result.success = false;
+                        if project_result.errors.is_empty() {
+                            result
+                                .errors
+                                .push("Project build failed: a module did not compile".into());
+                        }
+                        result.errors.extend(project_result.errors.iter().cloned());
+                    }
                     result.project_result = Some(project_result);
                 }
                 Err(e) => {

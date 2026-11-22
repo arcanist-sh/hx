@@ -121,13 +121,21 @@ pub async fn build_package(
             .collect()
     };
 
-    // Build module dependency graph
-    let graph = build_module_graph(&src_dirs).map_err(|e| {
+    // Build module dependency graph: the library's modules and what they
+    // import, not every file under its source directories.
+    let mut graph = build_module_graph(&src_dirs).map_err(|e| {
         BhcNativeError::CompilationFailed(format!(
             "failed to build module graph for {}: {}",
             name, e
         ))
     })?;
+    let roots: Vec<String> = lib_config
+        .exposed_modules
+        .iter()
+        .chain(&lib_config.other_modules)
+        .cloned()
+        .collect();
+    graph.restrict_to(&roots);
 
     let groups = graph.parallel_groups().map_err(|e| {
         BhcNativeError::CompilationFailed(format!(
@@ -232,8 +240,16 @@ pub async fn build_package(
                     for w in &result.warnings {
                         all_warnings.push(w.message.clone());
                     }
+                    // The module and the detail lines go with the message:
+                    // "lowering failed: 1 lowering error(s):" alone does not
+                    // say what failed.
                     for e in &result.errors {
-                        all_errors.push(e.message.clone());
+                        let mut text = format!("{}: {}", result.module_name, e.message);
+                        if !e.notes.is_empty() {
+                            text.push(' ');
+                            text.push_str(&e.notes.join(" "));
+                        }
+                        all_errors.push(text);
                     }
                 }
                 Ok(Err(e)) => {

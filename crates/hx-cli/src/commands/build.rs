@@ -1018,21 +1018,26 @@ async fn try_bhc_full_native_build(
         }
     };
 
+    // Topologically ordered build plan. BHC's builtin packages are treated as
+    // pre-installed so they are neither fetched nor built from source; every
+    // other package is, GHC's boot packages (`time`, `stm`) included.
+    let pre_installed: HashSet<String> = hx_bhc::builtin_packages::builtin_packages()
+        .keys()
+        .map(|s| s.to_string())
+        .collect();
+
     // Fetch dependency sources from Hackage.
-    let fetched = match fetch_packages(&plan, &FetchOptions::default()).await {
+    let fetch_options = FetchOptions {
+        provided: Some(pre_installed.clone()),
+        ..FetchOptions::default()
+    };
+    let fetched = match fetch_packages(&plan, &fetch_options).await {
         Ok(f) => f,
         Err(e) => {
             output.warn(&format!("Could not fetch dependencies: {e}"));
             return Ok(None);
         }
     };
-
-    // Topologically ordered build plan. BHC's builtin packages are treated as
-    // pre-installed so they are neither fetched nor built from source.
-    let pre_installed: HashSet<String> = hx_bhc::builtin_packages::builtin_packages()
-        .keys()
-        .map(|s| s.to_string())
-        .collect();
     let plan_opts = PlanOptions {
         compiler_id: format!("ghc-{ghc_str}"),
         platform: format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
@@ -1059,8 +1064,12 @@ async fn try_bhc_full_native_build(
     } else {
         build_config.optimization
     };
+    // A library-only package is compiled without linking, as on the
+    // non-native path (#62): linking found no `Main` and failed.
+    let src_dirs: Vec<PathBuf> = build_config.src_dirs.iter().map(PathBuf::from).collect();
+    let links = hx_bhc::links_executable(&project.root, &[]);
     let options = BhcNativeBuildOptions {
-        src_dirs: build_config.src_dirs.iter().map(PathBuf::from).collect(),
+        src_dirs,
         output_dir: project.root.join(".hx/bhc-native-build"),
         optimization,
         warnings: build_config.warnings,
@@ -1068,13 +1077,13 @@ async fn try_bhc_full_native_build(
         extra_flags: build_config.ghc_flags.clone(),
         jobs: jobs.unwrap_or(4),
         verbose: output.is_verbose(),
-        main_module: Some("Main".to_string()),
-        output_exe: Some(
+        main_module: links.then(|| "Main".to_string()),
+        output_exe: links.then(|| {
             project
                 .root
                 .join(".hx/bhc-native-build")
-                .join(project.name()),
-        ),
+                .join(project.name())
+        }),
         output_lib: None,
         target: None,
         extensions: Vec::new(),

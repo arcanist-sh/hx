@@ -60,6 +60,40 @@ impl ModuleGraph {
         self.dependencies.insert(name, deps);
     }
 
+    /// Keep only the modules reachable from `roots` through imports: the
+    /// modules a `.cabal` file declares and what they import. Everything under
+    /// a source directory was compiled before, so a package whose source
+    /// directory is its root also compiled its `Setup.hs` and its tests. No
+    /// roots keeps every module.
+    pub fn restrict_to(&mut self, roots: &[String]) {
+        if roots.is_empty() {
+            return;
+        }
+        let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut stack: Vec<String> = roots
+            .iter()
+            .filter(|r| self.modules.contains_key(*r))
+            .cloned()
+            .collect();
+        if stack.is_empty() {
+            return;
+        }
+        while let Some(name) = stack.pop() {
+            if !keep.insert(name.clone()) {
+                continue;
+            }
+            if let Some(deps) = self.dependencies.get(&name) {
+                stack.extend(
+                    deps.iter()
+                        .filter(|d| self.modules.contains_key(*d) && !keep.contains(*d))
+                        .cloned(),
+                );
+            }
+        }
+        self.modules.retain(|name, _| keep.contains(name));
+        self.dependencies.retain(|name, _| keep.contains(name));
+    }
+
     /// Get modules in topological order (dependencies first).
     pub fn topological_order(&self) -> Result<Vec<String>, ModuleError> {
         let mut result = Vec::new();
@@ -284,6 +318,28 @@ pub fn build_module_graph(src_dirs: &[PathBuf]) -> Result<ModuleGraph, ModuleErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_restrict_to_reachable_modules() {
+        let mut graph = ModuleGraph::new();
+        for (name, imports) in [
+            ("Data.A", vec!["Data.B"]),
+            ("Data.B", vec!["Data.List"]),
+            ("Setup", vec!["Distribution.Simple"]),
+            ("Test.A", vec!["Data.A"]),
+        ] {
+            graph.add_module(ModuleInfo {
+                name: name.into(),
+                path: PathBuf::from(format!("{name}.hs")),
+                imports: imports.into_iter().map(String::from).collect(),
+                is_local: true,
+            });
+        }
+        graph.restrict_to(&["Data.A".to_string()]);
+        let mut names: Vec<_> = graph.modules.keys().cloned().collect();
+        names.sort();
+        assert_eq!(names, vec!["Data.A", "Data.B"]);
+    }
 
     #[test]
     fn test_parse_imports_simple() {

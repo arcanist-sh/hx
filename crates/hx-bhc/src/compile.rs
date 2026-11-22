@@ -144,9 +144,17 @@ pub async fn compile_module(
 
     // Parse diagnostics from stderr
     let diagnostics = parse_bhc_output(&stderr);
-    let (warnings, errors): (Vec<_>, Vec<_>) = diagnostics
+    let (warnings, mut errors): (Vec<_>, Vec<_>) = diagnostics
         .into_iter()
         .partition(|d| d.severity == hx_compiler::DiagnosticSeverity::Warning);
+    // A failure always carries a reason: when nothing in bhc's output parses
+    // as an error, keep its last lines.
+    if !success && errors.is_empty() {
+        errors.push(Diagnostic::error(unparsed_failure(
+            &stderr,
+            output.status.code(),
+        )));
+    }
 
     if !success {
         warn!(
@@ -172,6 +180,19 @@ pub async fn compile_module(
         warnings,
         errors,
     })
+}
+
+/// The reason for a failed compile whose output has no recognisable error:
+/// its last non-empty lines, or the exit status.
+fn unparsed_failure(stderr: &str, code: Option<i32>) -> String {
+    let lines: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return match code {
+            Some(c) => format!("bhc exited with status {c} and no output"),
+            None => "bhc was terminated by a signal".to_string(),
+        };
+    }
+    lines[lines.len().saturating_sub(5)..].join("\n")
 }
 
 #[cfg(test)]

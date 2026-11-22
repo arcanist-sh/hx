@@ -71,6 +71,11 @@ pub struct FetchOptions {
     /// (a local mirror with Hackage's `package/<id>/<id>.tar.gz` layout)
     /// are read directly from disk.
     pub base_url: String,
+    /// The packages the compiler provides, which are not fetched. `None`
+    /// means GHC's boot packages. bhc provides fewer: `time` and `stm` are
+    /// built from Hackage for it, and skipping them left a bhc build with
+    /// "package not fetched: time-1.16.0.1".
+    pub provided: Option<std::collections::HashSet<String>>,
 }
 
 impl Default for FetchOptions {
@@ -81,6 +86,7 @@ impl Default for FetchOptions {
             verify_hashes: true,
             timeout: 60,
             base_url: HACKAGE_BASE_URL.to_string(),
+            provided: None,
         }
     }
 }
@@ -141,7 +147,10 @@ pub async fn fetch_packages(
     let packages_to_fetch: Vec<_> = plan
         .packages
         .iter()
-        .filter(|p| !is_base_package(&p.name))
+        .filter(|p| match &options.provided {
+            Some(provided) => !provided.contains(&p.name),
+            None => !is_base_package(&p.name),
+        })
         .collect();
 
     let results: Vec<Result<FetchResult, FetchError>> = stream::iter(packages_to_fetch)

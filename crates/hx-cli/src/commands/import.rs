@@ -199,6 +199,15 @@ ghc = "{}"
         output.list_item("ghc", version);
     }
 
+    // The .cabal file's source directories. Without them hx assumed `src`,
+    // and a package that keeps its modules at the root (`colour`, `safe`)
+    // compiled nothing with `--backend bhc --native`.
+    if let Some(dirs) = cabal_source_dirs()?.filter(|d| d != &["src"]) {
+        let quoted: Vec<String> = dirs.iter().map(|d| format!("{d:?}")).collect();
+        hx_toml.push_str(&format!("\n[build]\nsrc_dirs = [{}]\n", quoted.join(", ")));
+        output.list_item("src_dirs", &dirs.join(", "));
+    }
+
     // Add constraints as dependencies
     if !cabal_config.constraints.is_empty() {
         hx_toml.push_str("\n[dependencies]\n");
@@ -425,10 +434,8 @@ fn find_cabal_package_name() -> Result<Option<String>> {
         let path = entry.path();
         if path.extension().map(|e| e == "cabal").unwrap_or(false) {
             let content = fs::read_to_string(&path)?;
-            for line in content.lines() {
-                if let Some(name) = line.strip_prefix("name:") {
-                    return Ok(Some(name.trim().to_string()));
-                }
+            if let Some(name) = cabal_package_name(&content) {
+                return Ok(Some(name));
             }
         }
     }
@@ -436,9 +443,82 @@ fn find_cabal_package_name() -> Result<Option<String>> {
     Ok(None)
 }
 
+/// The source directories of the `.cabal` file in the current directory:
+/// its library's and executables' `hs-source-dirs`, a component without one
+/// meaning the package root, as in cabal. `None` without a `.cabal` file.
+fn cabal_source_dirs() -> Result<Option<Vec<String>>> {
+    for entry in fs::read_dir(".")?.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "cabal") {
+            let content = fs::read_to_string(&path)?;
+            return Ok(Some(source_dirs_of(&content)));
+        }
+    }
+    Ok(None)
+}
+
+/// See [`cabal_source_dirs`].
+fn source_dirs_of(cabal: &str) -> Vec<String> {
+    let info = hx_solver::cabal::parse_cabal_full(cabal);
+    let components = info
+        .library
+        .iter()
+        .map(|lib| &lib.hs_source_dirs)
+        .chain(info.executables.iter().map(|exe| &exe.hs_source_dirs));
+    let mut dirs: Vec<String> = Vec::new();
+    for component_dirs in components {
+        let component_dirs = if component_dirs.is_empty() {
+            vec![".".to_string()]
+        } else {
+            component_dirs.clone()
+        };
+        for dir in component_dirs {
+            let dir = dir.trim_end_matches('/').to_string();
+            let dir = if dir.is_empty() { ".".to_string() } else { dir };
+            if !dirs.contains(&dir) {
+                dirs.push(dir);
+            }
+        }
+    }
+    if dirs.is_empty() {
+        dirs.push("src".to_string());
+    }
+    dirs
+}
+
+/// The top-level `name:` field of a `.cabal` file. Field names are
+/// case-insensitive, and older packages write `Name:` (`split`), which made
+/// `hx import` report that there was no `.cabal` file.
+fn cabal_package_name(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("name")
+            .then(|| value.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_source_dirs_of() {
+        let root = "name: colour\nversion: 1\nLibrary\n  Exposed-Modules: Data.Colour\n";
+        assert_eq!(source_dirs_of(root), vec!["."]);
+        let split = "name: x\nversion: 1\nlibrary\n  hs-source-dirs: src\nexecutable x\n  main-is: Main.hs\n  hs-source-dirs: app\n";
+        assert_eq!(source_dirs_of(split), vec!["src", "app"]);
+    }
+
+    #[test]
+    fn test_cabal_package_name_any_case() {
+        assert_eq!(cabal_package_name("name: foo\n"), Some("foo".into()));
+        assert_eq!(
+            cabal_package_name("Name:          split\nVersion: 0.2.5\n"),
+            Some("split".into())
+        );
+        assert_eq!(cabal_package_name("  build-depends: base\n"), None);
+    }
 
     #[test]
     fn test_strip_yaml_comment() {

@@ -5,10 +5,15 @@ use std::path::PathBuf;
 
 /// Parse BHC compiler output into structured diagnostics.
 ///
-/// BHC uses a format similar to GHC but with some extensions:
-/// - `file:line:col: error[E0001]: message`
-/// - `file:line:col: warning[W0001]: message`
-/// - `file:line:col: hint: message`
+/// Two layouts are read:
+/// - GHC's: `file:line:col: error[E0001]: message` (also `warning`, `hint`)
+/// - bhc's own, as rustc writes it: `error[E0001]: message` at the start of
+///   a line, then `--> file:line:col` for its location. A message without a
+///   location (`error: lowering failed: 1 lowering error(s):`) keeps its
+///   numbered detail lines (`  1: unbound variable: x`) as notes.
+///
+/// Read in the GHC layout only, every bhc error was missed: a failed
+/// dependency build reported "compilation failed" with no reason.
 pub fn parse_bhc_output(output: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_diagnostic: Option<Diagnostic> = None;
@@ -29,6 +34,32 @@ pub fn parse_bhc_output(output: &str) -> Vec<Diagnostic> {
             continue;
         }
 
+        // bhc's location line for the diagnostic above it.
+        if let Some(location) = trimmed.strip_prefix("--> ") {
+            if let Some(diag) = current_diagnostic.as_mut().filter(|d| d.file.is_none())
+                && let Some((file, line_num, col_num)) = parse_location(location.trim())
+            {
+                diag.file = Some(file);
+                diag.line = line_num;
+                diag.column = col_num;
+            }
+            continue;
+        }
+
+        // A numbered detail line of a message without a location
+        // (`  1: unbound variable: x`).
+        if line.starts_with([' ', '\t'])
+            && current_diagnostic
+                .as_ref()
+                .is_some_and(|d| d.file.is_none())
+            && trimmed
+                .split_once(": ")
+                .is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        {
+            note_lines.push(trimmed.to_string());
+            continue;
+        }
+
         // Check for note/help continuation lines
         if trimmed.starts_with("note:") || trimmed.starts_with("help:") {
             let note_content = trimmed
@@ -40,7 +71,7 @@ pub fn parse_bhc_output(output: &str) -> Vec<Diagnostic> {
         }
 
         // Parse main diagnostic line
-        if let Some(diag) = parse_diagnostic_line(line) {
+        if let Some(diag) = parse_diagnostic_line(line).or_else(|| parse_unlocated_line(line)) {
             // Finalize previous diagnostic if any
             if let Some(mut prev_diag) = current_diagnostic.take() {
                 for note in note_lines.drain(..) {
@@ -106,6 +137,24 @@ fn parse_diagnostic_line(line: &str) -> Option<Diagnostic> {
     Some(diag)
 }
 
+/// bhc's layout: `error[E0001]: message` or `warning: message` at the very
+/// start of a line, its location (if any) on a `-->` line below.
+fn parse_unlocated_line(line: &str) -> Option<Diagnostic> {
+    if !(line.starts_with("error") || line.starts_with("warning")) {
+        return None;
+    }
+    let (severity, code, message) = parse_severity_and_message(line)?;
+    let mut diag = match severity {
+        DiagnosticSeverity::Error => Diagnostic::error(message),
+        DiagnosticSeverity::Warning => Diagnostic::warning(message),
+        DiagnosticSeverity::Hint => return None,
+    };
+    if let Some(code) = code {
+        diag = diag.with_code(code);
+    }
+    Some(diag)
+}
+
 /// Parse severity, optional code, and message from a string like "error[E0001]: message".
 fn parse_severity_and_message(s: &str) -> Option<(DiagnosticSeverity, Option<String>, &str)> {
     let (severity_part, message) = s.split_once(':')?;
@@ -157,6 +206,36 @@ fn parse_location(location: &str) -> Option<(PathBuf, Option<u32>, Option<u32>)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_bhc_rustc_layout() {
+        let output = "error[E0003]: cannot find `b` in this scope\n --> src/Main.hs:3:15\n     |\n   3 | main = print (b 1)\n     |               ^ not in scope\n";
+        let diagnostics = parse_bhc_output(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Error);
+        assert_eq!(diagnostics[0].code, Some("E0003".to_string()));
+        assert_eq!(diagnostics[0].message, "cannot find `b` in this scope");
+        assert_eq!(diagnostics[0].file, Some(PathBuf::from("src/Main.hs")));
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(15));
+    }
+
+    #[test]
+    fn test_parse_bhc_unlocated_error_with_details() {
+        let output =
+            "error: lowering failed: 1 lowering error(s):\n  1: unbound variable: Data.List.sum\n";
+        let diagnostics = parse_bhc_output(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Error);
+        assert_eq!(
+            diagnostics[0].message,
+            "lowering failed: 1 lowering error(s):"
+        );
+        assert_eq!(
+            diagnostics[0].notes,
+            vec!["1: unbound variable: Data.List.sum"]
+        );
+    }
 
     #[test]
     fn test_parse_bhc_error() {

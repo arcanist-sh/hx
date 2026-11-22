@@ -37,6 +37,34 @@ pub struct BhcNativeBuildResult {
     pub errors: Vec<String>,
 }
 
+/// The modules a project's `.cabal` file declares: its library's exposed
+/// and other modules, its executables' other modules, and `Main` when it has
+/// an executable. Empty without a `.cabal` file (every module is built).
+fn declared_modules(project_root: &Path) -> Vec<String> {
+    let Some(content) = hx_config::workspace::find_cabal_file(project_root)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+    else {
+        return Vec::new();
+    };
+    let info = hx_solver::cabal::parse_cabal_full(&content);
+    let mut modules: Vec<String> = Vec::new();
+    if let Some(lib) = &info.library {
+        modules.extend(
+            lib.exposed_modules
+                .iter()
+                .chain(&lib.other_modules)
+                .cloned(),
+        );
+    }
+    for exe in &info.executables {
+        modules.extend(exe.other_modules.iter().cloned());
+    }
+    if !info.executables.is_empty() {
+        modules.push("Main".to_string());
+    }
+    modules
+}
+
 /// BHC native builder for compiling local projects.
 ///
 /// Orchestrates module-level compilation using the dependency graph to
@@ -91,10 +119,12 @@ impl BhcNativeBuilder {
             })?;
         }
 
-        // 2. Build module graph
-        let graph = build_module_graph(&options.src_dirs).map_err(|e| {
+        // 2. Build module graph: with a `.cabal` file, the modules it declares
+        // and what they import.
+        let mut graph = build_module_graph(&options.src_dirs).map_err(|e| {
             BhcNativeError::CompilationFailed(format!("failed to build module graph: {}", e))
         })?;
+        graph.restrict_to(&declared_modules(project_root));
 
         let groups = graph.parallel_groups().map_err(|e| {
             BhcNativeError::CompilationFailed(format!(
@@ -232,7 +262,12 @@ impl BhcNativeBuilder {
                             all_warnings.push(w.message.clone());
                         }
                         for e in &result.errors {
-                            all_errors.push(e.message.clone());
+                            let mut text = format!("{}: {}", result.module_name, e.message);
+                            if !e.notes.is_empty() {
+                                text.push(' ');
+                                text.push_str(&e.notes.join(" "));
+                            }
+                            all_errors.push(text);
                         }
                     }
                     Ok(Err(e)) => {
