@@ -64,6 +64,11 @@ pub fn builtin_packages() -> HashMap<&'static str, BuiltinPackage> {
             synthetic_version: "2.3.1",
         },
         BuiltinPackage {
+            haskell_name: "stm",
+            bhc_crate: "bhc-concurrent",
+            synthetic_version: "2.5.3",
+        },
+        BuiltinPackage {
             haskell_name: "array",
             bhc_crate: "bhc-base",
             synthetic_version: "0.5.6",
@@ -115,6 +120,7 @@ mod tests {
         assert!(builtins.contains_key("containers"));
         assert!(builtins.contains_key("transformers"));
         assert!(builtins.contains_key("mtl"));
+        assert!(builtins.contains_key("stm"));
         assert!(builtins.contains_key("deepseq"));
         assert!(builtins.contains_key("ghc-prim"));
         assert!(!builtins.contains_key("aeson"));
