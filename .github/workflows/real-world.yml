@@ -99,27 +99,13 @@ jobs:
         run: cargo build --locked --release -p hx-cli
 
       - name: Install BHC
-        # Download the published Linux toolchain directly and verify it against
-        # the release SHA256SUMS manifest. BHC ships `bhc` + a sibling `lib/`;
-        # adding the extraction dir to PATH keeps that layout, which the compiler
-        # needs to locate its runtime libraries.
-        env:
-          BHC_VERSION: "0.2.22"
-        run: |
-          set -euo pipefail
-          base="https://github.com/arcanist-sh/bhc/releases/download/v${BHC_VERSION}"
-          asset="bhc-x86_64-linux.tar.gz"
-          curl -fsSL "$base/$asset" -o /tmp/bhc.tar.gz
-          curl -fsSL "$base/SHA256SUMS.txt" -o /tmp/bhc.sums
-          expected="$(grep "$asset" /tmp/bhc.sums | awk '{print $1}' | head -1)"
-          actual="$(sha256sum /tmp/bhc.tar.gz | awk '{print $1}')"
-          if [ "$expected" != "$actual" ]; then
-            echo "BHC checksum mismatch: expected $expected, got $actual" >&2
-            exit 1
-          fi
-          mkdir -p "$HOME/bhc"
-          tar xzf /tmp/bhc.tar.gz -C "$HOME/bhc"
-          echo "$HOME/bhc" >> "$GITHUB_PATH"
+        # setup-bhc downloads the published Linux toolchain, verifies it
+        # against the release SHA256SUMS manifest and puts `bhc` (with its
+        # sibling `lib/`, which the compiler needs to locate its runtime
+        # libraries) on PATH.
+        uses: arcanist-sh/setup-bhc@v1
+        with:
+          version: "0.2.22"
 
       - name: BHC pipeline smoke
         run: HX="$PWD/target/release/hx" bash scripts/bhc-smoke.sh
