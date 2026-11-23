@@ -25,6 +25,9 @@ pub struct BhcPackageBuildConfig {
     pub install_dir: PathBuf,
     /// Package IDs of already-built dependencies.
     pub dependency_ids: Vec<String>,
+    /// CPP flags for every module: the version macros of the packages the
+    /// build plan contains ([`crate::builtin_packages::version_macro_flags`]).
+    pub cpp_flags: Vec<String>,
     /// Number of parallel compilation jobs.
     pub jobs: usize,
     /// Optimization level (0-3).
@@ -164,7 +167,14 @@ pub async fn build_package(
         optimization: config.optimization,
         warnings: true,
         werror: false,
-        extra_flags: Vec::new(),
+        // The plan's version macros, then the package's own `cpp-options`
+        // (`-DFOO`), which cabal passes to the preprocessor too.
+        extra_flags: config
+            .cpp_flags
+            .iter()
+            .chain(lib_config.cpp_options.iter())
+            .cloned()
+            .collect(),
         jobs: config.jobs,
         verbose: config.verbose,
         main_module: None,
@@ -603,6 +613,7 @@ mod tests {
                 },
                 build_dir: cache_dir.join("builds").join(&name),
                 install_dir: cache_dir.join(format!("bhc-{bhc_version}")).join("lib"),
+                cpp_flags: Vec::new(),
                 dependency_ids: dep_ids,
                 jobs: 1,
                 optimization: 0,
@@ -725,6 +736,7 @@ library
             bhc,
             build_dir: root.path().join("build"),
             install_dir: root.path().join("install"),
+            cpp_flags: Vec::new(),
             dependency_ids: Vec::new(),
             jobs: 1,
             optimization: 0,
