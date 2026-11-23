@@ -103,7 +103,7 @@ jobs:
         # against the release SHA256SUMS manifest and puts `bhc` (with its
         # sibling `lib/`, which the compiler needs to locate its runtime
         # libraries) on PATH.
-        uses: arcanist-sh/setup-bhc@5b37d2a144564a152c256660f22cf38bc63bd5d1 # main, switch to v1 once tagged
+        uses: arcanist-sh/setup-bhc@v1
         with:
           version: "0.2.22"
 
