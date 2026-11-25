@@ -188,6 +188,7 @@ impl ModuleGraph {
 /// Parse import statements from a Haskell source file.
 pub fn parse_imports(source: &str) -> Vec<String> {
     let mut imports = Vec::new();
+    let source = strip_block_comments(source);
 
     for line in source.lines() {
         let trimmed = line.trim();
@@ -211,6 +212,43 @@ pub fn parse_imports(source: &str) -> Vec<String> {
     }
 
     imports
+}
+
+/// `source` with its `{- ... -}` block comments (nested, and pragmas) blanked
+/// out, line breaks kept. A Haddock example in a block comment can show
+/// `import` lines; read as the module's own, transformers-compat's
+/// `Data.Functor.Classes.Generic` imported itself and the build failed with a
+/// dependency cycle. Line comments (`--`) are left for the caller, so a `{-`
+/// inside one does not open a block.
+fn strip_block_comments(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut depth = 0usize;
+    for line in source.lines() {
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let pair = (chars[i], chars.get(i + 1).copied());
+            if depth == 0 && pair == ('-', Some('-')) {
+                // A line comment: the rest of the line, unchanged.
+                out.extend(&chars[i..]);
+                break;
+            }
+            if pair == ('{', Some('-')) {
+                depth += 1;
+                i += 2;
+            } else if depth > 0 && pair == ('-', Some('}')) {
+                depth -= 1;
+                i += 2;
+            } else {
+                if depth == 0 {
+                    out.push(chars[i]);
+                }
+                i += 1;
+            }
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// Extract module name from an import line.
@@ -318,6 +356,32 @@ pub fn build_module_graph(src_dirs: &[PathBuf]) -> Result<ModuleGraph, ModuleErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_imports_skips_block_comments() {
+        let source = r#"module Data.Functor.Classes.Generic where
+import Data.Functor.Classes.Generic.Internal
+{- $example
+@
+import Data.Functor.Classes
+import Data.Functor.Classes.Generic
+{- nested -}
+import GHC.Generics
+@
+-}
+{-# LANGUAGE CPP #-} import Data.Char
+-- {- not a block
+import Data.List
+"#;
+        assert_eq!(
+            parse_imports(source),
+            vec![
+                "Data.Functor.Classes.Generic.Internal".to_string(),
+                "Data.Char".to_string(),
+                "Data.List".to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn test_restrict_to_reachable_modules() {
