@@ -33,7 +33,7 @@ tokio.workspace = true
 tower-lsp = "0.20"
 dashmap = "6"
 notify = "8"
-notify-debouncer-mini = "0.7"
+notify-debouncer-mini = "0.8"
 
 [dev-dependencies]
 tempfile.workspace = true
