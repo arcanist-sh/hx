@@ -54,6 +54,8 @@ pub struct BhcFullNativeBuilder {
     cache_dir: PathBuf,
     /// Map of package name to computed package ID for already-built packages.
     built_packages: HashMap<String, String>,
+    /// `-D` flags for the build plan's version macros.
+    version_flags: Vec<String>,
 }
 
 impl BhcFullNativeBuilder {
@@ -67,6 +69,7 @@ impl BhcFullNativeBuilder {
             package_db,
             cache_dir,
             built_packages: HashMap::new(),
+            version_flags: Vec::new(),
         }
     }
 
@@ -109,6 +112,14 @@ impl BhcFullNativeBuilder {
             .iter()
             .map(|f| (format!("{}-{}", f.name, f.version), f))
             .collect();
+
+        // Version macros of every package in the plan, for each module
+        // compiled below (dependencies and the local project alike).
+        self.version_flags = crate::builtin_packages::version_macro_flags(
+            plan.packages
+                .iter()
+                .map(|u| (u.name.as_str(), u.version.to_string())),
+        );
 
         // Build dependencies in topological order
         for unit in &plan.packages {
@@ -164,6 +175,7 @@ impl BhcFullNativeBuilder {
                 "--package-db".to_string(),
                 self.package_db.db_path().to_string_lossy().to_string(),
             ];
+            extra_flags.extend(self.version_flags.iter().cloned());
 
             for pkg_id in self.built_packages.values() {
                 extra_flags.push("--package-id".to_string());
@@ -371,6 +383,7 @@ impl BhcFullNativeBuilder {
                 .join(format!("bhc-{}", self.bhc.version))
                 .join("lib"),
             dependency_ids: dep_ids,
+            cpp_flags: self.version_flags.clone(),
             jobs: options.jobs,
             optimization: options.optimization,
             verbose: options.verbose,

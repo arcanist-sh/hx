@@ -108,9 +108,63 @@ pub fn builtin_package_id(name: &str) -> Option<String> {
         .map(|pkg| format!("{}-{}-bhc-builtin", pkg.haskell_name, pkg.synthetic_version))
 }
 
+/// `-D` flags defining `VERSION_<pkg>` and `MIN_VERSION_<pkg>` for each
+/// package of a build plan, as cabal's `cabal_macros.h` does for GHC, so
+/// version-conditional CPP (`#if MIN_VERSION_exceptions(0,10,6)`) selects the
+/// code for the versions actually built against. Packages bhc provides are
+/// left out: bhc defines their macros at its own versions.
+pub fn version_macro_flags<'a>(
+    packages: impl IntoIterator<Item = (&'a str, String)>,
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut flags = Vec::new();
+    for (name, version) in packages {
+        if is_builtin(name) {
+            continue;
+        }
+        let macro_name: String = name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        if !seen.insert(macro_name.clone()) {
+            continue;
+        }
+        let mut parts = version.split('.').map(|c| c.parse::<u64>().unwrap_or(0));
+        let (a, b, c) = (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        );
+        flags.push(format!("-DVERSION_{macro_name}=\"{version}\""));
+        flags.push(format!(
+            "-DMIN_VERSION_{macro_name}(major1,major2,minor)=((major1)<{a}||(major1)=={a}&&((major2)<{b}||(major2)=={b}&&(minor)<={c}))"
+        ));
+    }
+    flags
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_macros_for_non_builtin_packages() {
+        let flags = version_macro_flags([
+            ("exceptions", "0.10.12".to_string()),
+            ("base", "4.20.0.0".to_string()),
+            ("data-default", "0.8".to_string()),
+        ]);
+        assert!(flags.contains(&"-DVERSION_exceptions=\"0.10.12\"".to_string()));
+        assert!(flags.iter().any(|f| f.starts_with(
+            "-DMIN_VERSION_exceptions(major1,major2,minor)=((major1)<0||(major1)==0&&((major2)<10||(major2)==10&&(minor)<=12))"
+        )));
+        assert!(
+            flags
+                .iter()
+                .any(|f| f.starts_with("-DMIN_VERSION_data_default("))
+        );
+        assert!(!flags.iter().any(|f| f.contains("_base")));
+    }
 
     #[test]
     fn test_builtin_packages_contains_expected() {
